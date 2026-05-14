@@ -1,7 +1,11 @@
 import * as core from "@actions/core";
 import type { ExecClient } from "./exec.js";
 import type { GitHubClient } from "./github.js";
-import { installCaretta, installLinuxRuntimeDeps, materializeBotPrivateKey } from "./install.js";
+import {
+  installCaretta,
+  installLinuxRuntimeDeps,
+  materializeBotPrivateKey,
+} from "./install.js";
 import type { AutopilotConfig, EvaluationResult } from "./types.js";
 
 export async function executeAutopilot(
@@ -10,10 +14,16 @@ export async function executeAutopilot(
   config: AutopilotConfig,
   evaluation: EvaluationResult,
 ): Promise<void> {
-  const { binaryPath } = await installCaretta(config.carettaVersion, process.env.GITHUB_TOKEN || "");
+  const { binaryPath } = await installCaretta(
+    config.carettaVersion,
+    process.env.GITHUB_TOKEN || "",
+  );
   await installLinuxRuntimeDeps();
 
-  const env: Record<string, string> = { ...process.env } as Record<string, string>;
+  const env: Record<string, string> = { ...process.env } as Record<
+    string,
+    string
+  >;
   if (!env.GH_TOKEN) env.GH_TOKEN = process.env.GITHUB_TOKEN || "";
   if (!env.RUST_LOG) env.RUST_LOG = "info";
   if (config.context) env.CARETTA_CONTEXT = config.context;
@@ -26,7 +36,9 @@ export async function executeAutopilot(
   } else if (evaluation.workflow === config.factoryWorkflow) {
     await runner.runFactoryCycle();
   } else {
-    core.info(`No specific workflow logic to execute for ${evaluation.workflow}`);
+    core.info(
+      `No specific workflow logic to execute for ${evaluation.workflow}`,
+    );
   }
 }
 
@@ -40,7 +52,14 @@ class CarettaRunner {
   ) {}
 
   async runCaretta(task: string, args: string[] = []): Promise<number> {
-    const fullArgs = ["--agent", this.config.agent, "--preset", "software-factory", task, ...args];
+    const fullArgs = [
+      "--agent",
+      this.config.agent,
+      "--preset",
+      "software-factory",
+      task,
+      ...args,
+    ];
     core.info(`Running: ${this.binaryPath} ${fullArgs.join(" ")}`);
     return await this.exec.exec(this.binaryPath, fullArgs, { env: this.env });
   }
@@ -49,9 +68,18 @@ class CarettaRunner {
     core.info(`Starting tracker loop for #${tracker}`);
 
     // 1. tracker-matrix
-    const matrixOutput = await this.exec.getExecOutput(this.binaryPath,
-      ["--agent", this.config.agent, "--preset", "software-factory", "tracker-matrix", tracker, "--json"],
-      { env: this.env, silent: true }
+    const matrixOutput = await this.exec.getExecOutput(
+      this.binaryPath,
+      [
+        "--agent",
+        this.config.agent,
+        "--preset",
+        "software-factory",
+        "tracker-matrix",
+        tracker,
+        "--json",
+      ],
+      { env: this.env, silent: true },
     );
     const issues: number[] = JSON.parse(matrixOutput.stdout.trim() || "[]");
     core.info(`Found ${issues.length} issues in tracker matrix.`);
@@ -62,7 +90,11 @@ class CarettaRunner {
     }
 
     // 3. sync-branches
-    await this.runCaretta("auto-merge", ["--tracker", tracker, "--sync-branches"]);
+    await this.runCaretta("auto-merge", [
+      "--tracker",
+      tracker,
+      "--sync-branches",
+    ]);
 
     // 4 & 5. fix-conflicts
     await this.fixConflicts();
@@ -78,7 +110,11 @@ class CarettaRunner {
     }
 
     // 10. sync-branches (after fix)
-    await this.runCaretta("auto-merge", ["--tracker", tracker, "--sync-branches"]);
+    await this.runCaretta("auto-merge", [
+      "--tracker",
+      tracker,
+      "--sync-branches",
+    ]);
 
     // 11 & 12. fix-conflicts (after fix)
     await this.fixConflicts();
@@ -87,7 +123,11 @@ class CarettaRunner {
     await this.runCiGate(issues);
 
     // 14. prepare-automerge
-    await this.runCaretta("auto-merge", ["--tracker", tracker, "--automerge-queue"]);
+    await this.runCaretta("auto-merge", [
+      "--tracker",
+      tracker,
+      "--automerge-queue",
+    ]);
   }
 
   async runFactoryCycle(): Promise<void> {
@@ -98,7 +138,9 @@ class CarettaRunner {
 
     // 2. preflight
     const openIssues = await this.gh.listOpenIssues();
-    const hasOpenSprint = openIssues.some(i => i.labels.some(l => l.name === "sprint"));
+    const hasOpenSprint = openIssues.some((i) =>
+      i.labels.some((l) => l.name === "sprint"),
+    );
     if (hasOpenSprint) {
       core.info("An open 'sprint' issue exists; skipping ideation cycle.");
       return;
@@ -119,10 +161,11 @@ class CarettaRunner {
 
   private async fixConflicts(): Promise<void> {
     const prs = await this.gh.listOpenPullRequests();
-    const dirtyPrs = prs.filter(pr => 
-      !pr.isDraft && 
-      pr.mergeStateStatus === "DIRTY" && 
-      this.config.agentBranchPattern.test(pr.headRefName)
+    const dirtyPrs = prs.filter(
+      (pr) =>
+        !pr.isDraft &&
+        pr.mergeStateStatus === "DIRTY" &&
+        this.config.agentBranchPattern.test(pr.headRefName),
     );
 
     for (const pr of dirtyPrs) {
@@ -130,11 +173,14 @@ class CarettaRunner {
     }
   }
 
-  private async resolveTrackerScopedPrs(issues: number[], requirePassingCi: boolean): Promise<number[]> {
+  private async resolveTrackerScopedPrs(
+    issues: number[],
+    requirePassingCi: boolean,
+  ): Promise<number[]> {
     const prs = await this.gh.listOpenPullRequests();
     const issueStrings = issues.map(String);
-    
-    const candidates = prs.filter(pr => {
+
+    const candidates = prs.filter((pr) => {
       if (pr.isDraft || pr.mergeStateStatus === "DIRTY") return false;
       const match = pr.headRefName.match(/^agent\/issue-([0-9]+)$/);
       if (issueStrings.length > 0) {
@@ -144,17 +190,21 @@ class CarettaRunner {
     });
 
     if (!requirePassingCi) {
-      return candidates.map(pr => pr.number);
+      return candidates.map((pr) => pr.number);
     }
 
     const results: number[] = [];
     for (const pr of candidates) {
       const checks = await this.gh.listCheckRuns(pr.headRefOid);
-      const testCheck = checks.find(c => c.name === this.config.testCheckName);
+      const testCheck = checks.find(
+        (c) => c.name === this.config.testCheckName,
+      );
       if (testCheck?.conclusion === "success") {
         results.push(pr.number);
       } else {
-        core.info(`Skipping PR #${pr.number} because CI status is ${testCheck?.conclusion || "missing"}`);
+        core.info(
+          `Skipping PR #${pr.number} because CI status is ${testCheck?.conclusion || "missing"}`,
+        );
       }
     }
     return results;
@@ -169,7 +219,7 @@ class CarettaRunner {
     while (Date.now() - start < timeout) {
       const prs = await this.gh.listOpenPullRequests();
       const issueStrings = issues.map(String);
-      const scopedPrs = prs.filter(pr => {
+      const scopedPrs = prs.filter((pr) => {
         const match = pr.headRefName.match(/^agent\/issue-([0-9]+)$/);
         return match && issueStrings.includes(match[1]);
       });
@@ -179,8 +229,14 @@ class CarettaRunner {
       let allDone = true;
       for (const pr of scopedPrs) {
         const checks = await this.gh.listCheckRuns(pr.headRefOid);
-        const testCheck = checks.find(c => c.name === this.config.testCheckName);
-        if (!testCheck || testCheck.status === "in_progress" || testCheck.status === "queued") {
+        const testCheck = checks.find(
+          (c) => c.name === this.config.testCheckName,
+        );
+        if (
+          !testCheck ||
+          testCheck.status === "in_progress" ||
+          testCheck.status === "queued"
+        ) {
           allDone = false;
           break;
         }
@@ -192,7 +248,7 @@ class CarettaRunner {
       }
 
       core.info("Waiting for CI to complete...");
-      await new Promise(resolve => setTimeout(resolve, interval));
+      await new Promise((resolve) => setTimeout(resolve, interval));
     }
 
     core.warning("Timed out waiting for CI completion.");

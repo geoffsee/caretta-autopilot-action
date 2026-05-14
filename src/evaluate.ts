@@ -1,9 +1,13 @@
 import type { EvaluationResult, Issue, PullRequest } from "./types.js";
 
 export function findActiveSprint(issues: Issue[]): number | null {
-  const sprints = issues.filter((i) => i.labels.some((l) => l.name === "sprint"));
+  const sprints = issues.filter((i) =>
+    i.labels.some((l) => l.name === "sprint"),
+  );
   if (sprints.length === 0) return null;
-  sprints.sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : a.updatedAt > b.updatedAt ? -1 : 0));
+  sprints.sort((a, b) =>
+    a.updatedAt < b.updatedAt ? 1 : a.updatedAt > b.updatedAt ? -1 : 0,
+  );
   return sprints[0].number;
 }
 
@@ -11,7 +15,8 @@ export function countStalePRs(prs: PullRequest[]): number {
   return prs.filter(
     (p) =>
       !p.isDraft &&
-      (p.reviewDecision === "CHANGES_REQUESTED" || p.reviewDecision === "REVIEW_REQUIRED"),
+      (p.reviewDecision === "CHANGES_REQUESTED" ||
+        p.reviewDecision === "REVIEW_REQUIRED"),
   ).length;
 }
 

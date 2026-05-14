@@ -1,7 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { buildSummary } from "../src/summary.js";
 import { makeConfig } from "./fakes.js";
-import type { AutopilotDecision, EvaluationResult, PrCiResult } from "../src/types.js";
+import type {
+  AutopilotDecision,
+  EvaluationResult,
+  PrCiResult,
+} from "../src/types.js";
 
 const evalResult: EvaluationResult = {
   sprint: 7,
@@ -77,7 +81,12 @@ describe("buildSummary", () => {
       targetDispatched: "skipped",
       targetBusy: false,
     };
-    const out = buildSummary(evalResult, emptyPrCi, decision, makeConfig({ dryRun: true }));
+    const out = buildSummary(
+      evalResult,
+      emptyPrCi,
+      decision,
+      makeConfig({ dryRun: true }),
+    );
     expect(out).toContain("Dry run enabled");
     expect(out).toContain("Tracker: #7");
   });

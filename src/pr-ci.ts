@@ -1,14 +1,30 @@
 import type { GitHubClient } from "./github.js";
-import type { AutopilotConfig, PrCiResult, PrEntry, PullRequest } from "./types.js";
+import type {
+  AutopilotConfig,
+  PrCiResult,
+  PrEntry,
+  PullRequest,
+} from "./types.js";
 
-export function filterAgentPRs(prs: PullRequest[], pattern: RegExp): PullRequest[] {
+export function filterAgentPRs(
+  prs: PullRequest[],
+  pattern: RegExp,
+): PullRequest[] {
   return prs.filter(
-    (p) => !p.isDraft && p.mergeStateStatus !== "DIRTY" && pattern.test(p.headRefName),
+    (p) =>
+      !p.isDraft &&
+      p.mergeStateStatus !== "DIRTY" &&
+      pattern.test(p.headRefName),
   );
 }
 
 function toEntry(pr: PullRequest): PrEntry {
-  return { number: pr.number, branch: pr.headRefName, sha: pr.headRefOid, url: pr.url };
+  return {
+    number: pr.number,
+    branch: pr.headRefName,
+    sha: pr.headRefOid,
+    url: pr.url,
+  };
 }
 
 export async function processAgentPRs(

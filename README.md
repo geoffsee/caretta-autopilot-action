@@ -17,14 +17,14 @@ This action replaces the long bash/jq evaluate-and-dispatch step previously inli
 
 ## Inputs
 
-| Input | Default | Description |
-| --- | --- | --- |
-| `context` | (built-in message) | Natural-language steering context forwarded to the dispatched target workflow. |
-| `dry-run` | `false` | Evaluate and report without dispatching. |
-| `github-token` | `${{ github.token }}` | Token for the GitHub API. |
-| `tracker-workflow` | `tracker-loop-dispatch.yml` | File dispatched when a sprint is found. |
-| `factory-workflow` | `factory-cycle-dispatch.yml` | File dispatched when no sprint is found. |
-| `ci-workflow` | `ci.yml` | File dispatched per agent PR. |
+| Input              | Default                      | Description                                                                    |
+| ------------------ | ---------------------------- | ------------------------------------------------------------------------------ |
+| `context`          | (built-in message)           | Natural-language steering context forwarded to the dispatched target workflow. |
+| `dry-run`          | `false`                      | Evaluate and report without dispatching.                                       |
+| `github-token`     | `${{ github.token }}`        | Token for the GitHub API.                                                      |
+| `tracker-workflow` | `tracker-loop-dispatch.yml`  | File dispatched when a sprint is found.                                        |
+| `factory-workflow` | `factory-cycle-dispatch.yml` | File dispatched when no sprint is found.                                       |
+| `ci-workflow`      | `ci.yml`                     | File dispatched per agent PR.                                                  |
 
 ## Outputs
 
@@ -34,8 +34,8 @@ This action replaces the long bash/jq evaluate-and-dispatch step previously inli
 
 ```yaml
 permissions:
-  actions: write       # dispatch workflows
-  checks: read         # read Test check on PR head SHA
+  actions: write # dispatch workflows
+  checks: read # read Test check on PR head SHA
   contents: read
   issues: read
   pull-requests: read

@@ -1,4 +1,9 @@
-import type { AutopilotConfig, AutopilotDecision, EvaluationResult, PrCiResult } from "./types.js";
+import type {
+  AutopilotConfig,
+  AutopilotDecision,
+  EvaluationResult,
+  PrCiResult,
+} from "./types.js";
 
 export function buildSummary(
   evaluation: EvaluationResult,
@@ -25,9 +30,15 @@ export function buildSummary(
   lines.push("");
   lines.push("### PR CI check");
   lines.push("");
-  lines.push(`- Current agent PRs with a Test check on their head SHA: ${prCi.current.length}`);
-  lines.push(`- Agent PRs pending a Test check on their head SHA: ${prCi.pending.length}`);
-  lines.push(`- Agent PRs already queued/running CI for their head SHA: ${prCi.active.length}`);
+  lines.push(
+    `- Current agent PRs with a Test check on their head SHA: ${prCi.current.length}`,
+  );
+  lines.push(
+    `- Agent PRs pending a Test check on their head SHA: ${prCi.pending.length}`,
+  );
+  lines.push(
+    `- Agent PRs already queued/running CI for their head SHA: ${prCi.active.length}`,
+  );
   lines.push(`- CI dispatches started: ${prCi.dispatched.length}`);
   lines.push(`- CI dispatches unavailable: ${prCi.failed.length}`);
 
@@ -41,7 +52,12 @@ export function buildSummary(
     );
   }
 
-  if (config.dryRun && evaluation.workflow && !decision.targetBusy && !decision.holdTarget) {
+  if (
+    config.dryRun &&
+    evaluation.workflow &&
+    !decision.targetBusy &&
+    !decision.holdTarget
+  ) {
     lines.push("");
     lines.push(`Dry run enabled; would dispatch ${evaluation.workflow}.`);
     if (evaluation.tracker) {

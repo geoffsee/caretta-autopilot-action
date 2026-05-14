@@ -37,7 +37,10 @@ describe("computeHoldTarget", () => {
   test("holds when any PR was dispatched", () => {
     expect(
       computeHoldTarget(
-        { ...emptyPrCi, dispatched: [{ number: 1, branch: "b", sha: "s", url: "u" }] },
+        {
+          ...emptyPrCi,
+          dispatched: [{ number: 1, branch: "b", sha: "s", url: "u" }],
+        },
         false,
       ),
     ).toBe(true);
@@ -46,7 +49,10 @@ describe("computeHoldTarget", () => {
   test("holds when any PR is active", () => {
     expect(
       computeHoldTarget(
-        { ...emptyPrCi, active: [{ number: 1, branch: "b", sha: "s", url: "u" }] },
+        {
+          ...emptyPrCi,
+          active: [{ number: 1, branch: "b", sha: "s", url: "u" }],
+        },
         false,
       ),
     ).toBe(true);
@@ -55,7 +61,10 @@ describe("computeHoldTarget", () => {
   test("holds in dry-run when there is pending work", () => {
     expect(
       computeHoldTarget(
-        { ...emptyPrCi, pending: [{ number: 1, branch: "b", sha: "s", url: "u" }] },
+        {
+          ...emptyPrCi,
+          pending: [{ number: 1, branch: "b", sha: "s", url: "u" }],
+        },
         true,
       ),
     ).toBe(true);
@@ -73,7 +82,14 @@ describe("computeHoldTarget", () => {
 describe("dispatchTarget", () => {
   test("dispatches tracker with tracker+context inputs", async () => {
     const gh = new FakeGitHub();
-    const decision = await dispatchTarget(gh, trackerEval, emptyPrCi, makeConfig(), "master", false);
+    const decision = await dispatchTarget(
+      gh,
+      trackerEval,
+      emptyPrCi,
+      makeConfig(),
+      "master",
+      false,
+    );
     expect(decision.targetDispatched).toBe("tracker");
     expect(gh.dispatched).toHaveLength(1);
     expect(gh.dispatched[0]).toEqual({
@@ -85,7 +101,14 @@ describe("dispatchTarget", () => {
 
   test("dispatches factory with context input", async () => {
     const gh = new FakeGitHub();
-    const decision = await dispatchTarget(gh, factoryEval, emptyPrCi, makeConfig(), "master", false);
+    const decision = await dispatchTarget(
+      gh,
+      factoryEval,
+      emptyPrCi,
+      makeConfig(),
+      "master",
+      false,
+    );
     expect(decision.targetDispatched).toBe("factory");
     expect(gh.dispatched[0]).toEqual({
       workflow: "factory-cycle-dispatch.yml",
@@ -96,7 +119,14 @@ describe("dispatchTarget", () => {
 
   test("skips dispatch when target is busy", async () => {
     const gh = new FakeGitHub();
-    const decision = await dispatchTarget(gh, trackerEval, emptyPrCi, makeConfig(), "master", true);
+    const decision = await dispatchTarget(
+      gh,
+      trackerEval,
+      emptyPrCi,
+      makeConfig(),
+      "master",
+      true,
+    );
     expect(decision.targetDispatched).toBe("skipped");
     expect(gh.dispatched).toHaveLength(0);
   });
@@ -106,7 +136,10 @@ describe("dispatchTarget", () => {
     const decision = await dispatchTarget(
       gh,
       trackerEval,
-      { ...emptyPrCi, active: [{ number: 1, branch: "b", sha: "s", url: "u" }] },
+      {
+        ...emptyPrCi,
+        active: [{ number: 1, branch: "b", sha: "s", url: "u" }],
+      },
       makeConfig(),
       "master",
       false,

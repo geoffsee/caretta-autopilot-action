@@ -1,10 +1,19 @@
 import { describe, expect, test, mock, beforeEach } from "bun:test";
 import { runAutopilot } from "../src/run.js";
-import { FakeGitHub, FakeExec, makeConfig, makeIssue, makePR } from "./fakes.js";
+import {
+  FakeGitHub,
+  FakeExec,
+  makeConfig,
+  makeIssue,
+  makePR,
+} from "./fakes.js";
 
 // Mock install.ts
 mock.module("../src/install.js", () => ({
-  installCaretta: async () => ({ binaryPath: "/mock/caretta", version: "v1.2.3" }),
+  installCaretta: async () => ({
+    binaryPath: "/mock/caretta",
+    version: "v1.2.3",
+  }),
   installLinuxRuntimeDeps: async () => {},
   materializeBotPrivateKey: () => {},
 }));
@@ -73,7 +82,12 @@ describe("runAutopilot", () => {
       issues: [makeIssue({ number: 50, labels: [{ name: "sprint" }] })],
       prs: [makePR({ number: 101 })],
     });
-    const result = await runAutopilot(gh, exec, makeConfig({ dryRun: true }), "master");
+    const result = await runAutopilot(
+      gh,
+      exec,
+      makeConfig({ dryRun: true }),
+      "master",
+    );
     expect(result.decision.holdTarget).toBe(true);
     expect(result.decision.targetDispatched).toBe("skipped");
     expect(gh.dispatched).toHaveLength(0);
@@ -84,7 +98,12 @@ describe("runAutopilot", () => {
       issues: [makeIssue({ number: 50, labels: [{ name: "sprint" }] })],
       prs: [makePR({ number: 101 }), makePR({ number: 102 })],
     });
-    const result = await runAutopilot(gh, exec, makeConfig({ enableDispatch: false }), "master");
+    const result = await runAutopilot(
+      gh,
+      exec,
+      makeConfig({ enableDispatch: false }),
+      "master",
+    );
 
     expect(result.evaluation.workflow).toBe("tracker-loop-dispatch.yml");
     expect(result.evaluation.tracker).toBe("50");
@@ -99,7 +118,9 @@ describe("runAutopilot", () => {
       issues: [makeIssue({ number: 50, labels: [{ name: "sprint" }] })],
       prs: [makePR({ number: 101 })],
       checksBySha: {
-        "sha-101": [{ name: "Test", startedAt: "2026-01-01T00:00:00Z", createdAt: null }],
+        "sha-101": [
+          { name: "Test", startedAt: "2026-01-01T00:00:00Z", createdAt: null },
+        ],
       },
     });
     const result = await runAutopilot(gh, exec, makeConfig(), "master");
@@ -115,45 +136,87 @@ describe("runAutopilot", () => {
       prs: [makePR({ number: 101, headRefName: "agent/issue-101" })],
       checksBySha: {
         "sha-101": [
-          { name: "Test", status: "completed", conclusion: "success", startedAt: "2026-01-01T00:00:00Z", createdAt: null }
-        ]
-      }
+          {
+            name: "Test",
+            status: "completed",
+            conclusion: "success",
+            startedAt: "2026-01-01T00:00:00Z",
+            createdAt: null,
+          },
+        ],
+      },
     });
     // Mock tracker-matrix output
     exec.stdout = JSON.stringify([101]);
 
-    const result = await runAutopilot(gh, exec, makeConfig({ mode: "execute" }), "master");
+    const result = await runAutopilot(
+      gh,
+      exec,
+      makeConfig({ mode: "execute" }),
+      "master",
+    );
 
     expect(result.decision.targetDispatched).toBe("executed");
 
     // Verify tracker-matrix call
-    const matrixCall = exec.calls.find(c => c.args.includes("tracker-matrix"));
+    const matrixCall = exec.calls.find((c) =>
+      c.args.includes("tracker-matrix"),
+    );
     expect(matrixCall).toBeDefined();
     expect(matrixCall?.args).toContain("50");
 
     // Verify issue calls
-    const issueCalls = exec.calls.filter(c => c.args.includes("issue"));
+    const issueCalls = exec.calls.filter((c) => c.args.includes("issue"));
     expect(issueCalls).toHaveLength(1);
     expect(issueCalls[0].args).toContain("101");
 
     // Verify code-review and fix-pr
-    expect(exec.calls.some(c => c.args.includes("code-review") && c.args.includes("101"))).toBe(true);
-    expect(exec.calls.some(c => c.args.includes("fix-pr") && c.args.includes("101"))).toBe(true);
+    expect(
+      exec.calls.some(
+        (c) => c.args.includes("code-review") && c.args.includes("101"),
+      ),
+    ).toBe(true);
+    expect(
+      exec.calls.some(
+        (c) => c.args.includes("fix-pr") && c.args.includes("101"),
+      ),
+    ).toBe(true);
 
     // Verify other tracker loop calls
-    expect(exec.calls.some(c => c.args.includes("auto-merge") && c.args.includes("--sync-branches"))).toBe(true);
-    expect(exec.calls.some(c => c.args.includes("auto-merge") && c.args.includes("--automerge-queue"))).toBe(true);
+    expect(
+      exec.calls.some(
+        (c) =>
+          c.args.includes("auto-merge") && c.args.includes("--sync-branches"),
+      ),
+    ).toBe(true);
+    expect(
+      exec.calls.some(
+        (c) =>
+          c.args.includes("auto-merge") && c.args.includes("--automerge-queue"),
+      ),
+    ).toBe(true);
   });
 
   test("execute mode: runs factory cycle inline", async () => {
     const gh = new FakeGitHub();
-    const result = await runAutopilot(gh, exec, makeConfig({ mode: "execute" }), "master");
+    const result = await runAutopilot(
+      gh,
+      exec,
+      makeConfig({ mode: "execute" }),
+      "master",
+    );
 
     expect(result.decision.targetDispatched).toBe("executed");
-    expect(exec.calls.some(c => c.args.includes("housekeeping"))).toBe(true);
-    expect(exec.calls.some(c => c.args.includes("ideation"))).toBe(true);
-    expect(exec.calls.some(c => c.args.includes("report-research"))).toBe(true);
-    expect(exec.calls.some(c => c.args.includes("strategic-review"))).toBe(true);
-    expect(exec.calls.some(c => c.args.includes("sprint-planning"))).toBe(true);
+    expect(exec.calls.some((c) => c.args.includes("housekeeping"))).toBe(true);
+    expect(exec.calls.some((c) => c.args.includes("ideation"))).toBe(true);
+    expect(exec.calls.some((c) => c.args.includes("report-research"))).toBe(
+      true,
+    );
+    expect(exec.calls.some((c) => c.args.includes("strategic-review"))).toBe(
+      true,
+    );
+    expect(exec.calls.some((c) => c.args.includes("sprint-planning"))).toBe(
+      true,
+    );
   });
 });

@@ -10,9 +10,21 @@ describe("findActiveSprint", () => {
 
   test("returns the most-recently-updated sprint", () => {
     const issues = [
-      makeIssue({ number: 10, labels: [{ name: "sprint" }], updatedAt: "2026-01-01T00:00:00Z" }),
-      makeIssue({ number: 11, labels: [{ name: "sprint" }], updatedAt: "2026-02-01T00:00:00Z" }),
-      makeIssue({ number: 12, labels: [{ name: "sprint" }], updatedAt: "2026-01-15T00:00:00Z" }),
+      makeIssue({
+        number: 10,
+        labels: [{ name: "sprint" }],
+        updatedAt: "2026-01-01T00:00:00Z",
+      }),
+      makeIssue({
+        number: 11,
+        labels: [{ name: "sprint" }],
+        updatedAt: "2026-02-01T00:00:00Z",
+      }),
+      makeIssue({
+        number: 12,
+        labels: [{ name: "sprint" }],
+        updatedAt: "2026-01-15T00:00:00Z",
+      }),
     ];
     expect(findActiveSprint(issues)).toBe(11);
   });

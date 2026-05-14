@@ -4,14 +4,26 @@ import type { CheckRun, Issue, PullRequest, WorkflowRun } from "./types.js";
 export interface GitHubClient {
   listOpenIssues(): Promise<Issue[]>;
   listOpenPullRequests(): Promise<PullRequest[]>;
-  listWorkflowRuns(workflow: string, status: string, branch?: string): Promise<WorkflowRun[]>;
+  listWorkflowRuns(
+    workflow: string,
+    status: string,
+    branch?: string,
+  ): Promise<WorkflowRun[]>;
   listCheckRuns(sha: string): Promise<CheckRun[]>;
-  dispatchWorkflow(workflow: string, ref: string, inputs?: Record<string, string>): Promise<void>;
+  dispatchWorkflow(
+    workflow: string,
+    ref: string,
+    inputs?: Record<string, string>,
+  ): Promise<void>;
 }
 
 type Octokit = ReturnType<typeof github.getOctokit>;
 
-export function createOctokitClient(token: string, owner: string, repo: string): GitHubClient {
+export function createOctokitClient(
+  token: string,
+  owner: string,
+  repo: string,
+): GitHubClient {
   const octokit = github.getOctokit(token);
   return new OctokitClient(octokit, owner, repo);
 }
@@ -24,12 +36,15 @@ class OctokitClient implements GitHubClient {
   ) {}
 
   async listOpenIssues(): Promise<Issue[]> {
-    const res = await this.octokit.paginate(this.octokit.rest.issues.listForRepo, {
-      owner: this.owner,
-      repo: this.repo,
-      state: "open",
-      per_page: 100,
-    });
+    const res = await this.octokit.paginate(
+      this.octokit.rest.issues.listForRepo,
+      {
+        owner: this.owner,
+        repo: this.repo,
+        state: "open",
+        per_page: 100,
+      },
+    );
     return res
       .filter((i) => !i.pull_request)
       .slice(0, 100)

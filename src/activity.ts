@@ -1,6 +1,9 @@
 import type { GitHubClient } from "./github.js";
 
-export async function isWorkflowBusy(gh: GitHubClient, workflow: string): Promise<boolean> {
+export async function isWorkflowBusy(
+  gh: GitHubClient,
+  workflow: string,
+): Promise<boolean> {
   const [queued, inProgress] = await Promise.all([
     gh.listWorkflowRuns(workflow, "queued"),
     gh.listWorkflowRuns(workflow, "in_progress"),

@@ -3,7 +3,11 @@ import * as github from "@actions/github";
 import { createOctokitClient } from "./github.js";
 import { DefaultExecClient } from "./exec.js";
 import { runAutopilot } from "./run.js";
-import { DEFAULT_AGENT_BRANCH, DEFAULT_TEST_CHECK_NAME, type AutopilotConfig } from "./types.js";
+import {
+  DEFAULT_AGENT_BRANCH,
+  DEFAULT_TEST_CHECK_NAME,
+  type AutopilotConfig,
+} from "./types.js";
 
 async function main(): Promise<void> {
   const token = core.getInput("github-token", { required: true });
@@ -11,13 +15,18 @@ async function main(): Promise<void> {
   const mode = modeInput === "execute" ? "execute" : "evaluate";
   const carettaVersion = core.getInput("caretta-version") || "latest";
   const agent = core.getInput("agent") || "claude";
-  const context = core.getInput("context") || "Autopilot scheduled evaluation of open issues and pull requests.";
+  const context =
+    core.getInput("context") ||
+    "Autopilot scheduled evaluation of open issues and pull requests.";
   const dryRun = core.getBooleanInput("dry-run");
-  const enableDispatch = core.getInput("enable-dispatch") === ""
-    ? true
-    : core.getBooleanInput("enable-dispatch");
-  const trackerWorkflow = core.getInput("tracker-workflow") || "tracker-loop-dispatch.yml";
-  const factoryWorkflow = core.getInput("factory-workflow") || "factory-cycle-dispatch.yml";
+  const enableDispatch =
+    core.getInput("enable-dispatch") === ""
+      ? true
+      : core.getBooleanInput("enable-dispatch");
+  const trackerWorkflow =
+    core.getInput("tracker-workflow") || "tracker-loop-dispatch.yml";
+  const factoryWorkflow =
+    core.getInput("factory-workflow") || "factory-cycle-dispatch.yml";
   const ciWorkflow = core.getInput("ci-workflow") || "ci.yml";
 
   const ctx = github.context;

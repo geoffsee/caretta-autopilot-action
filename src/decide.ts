@@ -1,5 +1,10 @@
 import type { GitHubClient } from "./github.js";
-import type { AutopilotConfig, AutopilotDecision, EvaluationResult, PrCiResult } from "./types.js";
+import type {
+  AutopilotConfig,
+  AutopilotDecision,
+  EvaluationResult,
+  PrCiResult,
+} from "./types.js";
 
 export function computeHoldTarget(prCi: PrCiResult, dryRun: boolean): boolean {
   const holdCount = prCi.dispatched.length + prCi.active.length;

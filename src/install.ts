@@ -26,7 +26,10 @@ function detectPlatform(): Platform {
   let osName: Platform["os"];
   if (rawOs === "linux") osName = "linux";
   else if (rawOs === "darwin") osName = "macos";
-  else throw new Error(`Unsupported OS: ${rawOs} (caretta supports linux and macOS runners)`);
+  else
+    throw new Error(
+      `Unsupported OS: ${rawOs} (caretta supports linux and macOS runners)`,
+    );
 
   let archName: Platform["arch"];
   if (rawArch === "x64") archName = "x86_64";
@@ -36,9 +39,14 @@ function detectPlatform(): Platform {
   return { os: osName, arch: archName };
 }
 
-async function resolveVersion(requested: string, token: string): Promise<string> {
+async function resolveVersion(
+  requested: string,
+  token: string,
+): Promise<string> {
   if (requested && requested !== "latest") {
-    return requested.startsWith("v") ? requested : `v${requested.replace(/^v/, "")}`;
+    return requested.startsWith("v")
+      ? requested
+      : `v${requested.replace(/^v/, "")}`;
   }
   const headers: Record<string, string> = {
     Accept: "application/vnd.github+json",
@@ -46,21 +54,32 @@ async function resolveVersion(requested: string, token: string): Promise<string>
   };
   if (token) headers.Authorization = `Bearer ${token}`;
 
-  const res = await fetch(`https://api.github.com/repos/${REPO}/releases/latest`, { headers });
+  const res = await fetch(
+    `https://api.github.com/repos/${REPO}/releases/latest`,
+    { headers },
+  );
   if (!res.ok) {
-    throw new Error(`Failed to resolve latest caretta release: ${res.status} ${res.statusText}`);
+    throw new Error(
+      `Failed to resolve latest caretta release: ${res.status} ${res.statusText}`,
+    );
   }
   const body = (await res.json()) as { tag_name?: string };
-  if (!body.tag_name) throw new Error("Latest release response missing tag_name");
+  if (!body.tag_name)
+    throw new Error("Latest release response missing tag_name");
   return body.tag_name;
 }
 
 function getManifestPath(platform: Platform): string {
   const tempDir = process.env.RUNNER_TEMP || os.tmpdir();
-  return path.join(tempDir, `caretta-manifest-${platform.arch}-${platform.os}.json`);
+  return path.join(
+    tempDir,
+    `caretta-manifest-${platform.arch}-${platform.os}.json`,
+  );
 }
 
-async function loadVersionManifest(platform: Platform): Promise<VersionManifest | null> {
+async function loadVersionManifest(
+  platform: Platform,
+): Promise<VersionManifest | null> {
   const manifestPath = getManifestPath(platform);
   if (!fs.existsSync(manifestPath)) {
     return null;
@@ -73,7 +92,10 @@ async function loadVersionManifest(platform: Platform): Promise<VersionManifest 
   }
 }
 
-async function saveVersionManifest(manifest: VersionManifest, platform: Platform): Promise<void> {
+async function saveVersionManifest(
+  manifest: VersionManifest,
+  platform: Platform,
+): Promise<void> {
   const manifestPath = getManifestPath(platform);
   fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
 }
@@ -85,7 +107,9 @@ async function checkNewReleaseAvailable(
   try {
     const latestVersion = await resolveVersion("latest", token);
     if (latestVersion !== currentVersion) {
-      core.info(`New release available: ${latestVersion} (current: ${currentVersion})`);
+      core.info(
+        `New release available: ${latestVersion} (current: ${currentVersion})`,
+      );
       return latestVersion;
     }
     return null;
@@ -106,7 +130,10 @@ export async function installCaretta(
   let version: string;
 
   if (isLatestRequested && manifest) {
-    const newVersion = await checkNewReleaseAvailable(manifest.resolvedVersion, token);
+    const newVersion = await checkNewReleaseAvailable(
+      manifest.resolvedVersion,
+      token,
+    );
     if (newVersion) {
       version = newVersion;
       core.info(`Upgrading from ${manifest.resolvedVersion} to ${version}`);
@@ -147,7 +174,12 @@ export async function installCaretta(
 
   const tarball = await tc.downloadTool(url);
   const extracted = await tc.extractTar(tarball);
-  const cachedDir = await tc.cacheDir(extracted, BINARY, version, platform.arch);
+  const cachedDir = await tc.cacheDir(
+    extracted,
+    BINARY,
+    version,
+    platform.arch,
+  );
   const binaryPath = path.join(cachedDir, BINARY);
 
   await exec.exec("chmod", ["+x", binaryPath]);
@@ -177,11 +209,19 @@ const LINUX_RUNTIME_DEPS = [
 
 export async function installLinuxRuntimeDeps(): Promise<void> {
   if (process.platform !== "linux") return;
-  core.info(`Installing caretta runtime deps: ${LINUX_RUNTIME_DEPS.join(", ")}`);
+  core.info(
+    `Installing caretta runtime deps: ${LINUX_RUNTIME_DEPS.join(", ")}`,
+  );
   await exec.exec("sudo", ["apt-get", "update", "-qq"], { silent: true });
   await exec.exec(
     "sudo",
-    ["apt-get", "install", "-y", "--no-install-recommends", ...LINUX_RUNTIME_DEPS],
+    [
+      "apt-get",
+      "install",
+      "-y",
+      "--no-install-recommends",
+      ...LINUX_RUNTIME_DEPS,
+    ],
     { silent: true },
   );
 }
@@ -191,7 +231,10 @@ export function materializeBotPrivateKey(env: Record<string, string>): void {
   if (!b64 || env.DEV_BOT_PRIVATE_KEY) return;
   const pem = Buffer.from(b64, "base64").toString("utf8");
   core.setSecret(pem);
-  const dir = env.RUNNER_TEMP && env.RUNNER_TEMP.length > 0 ? env.RUNNER_TEMP : os.tmpdir();
+  const dir =
+    env.RUNNER_TEMP && env.RUNNER_TEMP.length > 0
+      ? env.RUNNER_TEMP
+      : os.tmpdir();
   const pemPath = path.join(dir, "dev-bot.pem");
   fs.writeFileSync(pemPath, pem, { mode: 0o600 });
   env.DEV_BOT_PRIVATE_KEY = pemPath;
