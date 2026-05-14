@@ -63197,6 +63197,57 @@ class DefaultExecClient {
     }
 }
 
+;// CONCATENATED MODULE: ./src/factory-cycle-runner.ts
+
+class FactoryCycleRunner {
+    binaryPath;
+    env;
+    exec;
+    gh;
+    agent;
+    constructor(binaryPath, env, exec, gh, agent) {
+        this.binaryPath = binaryPath;
+        this.env = env;
+        this.exec = exec;
+        this.gh = gh;
+        this.agent = agent;
+    }
+    async runFactoryCycle() {
+        lib_core.info("Starting factory cycle");
+        await this.runCaretta("housekeeping");
+        const openIssues = await this.gh.listOpenIssues();
+        const sprint = findOpenSprint(openIssues);
+        if (sprint) {
+            lib_core.info(`Open sprint #${sprint.number} exists; skipping ideation cycle.`);
+            return { skipped: true, activeSprint: String(sprint.number) };
+        }
+        await this.runCaretta("run", ["ideation"]);
+        await this.runCaretta("run", ["report-research"]);
+        await this.runCaretta("run", ["strategic-review"]);
+        await this.runCaretta("run", ["sprint-planning"]);
+        return { skipped: false, activeSprint: "" };
+    }
+    async runCaretta(task, args = []) {
+        const fullArgs = [
+            "--agent",
+            this.agent,
+            "--preset",
+            "software-factory",
+            task,
+            ...args,
+        ];
+        lib_core.info(`Running: ${this.binaryPath} ${fullArgs.join(" ")}`);
+        await this.exec.exec(this.binaryPath, fullArgs, { env: this.env });
+    }
+}
+function findOpenSprint(issues) {
+    const sprints = issues.filter((issue) => issue.labels.some((label) => label.name === "sprint"));
+    if (sprints.length === 0)
+        return null;
+    sprints.sort((a, b) => a.updatedAt < b.updatedAt ? 1 : a.updatedAt > b.updatedAt ? -1 : 0);
+    return sprints[0];
+}
+
 ;// CONCATENATED MODULE: ./src/github.ts
 
 function createOctokitClient(token, owner, repo) {
@@ -66086,71 +66137,31 @@ function materializeBotPrivateKey(env) {
     lib_core.info(`Decoded DEV_BOT_PRIVATE_KEY_B64 to ${pemPath}`);
 }
 
-;// CONCATENATED MODULE: ./src/index.ts
+;// CONCATENATED MODULE: ./src/main.ts
 
 
 
 
 
-class FactoryCycleRunner {
-    binaryPath;
-    env;
-    exec;
-    gh;
-    agent;
-    constructor(binaryPath, env, exec, gh, agent) {
-        this.binaryPath = binaryPath;
-        this.env = env;
-        this.exec = exec;
-        this.gh = gh;
-        this.agent = agent;
-    }
-    async runFactoryCycle() {
-        lib_core.info("Starting factory cycle");
-        await this.runCaretta("housekeeping");
-        const openIssues = await this.gh.listOpenIssues();
-        const sprint = findOpenSprint(openIssues);
-        if (sprint) {
-            lib_core.info(`Open sprint #${sprint.number} exists; skipping ideation cycle.`);
-            return { skipped: true, activeSprint: String(sprint.number) };
-        }
-        await this.runCaretta("run", ["ideation"]);
-        await this.runCaretta("run", ["report-research"]);
-        await this.runCaretta("run", ["strategic-review"]);
-        await this.runCaretta("run", ["sprint-planning"]);
-        return { skipped: false, activeSprint: "" };
-    }
-    async runCaretta(task, args = []) {
-        const fullArgs = [
-            "--agent",
-            this.agent,
-            "--preset",
-            "software-factory",
-            task,
-            ...args,
-        ];
-        lib_core.info(`Running: ${this.binaryPath} ${fullArgs.join(" ")}`);
-        await this.exec.exec(this.binaryPath, fullArgs, { env: this.env });
-    }
-}
-function findOpenSprint(issues) {
-    const sprints = issues.filter((issue) => issue.labels.some((label) => label.name === "sprint"));
-    if (sprints.length === 0)
-        return null;
-    sprints.sort((a, b) => a.updatedAt < b.updatedAt ? 1 : a.updatedAt > b.updatedAt ? -1 : 0);
-    return sprints[0];
-}
-async function run() {
+
+const defaultFactoryCycleMainDeps = {
+    createGitHubClient: createOctokitClient,
+    createExecClient: () => new DefaultExecClient(),
+    installCaretta: installCaretta,
+    installLinuxRuntimeDeps: installLinuxRuntimeDeps,
+    materializeBotPrivateKey: materializeBotPrivateKey,
+};
+async function main(deps = defaultFactoryCycleMainDeps) {
     const token = lib_core.getInput("github-token", { required: true });
     const context = lib_core.getInput("context") || "";
     const model = lib_core.getInput("model") || "";
     const carettaVersion = lib_core.getInput("caretta-version") || "latest";
     const agent = lib_core.getInput("agent") || "claude";
     const { owner, repo } = github.context.repo;
-    const gh = createOctokitClient(token, owner, repo);
-    const exec = new DefaultExecClient();
-    const { binaryPath, version } = await installCaretta(carettaVersion, process.env.GITHUB_TOKEN || token);
-    await installLinuxRuntimeDeps();
+    const gh = deps.createGitHubClient(token, owner, repo);
+    const exec = deps.createExecClient();
+    const { binaryPath, version } = await deps.installCaretta(carettaVersion, process.env.GITHUB_TOKEN || token);
+    await deps.installLinuxRuntimeDeps();
     const env = { ...process.env };
     if (!env.GH_TOKEN)
         env.GH_TOKEN = token || process.env.GITHUB_TOKEN || "";
@@ -66160,14 +66171,18 @@ async function run() {
         env.CARETTA_CONTEXT = context;
     if (model)
         env.CARETTA_MODEL = model;
-    materializeBotPrivateKey(env);
+    deps.materializeBotPrivateKey(env);
     const runner = new FactoryCycleRunner(binaryPath, env, exec, gh, agent);
     const result = await runner.runFactoryCycle();
     lib_core.setOutput("skipped_due_to_open_sprint", String(result.skipped));
     lib_core.setOutput("active_sprint", result.activeSprint);
     lib_core.setOutput("caretta_version", version);
 }
-run().catch((error) => {
+
+;// CONCATENATED MODULE: ./src/index.ts
+
+
+main().catch((error) => {
     const message = error instanceof Error ? error.message : String(error);
     lib_core.setFailed(message);
 });

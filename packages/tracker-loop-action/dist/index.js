@@ -66086,11 +66086,7 @@ function materializeBotPrivateKey(env) {
     lib_core.info(`Decoded DEV_BOT_PRIVATE_KEY_B64 to ${pemPath}`);
 }
 
-;// CONCATENATED MODULE: ./src/index.ts
-
-
-
-
+;// CONCATENATED MODULE: ./src/tracker-loop-runner.ts
 
 const DEFAULT_AGENT_BRANCH = /^agent\/issue-[0-9]+$/;
 const DEFAULT_TEST_CHECK_NAME = "Test";
@@ -66262,7 +66258,22 @@ function parseTimeoutMinutes(input) {
     }
     return parsed;
 }
-async function run() {
+
+;// CONCATENATED MODULE: ./src/main.ts
+
+
+
+
+
+
+const defaultTrackerLoopMainDeps = {
+    createGitHubClient: createOctokitClient,
+    createExecClient: () => new DefaultExecClient(),
+    installCaretta: installCaretta,
+    installLinuxRuntimeDeps: installLinuxRuntimeDeps,
+    materializeBotPrivateKey: materializeBotPrivateKey,
+};
+async function main(deps = defaultTrackerLoopMainDeps) {
     const token = lib_core.getInput("github-token", { required: true });
     const tracker = lib_core.getInput("tracker", { required: true });
     const context = lib_core.getInput("context") || "";
@@ -66274,10 +66285,10 @@ async function run() {
     const agentBranchPattern = new RegExp(agentBranchPatternInput);
     const ciTimeoutMinutes = parseTimeoutMinutes(lib_core.getInput("ci-timeout-minutes") || String(DEFAULT_CI_TIMEOUT_MINUTES));
     const { owner, repo } = github.context.repo;
-    const gh = createOctokitClient(token, owner, repo);
-    const exec = new DefaultExecClient();
-    const { binaryPath, version } = await installCaretta(carettaVersion, process.env.GITHUB_TOKEN || token);
-    await installLinuxRuntimeDeps();
+    const gh = deps.createGitHubClient(token, owner, repo);
+    const exec = deps.createExecClient();
+    const { binaryPath, version } = await deps.installCaretta(carettaVersion, process.env.GITHUB_TOKEN || token);
+    await deps.installLinuxRuntimeDeps();
     const env = { ...process.env };
     if (!env.GH_TOKEN)
         env.GH_TOKEN = token || process.env.GITHUB_TOKEN || "";
@@ -66287,7 +66298,7 @@ async function run() {
         env.CARETTA_CONTEXT = context;
     if (model)
         env.CARETTA_MODEL = model;
-    materializeBotPrivateKey(env);
+    deps.materializeBotPrivateKey(env);
     const runner = new TrackerLoopRunner(binaryPath, env, exec, gh, {
         tracker,
         agent,
@@ -66301,7 +66312,11 @@ async function run() {
     lib_core.setOutput("reviewed_pr_count", String(result.reviewedPrCount));
     lib_core.setOutput("caretta_version", version);
 }
-run().catch((error) => {
+
+;// CONCATENATED MODULE: ./src/index.ts
+
+
+main().catch((error) => {
     const message = error instanceof Error ? error.message : String(error);
     lib_core.setFailed(message);
 });
