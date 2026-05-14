@@ -6,6 +6,7 @@ import type { GitHubClient } from "./github.js";
 import { createOctokitClient } from "./github.js";
 import type { AutopilotRunResult } from "./run.js";
 import { runAutopilot } from "./run.js";
+import { decideTrigger } from "./trigger.js";
 import {
   type AutopilotConfig,
   DEFAULT_AGENT_BRANCH,
@@ -59,6 +60,20 @@ export async function main(
   const owner = ctx.repo.owner;
   const repo = ctx.repo.repo;
   const ref = ctx.ref?.replace(/^refs\/heads\//, "") || "master";
+
+  const trigger = decideTrigger({
+    eventName: ctx.eventName ?? "",
+    payload: (ctx.payload ?? {}) as Record<string, unknown>,
+    agentBranchPrefix: "agent/issue-",
+  });
+  if (!trigger.run) {
+    core.info(`autopilot: skipping (${trigger.reason})`);
+    await core.summary
+      .addRaw(`### Autopilot skipped\n\n_${trigger.reason}_\n`)
+      .write();
+    return;
+  }
+  core.info(`autopilot: running (${trigger.reason})`);
 
   const config: AutopilotConfig = {
     mode,

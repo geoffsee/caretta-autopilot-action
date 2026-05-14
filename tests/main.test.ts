@@ -28,11 +28,15 @@ const coreState: CoreState = {
 interface GithubContext {
   repo: { owner: string; repo: string };
   ref: string | undefined;
+  eventName: string;
+  payload: Record<string, unknown>;
 }
 
 const mockContext: GithubContext = {
   repo: { owner: "o", repo: "r" },
   ref: "refs/heads/main",
+  eventName: "workflow_dispatch",
+  payload: {},
 };
 
 mock.module("@actions/core", () => ({
@@ -210,7 +214,58 @@ function resetState(): void {
   coreState.summaryWritten = false;
   mockContext.repo = { owner: "o", repo: "r" };
   mockContext.ref = "refs/heads/main";
+  mockContext.eventName = "workflow_dispatch";
+  mockContext.payload = {};
 }
+
+describe("main: event gate", () => {
+  beforeEach(resetState);
+
+  test("skips on irrelevant event without invoking runAutopilot", async () => {
+    mockContext.eventName = "issues";
+    mockContext.payload = {
+      action: "opened",
+      issue: { labels: [{ name: "bug" }] },
+    };
+    const h = makeHarness();
+    await main(h.deps);
+    expect(h.runCalls).toHaveLength(0);
+    expect(coreState.summaryWritten).toBe(true);
+    expect(coreState.summaryRaw.join("")).toContain("Autopilot skipped");
+  });
+
+  test("runs on sprint-labeled issue", async () => {
+    mockContext.eventName = "issues";
+    mockContext.payload = {
+      action: "labeled",
+      issue: { labels: [{ name: "sprint" }] },
+    };
+    const h = makeHarness();
+    await main(h.deps);
+    expect(h.runCalls).toHaveLength(1);
+  });
+
+  test("runs on agent PR event", async () => {
+    mockContext.eventName = "pull_request";
+    mockContext.payload = {
+      action: "closed",
+      pull_request: { head: { ref: "agent/issue-12" } },
+    };
+    const h = makeHarness();
+    await main(h.deps);
+    expect(h.runCalls).toHaveLength(1);
+  });
+
+  test("skips on non-agent workflow_run", async () => {
+    mockContext.eventName = "workflow_run";
+    mockContext.payload = {
+      workflow_run: { head_branch: "main", conclusion: "success" },
+    };
+    const h = makeHarness();
+    await main(h.deps);
+    expect(h.runCalls).toHaveLength(0);
+  });
+});
 
 describe("main: input parsing", () => {
   beforeEach(resetState);

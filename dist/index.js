@@ -66500,11 +66500,98 @@ async function runAutopilot(gh, exec, config, ref, executeDeps) {
     return { evaluation, prCi, decision, summary };
 }
 
+;// CONCATENATED MODULE: ./src/trigger.ts
+const DEFAULT_AGENT_BRANCH_PREFIX = "agent/issue-";
+function decideTrigger(inputs) {
+    const { eventName, payload } = inputs;
+    const agentPrefix = inputs.agentBranchPrefix ?? DEFAULT_AGENT_BRANCH_PREFIX;
+    switch (eventName) {
+        case "schedule":
+            return { run: true, reason: "scheduled heartbeat" };
+        case "workflow_dispatch":
+            return { run: true, reason: "manual dispatch" };
+        case "issues": {
+            const action = stringField(payload, "action");
+            if (action === "closed") {
+                return { run: true, reason: "issue closed" };
+            }
+            const labels = issueLabels(payload);
+            if (labels.includes("sprint")) {
+                return { run: true, reason: `sprint issue ${action ?? "event"}` };
+            }
+            return {
+                run: false,
+                reason: `issue ${action ?? "event"} without sprint label`,
+            };
+        }
+        case "pull_request": {
+            const headRef = prHeadRef(payload);
+            if (headRef && headRef.startsWith(agentPrefix)) {
+                const action = stringField(payload, "action");
+                return { run: true, reason: `agent PR ${action ?? "event"}` };
+            }
+            return { run: false, reason: "non-agent pull request" };
+        }
+        case "workflow_run": {
+            const run = recordField(payload, "workflow_run");
+            const headBranch = run ? stringField(run, "head_branch") : undefined;
+            if (headBranch && headBranch.startsWith(agentPrefix)) {
+                const conclusion = run ? stringField(run, "conclusion") : undefined;
+                return {
+                    run: true,
+                    reason: `agent CI ${conclusion ?? "completed"}`,
+                };
+            }
+            return { run: false, reason: "non-agent workflow_run" };
+        }
+        default:
+            return { run: false, reason: `unhandled event: ${eventName}` };
+    }
+}
+function stringField(source, key) {
+    const v = source[key];
+    return typeof v === "string" ? v : undefined;
+}
+function recordField(source, key) {
+    const v = source[key];
+    return v && typeof v === "object" ? v : undefined;
+}
+function issueLabels(payload) {
+    const issue = recordField(payload, "issue");
+    if (!issue)
+        return [];
+    const labels = issue.labels;
+    if (!Array.isArray(labels))
+        return [];
+    const out = [];
+    for (const l of labels) {
+        if (typeof l === "string") {
+            out.push(l);
+        }
+        else if (l && typeof l === "object") {
+            const name = l.name;
+            if (typeof name === "string")
+                out.push(name);
+        }
+    }
+    return out;
+}
+function prHeadRef(payload) {
+    const pr = recordField(payload, "pull_request");
+    if (!pr)
+        return undefined;
+    const head = recordField(pr, "head");
+    if (!head)
+        return undefined;
+    return stringField(head, "ref");
+}
+
 ;// CONCATENATED MODULE: ./src/types.ts
 const DEFAULT_AGENT_BRANCH = /^agent\/issue-[0-9]+$/;
 const DEFAULT_TEST_CHECK_NAME = "Test";
 
 ;// CONCATENATED MODULE: ./src/main.ts
+
 
 
 
@@ -66535,6 +66622,19 @@ async function main(deps = defaultDependencies) {
     const owner = ctx.repo.owner;
     const repo = ctx.repo.repo;
     const ref = ctx.ref?.replace(/^refs\/heads\//, "") || "master";
+    const trigger = decideTrigger({
+        eventName: ctx.eventName ?? "",
+        payload: (ctx.payload ?? {}),
+        agentBranchPrefix: "agent/issue-",
+    });
+    if (!trigger.run) {
+        lib_core.info(`autopilot: skipping (${trigger.reason})`);
+        await lib_core.summary
+            .addRaw(`### Autopilot skipped\n\n_${trigger.reason}_\n`)
+            .write();
+        return;
+    }
+    lib_core.info(`autopilot: running (${trigger.reason})`);
     const config = {
         mode,
         carettaVersion,
