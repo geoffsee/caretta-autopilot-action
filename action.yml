@@ -1,0 +1,66 @@
+name: "caretta-autopilot"
+description: "Evaluate repository state and dispatch the appropriate autopilot follow-up workflow."
+author: "geoffsee"
+branding:
+  icon: "navigation"
+  color: "purple"
+
+inputs:
+  context:
+    description: "Natural-language steering context forwarded to the dispatched target workflow."
+    required: false
+    default: "Autopilot scheduled evaluation of open issues and pull requests."
+  dry-run:
+    description: "Evaluate and report the selected workflow without dispatching it."
+    required: false
+    default: "false"
+  github-token:
+    description: "Token used for GitHub API calls. Defaults to the workflow's GITHUB_TOKEN."
+    required: false
+    default: ${{ github.token }}
+  tracker-workflow:
+    description: "Workflow file dispatched when an open sprint is found."
+    required: false
+    default: "tracker-loop-dispatch.yml"
+  factory-workflow:
+    description: "Workflow file dispatched when no open sprint is found."
+    required: false
+    default: "factory-cycle-dispatch.yml"
+  ci-workflow:
+    description: "Workflow file dispatched per agent PR to attach a Test check to the head SHA."
+    required: false
+    default: "ci.yml"
+
+outputs:
+  workflow:
+    description: "Selected target workflow file (tracker or factory)."
+  tracker:
+    description: "Sprint issue number used as tracker input, when a sprint was found."
+  sprint:
+    description: "Same as tracker; preserved for compatibility."
+  open_issue_count:
+    description: "Number of open issues."
+  open_pr_count:
+    description: "Number of open pull requests."
+  stale_pr_count:
+    description: "Non-draft PRs whose review decision is CHANGES_REQUESTED or REVIEW_REQUIRED."
+  reason:
+    description: "Human-readable reason for the workflow selection."
+  pending_count:
+    description: "Agent PRs that need a Test check on their head SHA."
+  dispatched_count:
+    description: "CI dispatches initiated this run."
+  active_count:
+    description: "Agent PRs already running/queued CI for their head SHA."
+  current_count:
+    description: "Agent PRs whose head SHA already has a Test check."
+  failed_count:
+    description: "Agent PRs whose CI dispatch attempt failed."
+  hold_target:
+    description: "True when the target workflow dispatch was held this pass."
+  target_dispatched:
+    description: "Which target dispatched: 'tracker', 'factory', or 'skipped'."
+
+runs:
+  using: "node20"
+  main: "dist/index.js"

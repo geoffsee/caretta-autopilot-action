@@ -1,0 +1,23 @@
+{
+  "name": "@caretta/autopilot-action",
+  "version": "0.1.0",
+  "private": true,
+  "description": "GitHub Action that evaluates repository state and dispatches the appropriate autopilot follow-up workflow.",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "ncc build src/index.ts -o dist --source-map --license licenses.txt",
+    "typecheck": "tsc --noEmit",
+    "lint": "tsc --noEmit",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@actions/core": "^1.11.1",
+    "@actions/github": "^6.0.0"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.1.10",
+    "@types/node": "^20.14.0",
+    "@vercel/ncc": "^0.38.3",
+    "typescript": "^5.6.3"
+  }
+}
