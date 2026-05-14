@@ -2,12 +2,12 @@
 
 This directory scaffolds TypeScript GitHub Actions that replace the legacy dispatch workflow bodies:
 
-- `INPUT_TRACKER-WORKFLOW=tracker-loop-dispatch.yml` -> `packages/tracker-loop-action`
+- `INPUT_TRACKER-WORKFLOW=tracker-loop-dispatch.yml` -> `packages/work-dispatch-action`
 - `INPUT_FACTORY-WORKFLOW=factory-cycle-dispatch.yml` -> `packages/factory-cycle-action`
 
 ## Package layout
 
-- `tracker-loop-action`: Runs tracker loop logic (tracker-matrix, issue loop, sync, conflict fix, CI gate, review/fix, automerge queue).
+- `work-dispatch-action`: Runs tracker loop logic (tracker-matrix, issue loop, sync, conflict fix, CI gate, review/fix, automerge queue).
 - `factory-cycle-action`: Runs factory cycle logic (housekeeping, sprint preflight, ideation, research, strategic review, sprint planning).
 
 ## Wrapper workflow migration
@@ -42,7 +42,7 @@ jobs:
       statuses: write
     steps:
       - uses: actions/checkout@v4
-      - uses: geoffsee/caretta-autopilot-action/packages/tracker-loop-action@main
+      - uses: geoffsee/caretta-autopilot-action/packages/work-dispatch-action@main
         with:
           tracker: ${{ inputs.tracker }}
           context: ${{ inputs.context }}

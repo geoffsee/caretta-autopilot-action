@@ -36,8 +36,8 @@ stage_dist_if_changed() {
 echo "[pre-commit] typecheck (root)"
 bun run typecheck
 
-echo "[pre-commit] typecheck (tracker-loop-action)"
-bun x tsc --noEmit -p packages/tracker-loop-action/tsconfig.json
+echo "[pre-commit] typecheck (work-dispatch-action)"
+bun x tsc --noEmit -p packages/work-dispatch-action/tsconfig.json
 
 echo "[pre-commit] typecheck (factory-cycle-action)"
 bun x tsc --noEmit -p packages/factory-cycle-action/tsconfig.json
@@ -54,19 +54,19 @@ else
 fi
 
 if git diff --cached --quiet -- \
-  packages/tracker-loop-action/src/ \
-  packages/tracker-loop-action/package.json \
-  packages/tracker-loop-action/tsconfig.json \
+  packages/work-dispatch-action/src/ \
+  packages/work-dispatch-action/package.json \
+  packages/work-dispatch-action/tsconfig.json \
   bun.lock
 then
-  echo "[pre-commit] tracker-loop-action build inputs unchanged, skipping build"
+  echo "[pre-commit] work-dispatch-action build inputs unchanged, skipping build"
 else
-  echo "[pre-commit] build (tracker-loop-action)"
+  echo "[pre-commit] build (work-dispatch-action)"
   (
-    cd packages/tracker-loop-action
+    cd packages/work-dispatch-action
     bun x ncc build src/index.ts -o dist --source-map --license licenses.txt
   )
-  stage_dist_if_changed packages/tracker-loop-action/dist/
+  stage_dist_if_changed packages/work-dispatch-action/dist/
 fi
 
 if git diff --cached --quiet -- \
@@ -96,8 +96,8 @@ cd "$(git rev-parse --show-toplevel)"
 echo "[pre-push] test"
 bun test
 
-echo "[pre-push] typecheck (tracker-loop-action)"
-bun x tsc --noEmit -p packages/tracker-loop-action/tsconfig.json
+echo "[pre-push] typecheck (work-dispatch-action)"
+bun x tsc --noEmit -p packages/work-dispatch-action/tsconfig.json
 
 echo "[pre-push] typecheck (factory-cycle-action)"
 bun x tsc --noEmit -p packages/factory-cycle-action/tsconfig.json
@@ -105,9 +105,9 @@ bun x tsc --noEmit -p packages/factory-cycle-action/tsconfig.json
 echo "[pre-push] build (root action)"
 bun run build
 
-echo "[pre-push] build (tracker-loop-action)"
+echo "[pre-push] build (work-dispatch-action)"
 (
-  cd packages/tracker-loop-action
+  cd packages/work-dispatch-action
   bun x ncc build src/index.ts -o dist --source-map --license licenses.txt
 )
 
@@ -120,7 +120,7 @@ echo "[pre-push] build (factory-cycle-action)"
 DIRTY=0
 for DIST_DIR in \
   dist/ \
-  packages/tracker-loop-action/dist/ \
+  packages/work-dispatch-action/dist/ \
   packages/factory-cycle-action/dist/
 do
   if ! git diff --quiet -- "${DIST_DIR}"; then

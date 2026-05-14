@@ -1,4 +1,4 @@
-name: "caretta-tracker-loop-action"
+name: "caretta-work-dispatch-action"
 description: "Run the tracker loop in TypeScript, replacing tracker-loop-dispatch workflow logic."
 author: "geoffsee"
 branding:

@@ -1,5 +1,5 @@
 {
-  "name": "@caretta/tracker-loop-action",
+  "name": "@caretta/work-dispatch-action",
   "version": "0.1.0",
   "private": true,
   "description": "TypeScript GitHub Action replacement for tracker-loop-dispatch workflow logic.",
