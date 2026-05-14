@@ -2,7 +2,7 @@ import { isWorkflowBusy } from "./activity.js";
 import { dispatchTarget } from "./decide.js";
 import { evaluate } from "./evaluate.js";
 import type { ExecClient } from "./exec.js";
-import { executeAutopilot } from "./execute.js";
+import { type ExecuteDeps, executeAutopilot } from "./execute.js";
 import type { GitHubClient } from "./github.js";
 import { processAgentPRs } from "./pr-ci.js";
 import { buildSummary } from "./summary.js";
@@ -25,6 +25,7 @@ export async function runAutopilot(
   exec: ExecClient,
   config: AutopilotConfig,
   ref: string,
+  executeDeps?: ExecuteDeps,
 ): Promise<AutopilotRunResult> {
   const [issues, prs] = await Promise.all([
     gh.listOpenIssues(),
@@ -50,7 +51,7 @@ export async function runAutopilot(
   );
 
   if (decision.targetDispatched === "executed") {
-    await executeAutopilot(gh, exec, config, evaluation);
+    await executeAutopilot(gh, exec, config, evaluation, executeDeps);
   }
 
   const summary = buildSummary(evaluation, prCi, decision, config);

@@ -66178,9 +66178,14 @@ function materializeBotPrivateKey(env) {
 ;// CONCATENATED MODULE: ./src/execute.ts
 
 
-async function executeAutopilot(gh, exec, config, evaluation) {
-    const { binaryPath } = await installCaretta(config.carettaVersion, process.env.GITHUB_TOKEN || "");
-    await installLinuxRuntimeDeps();
+const defaultExecuteDeps = {
+    installCaretta: installCaretta,
+    installLinuxRuntimeDeps: installLinuxRuntimeDeps,
+    materializeBotPrivateKey: materializeBotPrivateKey,
+};
+async function executeAutopilot(gh, exec, config, evaluation, deps = defaultExecuteDeps) {
+    const { binaryPath } = await deps.installCaretta(config.carettaVersion, process.env.GITHUB_TOKEN || "");
+    await deps.installLinuxRuntimeDeps();
     const env = { ...process.env };
     if (!env.GH_TOKEN)
         env.GH_TOKEN = process.env.GITHUB_TOKEN || "";
@@ -66188,7 +66193,7 @@ async function executeAutopilot(gh, exec, config, evaluation) {
         env.RUST_LOG = "info";
     if (config.context)
         env.CARETTA_CONTEXT = config.context;
-    materializeBotPrivateKey(env);
+    deps.materializeBotPrivateKey(env);
     const runner = new CarettaRunner(binaryPath, env, exec, gh, config);
     if (evaluation.workflow === config.trackerWorkflow) {
         await runner.runTrackerLoop(evaluation.tracker);
@@ -66477,7 +66482,7 @@ function buildSummary(evaluation, prCi, decision, config) {
 
 
 
-async function runAutopilot(gh, exec, config, ref) {
+async function runAutopilot(gh, exec, config, ref, executeDeps) {
     const [issues, prs] = await Promise.all([
         gh.listOpenIssues(),
         gh.listOpenPullRequests(),
@@ -66489,7 +66494,7 @@ async function runAutopilot(gh, exec, config, ref) {
         : await processAgentPRs(gh, prs, config);
     const decision = await dispatchTarget(gh, evaluation, prCi, config, ref, targetBusy);
     if (decision.targetDispatched === "executed") {
-        await executeAutopilot(gh, exec, config, evaluation);
+        await executeAutopilot(gh, exec, config, evaluation, executeDeps);
     }
     const summary = buildSummary(evaluation, prCi, decision, config);
     return { evaluation, prCi, decision, summary };

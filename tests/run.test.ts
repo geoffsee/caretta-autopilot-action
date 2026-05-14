@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
+import type { ExecuteDeps } from "../src/execute.js";
 import { runAutopilot } from "../src/run.js";
 import {
   FakeExec,
@@ -8,15 +9,14 @@ import {
   makePR,
 } from "./fakes.js";
 
-// Mock install.ts
-mock.module("../src/install.js", () => ({
+const fakeInstallDeps: ExecuteDeps = {
   installCaretta: async () => ({
     binaryPath: "/mock/caretta",
     version: "v1.2.3",
   }),
   installLinuxRuntimeDeps: async () => {},
   materializeBotPrivateKey: () => {},
-}));
+};
 
 describe("runAutopilot", () => {
   let exec: FakeExec;
@@ -160,6 +160,7 @@ describe("runAutopilot", () => {
       exec,
       makeConfig({ mode: "execute" }),
       "master",
+      fakeInstallDeps,
     );
 
     expect(result.decision.targetDispatched).toBe("executed");
@@ -210,6 +211,7 @@ describe("runAutopilot", () => {
       exec,
       makeConfig({ mode: "execute" }),
       "master",
+      fakeInstallDeps,
     );
 
     expect(result.decision.targetDispatched).toBe("executed");

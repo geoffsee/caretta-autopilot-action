@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
+import { type ExecuteDeps, executeAutopilot } from "../src/execute.js";
 import type { EvaluationResult } from "../src/types.js";
 import {
   FakeExec,
@@ -8,16 +9,14 @@ import {
   makePR,
 } from "./fakes.js";
 
-mock.module("../src/install.js", () => ({
+const fakeInstallDeps: ExecuteDeps = {
   installCaretta: async () => ({
     binaryPath: "/mock/caretta",
     version: "v1.2.3",
   }),
   installLinuxRuntimeDeps: async () => {},
   materializeBotPrivateKey: () => {},
-}));
-
-const { executeAutopilot } = await import("../src/execute.js");
+};
 
 const trackerEval: EvaluationResult = {
   sprint: 7,
@@ -58,6 +57,7 @@ describe("executeAutopilot", () => {
       exec,
       makeConfig({ mode: "execute" }),
       unknownEval,
+      fakeInstallDeps,
     );
     expect(exec.calls).toHaveLength(0);
     expect(gh.dispatched).toHaveLength(0);
@@ -72,6 +72,7 @@ describe("executeAutopilot", () => {
       exec,
       makeConfig({ mode: "execute" }),
       factoryEval,
+      fakeInstallDeps,
     );
 
     expect(exec.calls.some((c) => c.args.includes("housekeeping"))).toBe(true);
@@ -115,6 +116,7 @@ describe("executeAutopilot", () => {
       exec,
       makeConfig({ mode: "execute" }),
       trackerEval,
+      fakeInstallDeps,
     );
 
     const fixCalls = exec.calls.filter((c) => c.args.includes("fix-conflicts"));
@@ -147,6 +149,7 @@ describe("executeAutopilot", () => {
       exec,
       makeConfig({ mode: "execute" }),
       trackerEval,
+      fakeInstallDeps,
     );
 
     expect(exec.calls.some((c) => c.args.includes("code-review"))).toBe(false);
@@ -175,6 +178,7 @@ describe("executeAutopilot", () => {
       exec,
       makeConfig({ mode: "execute" }),
       trackerEval,
+      fakeInstallDeps,
     );
 
     // Empty matrix → no per-issue caretta call

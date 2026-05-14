@@ -8,17 +8,30 @@ import {
 } from "./install.js";
 import type { AutopilotConfig, EvaluationResult } from "./types.js";
 
+export interface ExecuteDeps {
+  installCaretta: typeof installCaretta;
+  installLinuxRuntimeDeps: typeof installLinuxRuntimeDeps;
+  materializeBotPrivateKey: typeof materializeBotPrivateKey;
+}
+
+export const defaultExecuteDeps: ExecuteDeps = {
+  installCaretta,
+  installLinuxRuntimeDeps,
+  materializeBotPrivateKey,
+};
+
 export async function executeAutopilot(
   gh: GitHubClient,
   exec: ExecClient,
   config: AutopilotConfig,
   evaluation: EvaluationResult,
+  deps: ExecuteDeps = defaultExecuteDeps,
 ): Promise<void> {
-  const { binaryPath } = await installCaretta(
+  const { binaryPath } = await deps.installCaretta(
     config.carettaVersion,
     process.env.GITHUB_TOKEN || "",
   );
-  await installLinuxRuntimeDeps();
+  await deps.installLinuxRuntimeDeps();
 
   const env: Record<string, string> = { ...process.env } as Record<
     string,
@@ -27,7 +40,7 @@ export async function executeAutopilot(
   if (!env.GH_TOKEN) env.GH_TOKEN = process.env.GITHUB_TOKEN || "";
   if (!env.RUST_LOG) env.RUST_LOG = "info";
   if (config.context) env.CARETTA_CONTEXT = config.context;
-  materializeBotPrivateKey(env);
+  deps.materializeBotPrivateKey(env);
 
   const runner = new CarettaRunner(binaryPath, env, exec, gh, config);
 
