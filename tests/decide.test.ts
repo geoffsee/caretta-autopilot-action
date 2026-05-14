@@ -153,4 +153,38 @@ describe("dispatchTarget", () => {
     expect(decision.targetDispatched).toBe("skipped");
     expect(gh.dispatched).toHaveLength(0);
   });
+
+  test("execute mode skips when target is busy", async () => {
+    const gh = new FakeGitHub();
+    const decision = await dispatchTarget(
+      gh,
+      trackerEval,
+      emptyPrCi,
+      makeConfig({ mode: "execute" }),
+      "master",
+      true,
+    );
+    expect(decision.targetDispatched).toBe("skipped");
+    expect(decision.targetBusy).toBe(true);
+    expect(gh.dispatched).toHaveLength(0);
+  });
+
+  test("skips dispatch when evaluation workflow matches neither tracker nor factory", async () => {
+    const gh = new FakeGitHub();
+    const unknownEval: EvaluationResult = {
+      ...trackerEval,
+      workflow: "",
+      reason: "no dispatch needed",
+    };
+    const decision = await dispatchTarget(
+      gh,
+      unknownEval,
+      emptyPrCi,
+      makeConfig(),
+      "master",
+      false,
+    );
+    expect(decision.targetDispatched).toBe("skipped");
+    expect(gh.dispatched).toHaveLength(0);
+  });
 });
