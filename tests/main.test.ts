@@ -1,7 +1,7 @@
 import { describe, expect, test, beforeEach, mock } from "bun:test";
-import type { ExecClient } from "../src/exec.js";
-import type { GitHubClient } from "../src/github.js";
-import type { AutopilotRunResult } from "../src/run.js";
+import { DefaultExecClient, type ExecClient } from "../src/exec.js";
+import { createOctokitClient, type GitHubClient } from "../src/github.js";
+import { runAutopilot, type AutopilotRunResult } from "../src/run.js";
 import type {
   AutopilotConfig,
   AutopilotDecision,
@@ -76,7 +76,7 @@ mock.module("@actions/github", () => ({
   context: mockContext,
 }));
 
-const { main } = await import("../src/main.js");
+const { main, defaultDependencies } = await import("../src/main.js");
 
 function makeEvaluation(
   overrides: Partial<EvaluationResult> = {},
@@ -487,5 +487,21 @@ describe("main: error propagation", () => {
     await expect(main(h.deps)).rejects.toThrow("boom");
     expect(coreState.outputs).toEqual({});
     expect(coreState.summaryWritten).toBe(false);
+  });
+});
+
+describe("defaultDependencies", () => {
+  test("createGitHubClient delegates to createOctokitClient", () => {
+    expect(defaultDependencies.createGitHubClient).toBe(createOctokitClient);
+  });
+
+  test("createExecClient returns a DefaultExecClient", () => {
+    expect(defaultDependencies.createExecClient()).toBeInstanceOf(
+      DefaultExecClient,
+    );
+  });
+
+  test("runAutopilot is the real implementation", () => {
+    expect(defaultDependencies.runAutopilot).toBe(runAutopilot);
   });
 });
