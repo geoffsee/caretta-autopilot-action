@@ -18,94 +18,71 @@ describe("filterAgentPRs", () => {
 });
 
 describe("processAgentPRs", () => {
-  test("classifies a PR with an existing Test check as current and skips dispatch", async () => {
-    const gh = new FakeGitHub({
-      checksBySha: {
-        "sha-1": [
-          { name: "Test", startedAt: null, createdAt: "2026-01-01T00:00:00Z" },
-        ],
+  test.each([
+    {
+      name: "classifies a PR with an existing Test check as current and skips dispatch",
+      setup: {
+        checksBySha: {
+          "sha-1": [{ name: "Test", startedAt: null, createdAt: "2026-01-01T00:00:00Z" }],
+        },
       },
-    });
-    const result = await processAgentPRs(
-      gh,
-      [makePR({ number: 1 })],
-      makeConfig(),
-    );
-    expect(result.current).toHaveLength(1);
-    expect(result.pending).toHaveLength(0);
-    expect(gh.dispatched).toHaveLength(0);
-  });
-
-  test("classifies a PR with an in-progress CI run as active and skips dispatch", async () => {
-    const gh = new FakeGitHub({
-      runsByKey: {
-        "ci.yml|in_progress|agent/issue-2": [
-          { id: 99, headSha: "sha-2", status: "in_progress" },
-        ],
+      prs: [makePR({ number: 1 })],
+      config: makeConfig(),
+      expected: { current: 1, pending: 0, dispatched: 0, ghDispatched: 0 },
+    },
+    {
+      name: "classifies a PR with an in-progress CI run as active and skips dispatch",
+      setup: {
+        runsByKey: {
+          "ci.yml|in_progress|agent/issue-2": [{ id: 99, headSha: "sha-2", status: "in_progress" }],
+        },
       },
-    });
-    const result = await processAgentPRs(
-      gh,
-      [makePR({ number: 2 })],
-      makeConfig(),
-    );
-    expect(result.active).toHaveLength(1);
-    expect(result.pending).toHaveLength(1);
-    expect(gh.dispatched).toHaveLength(0);
-  });
-
-  test("dispatches CI for a pending PR with no existing run", async () => {
-    const gh = new FakeGitHub();
-    const result = await processAgentPRs(
-      gh,
-      [makePR({ number: 3 })],
-      makeConfig(),
-    );
-    expect(result.dispatched).toHaveLength(1);
-    expect(result.pending).toHaveLength(1);
-    expect(gh.dispatched).toEqual([
-      { workflow: "ci.yml", ref: "agent/issue-3", inputs: undefined },
-    ]);
-  });
-
-  test("records a failed dispatch without retrying", async () => {
-    const gh = new FakeGitHub({ dispatchShouldFail: () => true });
-    const result = await processAgentPRs(
-      gh,
-      [makePR({ number: 4 })],
-      makeConfig(),
-    );
-    expect(result.failed).toHaveLength(1);
-    expect(result.dispatched).toHaveLength(0);
-    expect(result.pending).toHaveLength(1);
-  });
-
-  test("dry-run does not call dispatch but still classifies as pending", async () => {
-    const gh = new FakeGitHub();
-    const result = await processAgentPRs(
-      gh,
-      [makePR({ number: 5 })],
-      makeConfig({ dryRun: true }),
-    );
-    expect(result.pending).toHaveLength(1);
-    expect(result.dispatched).toHaveLength(0);
-    expect(gh.dispatched).toHaveLength(0);
-  });
-
-  test("ignores runs whose head SHA differs from the PR head SHA", async () => {
-    const gh = new FakeGitHub({
-      runsByKey: {
-        "ci.yml|queued|agent/issue-6": [
-          { id: 1, headSha: "stale-sha", status: "queued" },
-        ],
+      prs: [makePR({ number: 2 })],
+      config: makeConfig(),
+      expected: { active: 1, pending: 1, dispatched: 0, ghDispatched: 0 },
+    },
+    {
+      name: "dispatches CI for a pending PR with no existing run",
+      setup: {},
+      prs: [makePR({ number: 3 })],
+      config: makeConfig(),
+      expected: { active: 0, pending: 1, dispatched: 1, ghDispatched: 1 },
+    },
+    {
+      name: "records a failed dispatch without retrying",
+      setup: { dispatchShouldFail: () => true },
+      prs: [makePR({ number: 4 })],
+      config: makeConfig(),
+      expected: { failed: 1, dispatched: 0, pending: 1, ghDispatched: 0 },
+    },
+    {
+      name: "dry-run does not call dispatch but still classifies as pending",
+      setup: {},
+      prs: [makePR({ number: 5 })],
+      config: makeConfig({ dryRun: true }),
+      expected: { active: 0, pending: 1, dispatched: 0, ghDispatched: 0 },
+    },
+    {
+      name: "ignores runs whose head SHA differs from the PR head SHA",
+      setup: {
+        runsByKey: {
+          "ci.yml|queued|agent/issue-6": [{ id: 1, headSha: "stale-sha", status: "queued" }],
+        },
       },
-    });
-    const result = await processAgentPRs(
-      gh,
-      [makePR({ number: 6 })],
-      makeConfig(),
-    );
-    expect(result.active).toHaveLength(0);
-    expect(result.dispatched).toHaveLength(1);
+      prs: [makePR({ number: 6 })],
+      config: makeConfig(),
+      expected: { active: 0, dispatched: 1, ghDispatched: 1 },
+    },
+  ])("$name", async ({ setup, prs, config, expected }) => {
+    const gh = new FakeGitHub(setup);
+    const result = await processAgentPRs(gh, prs, config);
+    
+    if (expected.current !== undefined) expect(result.current).toHaveLength(expected.current);
+    if (expected.pending !== undefined) expect(result.pending).toHaveLength(expected.pending);
+    if (expected.active !== undefined) expect(result.active).toHaveLength(expected.active);
+    if (expected.dispatched !== undefined) expect(result.dispatched).toHaveLength(expected.dispatched);
+    if (expected.failed !== undefined) expect(result.failed).toHaveLength(expected.failed);
+    
+    expect(gh.dispatched).toHaveLength(expected.ghDispatched);
   });
 });

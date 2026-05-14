@@ -27,67 +27,46 @@ const emptyPrCi: PrCiResult = {
 };
 
 describe("buildSummary", () => {
-  test("renders the evaluation block with counts and selected workflow", () => {
-    const decision: AutopilotDecision = {
-      holdTarget: false,
-      targetDispatched: "tracker",
-      targetBusy: false,
-    };
-    const out = buildSummary(evalResult, emptyPrCi, decision, makeConfig());
-    expect(out).toContain("### Autopilot evaluation");
-    expect(out).toContain("- Open issues: 3");
-    expect(out).toContain("- Open pull requests: 2");
-    expect(out).toContain("- Active sprint: #7");
-    expect(out).toContain("- Selected workflow: tracker-loop-dispatch.yml");
-  });
-
-  test("notes when the target workflow is busy", () => {
-    const decision: AutopilotDecision = {
-      holdTarget: false,
-      targetDispatched: "skipped",
-      targetBusy: true,
-    };
-    const out = buildSummary(evalResult, emptyPrCi, decision, makeConfig());
-    expect(out).toContain("already queued or running");
-  });
-
-  test("notes hold_target when PR-CI activity gates dispatch", () => {
-    const decision: AutopilotDecision = {
-      holdTarget: true,
-      targetDispatched: "skipped",
-      targetBusy: false,
-    };
-    const out = buildSummary(evalResult, emptyPrCi, decision, makeConfig());
-    expect(out).toContain("Target workflow dispatch skipped this pass");
-  });
-
-  test("notes dispatch failures even when proceeding", () => {
-    const decision: AutopilotDecision = {
-      holdTarget: false,
-      targetDispatched: "tracker",
-      targetBusy: false,
-    };
-    const prCi: PrCiResult = {
-      ...emptyPrCi,
-      failed: [{ number: 1, branch: "agent/issue-1", sha: "sha", url: "u" }],
-    };
-    const out = buildSummary(evalResult, prCi, decision, makeConfig());
-    expect(out).toContain("Target workflow dispatch may continue");
-  });
-
-  test("renders a dry-run footer when dispatch was held but no busy/hold", () => {
-    const decision: AutopilotDecision = {
-      holdTarget: false,
-      targetDispatched: "skipped",
-      targetBusy: false,
-    };
-    const out = buildSummary(
-      evalResult,
-      emptyPrCi,
-      decision,
-      makeConfig({ dryRun: true }),
-    );
-    expect(out).toContain("Dry run enabled");
-    expect(out).toContain("Tracker: #7");
+  test.each([
+    {
+      name: "renders the evaluation block with counts and selected workflow",
+      decision: { holdTarget: false, targetDispatched: "tracker", targetBusy: false },
+      prCi: emptyPrCi,
+      config: makeConfig(),
+      expectedContains: ["### Autopilot evaluation", "- Open issues: 3", "- Open pull requests: 2", "- Active sprint: #7", "- Selected workflow: tracker-loop-dispatch.yml"],
+    },
+    {
+      name: "notes when the target workflow is busy",
+      decision: { holdTarget: false, targetDispatched: "skipped", targetBusy: true },
+      prCi: emptyPrCi,
+      config: makeConfig(),
+      expectedContains: ["already queued or running"],
+    },
+    {
+      name: "notes hold_target when PR-CI activity gates dispatch",
+      decision: { holdTarget: true, targetDispatched: "skipped", targetBusy: false },
+      prCi: emptyPrCi,
+      config: makeConfig(),
+      expectedContains: ["Target workflow dispatch skipped this pass"],
+    },
+    {
+      name: "notes dispatch failures even when proceeding",
+      decision: { holdTarget: false, targetDispatched: "tracker", targetBusy: false },
+      prCi: { ...emptyPrCi, failed: [{ number: 1, branch: "agent/issue-1", sha: "sha", url: "u" }] },
+      config: makeConfig(),
+      expectedContains: ["Target workflow dispatch may continue"],
+    },
+    {
+      name: "renders a dry-run footer when dispatch was held but no busy/hold",
+      decision: { holdTarget: false, targetDispatched: "skipped", targetBusy: false },
+      prCi: emptyPrCi,
+      config: makeConfig({ dryRun: true }),
+      expectedContains: ["Dry run enabled", "Tracker: #7"],
+    },
+  ])("$name", ({ decision, prCi, config, expectedContains }) => {
+    const out = buildSummary(evalResult, prCi, decision, config);
+    for (const text of expectedContains) {
+      expect(out).toContain(text);
+    }
   });
 });

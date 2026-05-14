@@ -31,34 +31,64 @@ describe("findActiveSprint", () => {
 });
 
 describe("countStalePRs", () => {
-  test("counts only non-draft PRs needing review action", () => {
-    const prs = [
-      makePR({ number: 1, reviewDecision: "CHANGES_REQUESTED" }),
-      makePR({ number: 2, reviewDecision: "REVIEW_REQUIRED" }),
-      makePR({ number: 3, reviewDecision: "APPROVED" }),
-      makePR({ number: 4, isDraft: true, reviewDecision: "CHANGES_REQUESTED" }),
-    ];
-    expect(countStalePRs(prs)).toBe(2);
+  test.each([
+    {
+      name: "counts only non-draft PRs needing review action",
+      prs: [
+        makePR({ number: 1, reviewDecision: "CHANGES_REQUESTED" }),
+        makePR({ number: 2, reviewDecision: "REVIEW_REQUIRED" }),
+        makePR({ number: 3, reviewDecision: "APPROVED" }),
+        makePR({ number: 4, isDraft: true, reviewDecision: "CHANGES_REQUESTED" }),
+      ],
+      expected: 2,
+    },
+    {
+      name: "returns 0 for empty PR list",
+      prs: [],
+      expected: 0,
+    },
+    {
+      name: "returns 0 if no PRs need action",
+      prs: [
+        makePR({ number: 3, reviewDecision: "APPROVED" }),
+        makePR({ number: 5, isDraft: true }),
+      ],
+      expected: 0,
+    },
+  ])("$name", ({ prs, expected }) => {
+    expect(countStalePRs(prs)).toBe(expected);
   });
 });
 
 describe("evaluate", () => {
-  test("chooses tracker workflow when sprint exists", () => {
-    const issues = [makeIssue({ number: 42, labels: [{ name: "sprint" }] })];
-    const result = evaluate(issues, [], "tracker.yml", "factory.yml");
-    expect(result.workflow).toBe("tracker.yml");
-    expect(result.tracker).toBe("42");
-    expect(result.sprint).toBe(42);
-    expect(result.reason).toContain("#42");
-    expect(result.activeSprint).toBe("#42");
-  });
-
-  test("chooses factory workflow when no sprint exists", () => {
-    const result = evaluate([], [], "tracker.yml", "factory.yml");
-    expect(result.workflow).toBe("factory.yml");
-    expect(result.tracker).toBe("");
-    expect(result.sprint).toBeNull();
-    expect(result.activeSprint).toBe("none");
+  test.each([
+    {
+      name: "chooses tracker workflow when sprint exists",
+      issues: [makeIssue({ number: 42, labels: [{ name: "sprint" }] })],
+      prs: [],
+      expectedWorkflow: "tracker.yml",
+      expectedTracker: "42",
+      expectedSprint: 42,
+    },
+    {
+      name: "chooses factory workflow when no sprint exists",
+      issues: [],
+      prs: [],
+      expectedWorkflow: "factory.yml",
+      expectedTracker: "",
+      expectedSprint: null,
+    },
+  ])("$name", ({ issues, prs, expectedWorkflow, expectedTracker, expectedSprint }) => {
+    const result = evaluate(issues, prs, "tracker.yml", "factory.yml");
+    expect(result.workflow).toBe(expectedWorkflow);
+    expect(result.tracker).toBe(expectedTracker);
+    expect(result.sprint).toBe(expectedSprint);
+    if (expectedSprint) {
+      expect(result.reason).toContain(`#${expectedSprint}`);
+      expect(result.activeSprint).toBe(`#${expectedSprint}`);
+    } else {
+      expect(result.activeSprint).toBe("none");
+    }
   });
 
   test("reports counts on the result", () => {

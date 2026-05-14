@@ -34,48 +34,39 @@ const factoryEval: EvaluationResult = {
 };
 
 describe("computeHoldTarget", () => {
-  test("holds when any PR was dispatched", () => {
-    expect(
-      computeHoldTarget(
-        {
-          ...emptyPrCi,
-          dispatched: [{ number: 1, branch: "b", sha: "s", url: "u" }],
-        },
-        false,
-      ),
-    ).toBe(true);
-  });
-
-  test("holds when any PR is active", () => {
-    expect(
-      computeHoldTarget(
-        {
-          ...emptyPrCi,
-          active: [{ number: 1, branch: "b", sha: "s", url: "u" }],
-        },
-        false,
-      ),
-    ).toBe(true);
-  });
-
-  test("holds in dry-run when there is pending work", () => {
-    expect(
-      computeHoldTarget(
-        {
-          ...emptyPrCi,
-          pending: [{ number: 1, branch: "b", sha: "s", url: "u" }],
-        },
-        true,
-      ),
-    ).toBe(true);
-  });
-
-  test("does not hold when nothing is pending and not dry-run", () => {
-    expect(computeHoldTarget(emptyPrCi, false)).toBe(false);
-  });
-
-  test("does not hold when dry-run but no pending work", () => {
-    expect(computeHoldTarget(emptyPrCi, true)).toBe(false);
+  test.each([
+    {
+      name: "holds when any PR was dispatched",
+      prCi: { ...emptyPrCi, dispatched: [{ number: 1, branch: "b", sha: "s", url: "u" }] },
+      dryRun: false,
+      expected: true,
+    },
+    {
+      name: "holds when any PR is active",
+      prCi: { ...emptyPrCi, active: [{ number: 1, branch: "b", sha: "s", url: "u" }] },
+      dryRun: false,
+      expected: true,
+    },
+    {
+      name: "holds in dry-run when there is pending work",
+      prCi: { ...emptyPrCi, pending: [{ number: 1, branch: "b", sha: "s", url: "u" }] },
+      dryRun: true,
+      expected: true,
+    },
+    {
+      name: "does not hold when nothing is pending and not dry-run",
+      prCi: emptyPrCi,
+      dryRun: false,
+      expected: false,
+    },
+    {
+      name: "does not hold when dry-run but no pending work",
+      prCi: emptyPrCi,
+      dryRun: true,
+      expected: false,
+    },
+  ])("$name", ({ prCi, dryRun, expected }) => {
+    expect(computeHoldTarget(prCi, dryRun)).toBe(expected);
   });
 });
 
