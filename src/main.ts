@@ -1,7 +1,10 @@
 import * as core from "@actions/core";
 import * as github from "@actions/github";
-import { createOctokitClient } from "./github.js";
+import type { ExecClient } from "./exec.js";
 import { DefaultExecClient } from "./exec.js";
+import type { GitHubClient } from "./github.js";
+import { createOctokitClient } from "./github.js";
+import type { AutopilotRunResult } from "./run.js";
 import { runAutopilot } from "./run.js";
 import {
   DEFAULT_AGENT_BRANCH,
@@ -9,7 +12,30 @@ import {
   type AutopilotConfig,
 } from "./types.js";
 
-export async function main(): Promise<void> {
+export interface MainDependencies {
+  readonly createGitHubClient: (
+    token: string,
+    owner: string,
+    repo: string,
+  ) => GitHubClient;
+  readonly createExecClient: () => ExecClient;
+  readonly runAutopilot: (
+    gh: GitHubClient,
+    exec: ExecClient,
+    config: AutopilotConfig,
+    ref: string,
+  ) => Promise<AutopilotRunResult>;
+}
+
+export const defaultDependencies: MainDependencies = {
+  createGitHubClient: createOctokitClient,
+  createExecClient: () => new DefaultExecClient(),
+  runAutopilot,
+};
+
+export async function main(
+  deps: MainDependencies = defaultDependencies,
+): Promise<void> {
   const token = core.getInput("github-token", { required: true });
   const modeInput = core.getInput("mode") || "evaluate";
   const mode = modeInput === "execute" ? "execute" : "evaluate";
@@ -48,9 +74,9 @@ export async function main(): Promise<void> {
     testCheckName: DEFAULT_TEST_CHECK_NAME,
   };
 
-  const gh = createOctokitClient(token, owner, repo);
-  const exec = new DefaultExecClient();
-  const result = await runAutopilot(gh, exec, config, ref);
+  const gh = deps.createGitHubClient(token, owner, repo);
+  const exec = deps.createExecClient();
+  const result = await deps.runAutopilot(gh, exec, config, ref);
 
   core.setOutput("workflow", result.evaluation.workflow);
   core.setOutput("tracker", result.evaluation.tracker);

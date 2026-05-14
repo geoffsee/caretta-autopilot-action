@@ -1,11 +1,13 @@
 import { describe, expect, test, beforeEach, mock } from "bun:test";
+import type { ExecClient } from "../src/exec.js";
+import type { GitHubClient } from "../src/github.js";
+import type { AutopilotRunResult } from "../src/run.js";
 import type {
   AutopilotConfig,
+  AutopilotDecision,
   EvaluationResult,
   PrCiResult,
-  AutopilotDecision,
 } from "../src/types.js";
-import type { AutopilotRunResult } from "../src/run.js";
 
 interface CoreState {
   inputs: Record<string, string>;
@@ -33,28 +35,48 @@ const mockContext: GithubContext = {
   ref: "refs/heads/main",
 };
 
-interface OctokitArgs {
-  token: string;
-  owner: string;
-  repo: string;
-}
+mock.module("@actions/core", () => ({
+  getInput: (name: string, opts?: { required?: boolean }) => {
+    const v = coreState.inputs[name] ?? "";
+    if (opts?.required && v === "") {
+      throw new Error(`Input required and not supplied: ${name}`);
+    }
+    return v;
+  },
+  getBooleanInput: (name: string) => {
+    const raw = coreState.inputs[name] ?? "";
+    if (raw === "true") return true;
+    if (raw === "false") return false;
+    throw new TypeError(
+      `Input does not meet YAML 1.2 "Core Schema" specification: ${name}`,
+    );
+  },
+  setOutput: (name: string, value: unknown) => {
+    coreState.outputs[name] = String(value);
+  },
+  setFailed: (msg: string) => {
+    coreState.failed = msg;
+  },
+  setSecret: () => {},
+  info: () => {},
+  warning: () => {},
+  summary: {
+    addRaw(s: string) {
+      coreState.summaryRaw.push(s);
+      return {
+        async write() {
+          coreState.summaryWritten = true;
+        },
+      };
+    },
+  },
+}));
 
-const ghClientState: { lastArgs: OctokitArgs | null } = { lastArgs: null };
+mock.module("@actions/github", () => ({
+  context: mockContext,
+}));
 
-interface RunCall {
-  config: AutopilotConfig;
-  ref: string;
-}
-
-const runState: {
-  calls: RunCall[];
-  result: AutopilotRunResult;
-  throwError: Error | null;
-} = {
-  calls: [],
-  result: makeRunResult(),
-  throwError: null,
-};
+const { main } = await import("../src/main.js");
 
 function makeEvaluation(
   overrides: Partial<EvaluationResult> = {},
@@ -106,75 +128,67 @@ function makeRunResult(
   };
 }
 
-mock.module("@actions/core", () => ({
-  getInput: (name: string, opts?: { required?: boolean }) => {
-    const v = coreState.inputs[name] ?? "";
-    if (opts?.required && v === "") {
-      throw new Error(`Input required and not supplied: ${name}`);
-    }
-    return v;
-  },
-  getBooleanInput: (name: string) => {
-    const raw = coreState.inputs[name] ?? "";
-    if (raw === "true") return true;
-    if (raw === "false") return false;
-    throw new TypeError(
-      `Input does not meet YAML 1.2 "Core Schema" specification: ${name}`,
-    );
-  },
-  setOutput: (name: string, value: unknown) => {
-    coreState.outputs[name] = String(value);
-  },
-  setFailed: (msg: string) => {
-    coreState.failed = msg;
-  },
-  setSecret: () => {},
-  info: () => {},
-  warning: () => {},
-  summary: {
-    addRaw(this: typeof coreState.summaryRaw extends never ? never : object, s: string) {
-      coreState.summaryRaw.push(s);
-      return {
-        async write() {
-          coreState.summaryWritten = true;
-        },
-      };
+interface RunCall {
+  config: AutopilotConfig;
+  ref: string;
+}
+
+interface Harness {
+  runCalls: RunCall[];
+  ghClientArgs: { token: string; owner: string; repo: string } | null;
+  deps: Parameters<typeof main>[0];
+}
+
+function makeHarness(
+  options: { result?: AutopilotRunResult; throwError?: Error } = {},
+): Harness {
+  const runCalls: RunCall[] = [];
+  let ghClientArgs: Harness["ghClientArgs"] = null;
+  const fakeGh: GitHubClient = {
+    async listOpenIssues() {
+      return [];
     },
-  },
-}));
+    async listOpenPullRequests() {
+      return [];
+    },
+    async listWorkflowRuns() {
+      return [];
+    },
+    async listCheckRuns() {
+      return [];
+    },
+    async dispatchWorkflow() {},
+  };
+  const fakeExec: ExecClient = {
+    async exec() {
+      return 0;
+    },
+    async getExecOutput() {
+      return { exitCode: 0, stdout: "", stderr: "" };
+    },
+  };
+  return {
+    runCalls,
+    get ghClientArgs() {
+      return ghClientArgs;
+    },
+    deps: {
+      createGitHubClient: (token, owner, repo) => {
+        ghClientArgs = { token, owner, repo };
+        return fakeGh;
+      },
+      createExecClient: () => fakeExec,
+      runAutopilot: async (_gh, _exec, config, ref) => {
+        runCalls.push({ config, ref });
+        if (options.throwError) throw options.throwError;
+        return options.result ?? makeRunResult();
+      },
+    },
+  };
+}
 
-mock.module("@actions/github", () => ({
-  context: mockContext,
-}));
-
-mock.module("../src/github.js", () => ({
-  createOctokitClient: (token: string, owner: string, repo: string) => {
-    ghClientState.lastArgs = { token, owner, repo };
-    return {};
-  },
-}));
-
-mock.module("../src/exec.js", () => ({
-  DefaultExecClient: class {},
-}));
-
-mock.module("../src/run.js", () => ({
-  runAutopilot: async (
-    _gh: unknown,
-    _exec: unknown,
-    config: AutopilotConfig,
-    ref: string,
-  ) => {
-    runState.calls.push({ config, ref });
-    if (runState.throwError) throw runState.throwError;
-    return runState.result;
-  },
-}));
-
-const { main } = await import("../src/main.js");
-
-function resetState(): void {
-  coreState.inputs = {
+function baseInputs(): Record<string, string> {
+  return {
     "github-token": "tok",
     mode: "",
     "caretta-version": "",
@@ -186,21 +200,16 @@ function resetState(): void {
     "factory-workflow": "",
     "ci-workflow": "",
   };
+}
+
+function resetState(): void {
+  coreState.inputs = baseInputs();
   coreState.outputs = {};
   coreState.failed = undefined;
   coreState.summaryRaw = [];
   coreState.summaryWritten = false;
   mockContext.repo = { owner: "o", repo: "r" };
   mockContext.ref = "refs/heads/main";
-  ghClientState.lastArgs = null;
-  runState.calls = [];
-  runState.result = makeRunResult();
-  runState.throwError = null;
-}
-
-function lastConfig(): AutopilotConfig {
-  expect(runState.calls).toHaveLength(1);
-  return runState.calls[0].config;
 }
 
 describe("main: input parsing", () => {
@@ -214,8 +223,12 @@ describe("main: input parsing", () => {
     { input: "EXECUTE", expected: "evaluate" },
   ])("mode '$input' → '$expected'", async ({ input, expected }) => {
     coreState.inputs.mode = input;
-    await main();
-    expect(lastConfig().mode).toBe(expected as AutopilotConfig["mode"]);
+    const h = makeHarness();
+    await main(h.deps);
+    expect(h.runCalls).toHaveLength(1);
+    expect(h.runCalls[0].config.mode).toBe(
+      expected as AutopilotConfig["mode"],
+    );
   });
 
   test.each([
@@ -291,8 +304,9 @@ describe("main: input parsing", () => {
     "$field: input '$input' → '$expected'",
     async ({ field, key, input, expected }) => {
       coreState.inputs[key] = input;
-      await main();
-      expect(lastConfig()[field]).toBe(expected as never);
+      const h = makeHarness();
+      await main(h.deps);
+      expect(h.runCalls[0].config[field]).toBe(expected as never);
     },
   );
 
@@ -304,8 +318,9 @@ describe("main: input parsing", () => {
     "enable-dispatch '$input' → $expected",
     async ({ input, expected }) => {
       coreState.inputs["enable-dispatch"] = input;
-      await main();
-      expect(lastConfig().enableDispatch).toBe(expected);
+      const h = makeHarness();
+      await main(h.deps);
+      expect(h.runCalls[0].config.enableDispatch).toBe(expected);
     },
   );
 
@@ -314,20 +329,23 @@ describe("main: input parsing", () => {
     { input: "false", expected: false },
   ])("dry-run '$input' → $expected", async ({ input, expected }) => {
     coreState.inputs["dry-run"] = input;
-    await main();
-    expect(lastConfig().dryRun).toBe(expected);
+    const h = makeHarness();
+    await main(h.deps);
+    expect(h.runCalls[0].config.dryRun).toBe(expected);
   });
 
   test("missing github-token throws", async () => {
     coreState.inputs["github-token"] = "";
-    await expect(main()).rejects.toThrow(/github-token/);
+    const h = makeHarness();
+    await expect(main(h.deps)).rejects.toThrow(/github-token/);
   });
 
-  test("passes token+owner+repo to createOctokitClient", async () => {
+  test("passes token+owner+repo to createGitHubClient", async () => {
     coreState.inputs["github-token"] = "tok-abc";
     mockContext.repo = { owner: "acme", repo: "widgets" };
-    await main();
-    expect(ghClientState.lastArgs).toEqual({
+    const h = makeHarness();
+    await main(h.deps);
+    expect(h.ghClientArgs).toEqual({
       token: "tok-abc",
       owner: "acme",
       repo: "widgets",
@@ -335,8 +353,9 @@ describe("main: input parsing", () => {
   });
 
   test("default config fields (agentBranchPattern, testCheckName)", async () => {
-    await main();
-    const cfg = lastConfig();
+    const h = makeHarness();
+    await main(h.deps);
+    const cfg = h.runCalls[0].config;
     expect(cfg.agentBranchPattern).toBeInstanceOf(RegExp);
     expect(cfg.agentBranchPattern.test("agent/issue-42")).toBe(true);
     expect(cfg.agentBranchPattern.test("main")).toBe(false);
@@ -356,8 +375,9 @@ describe("main: ref handling", () => {
     { ref: undefined, expected: "master" },
   ])("ref '$ref' → '$expected'", async ({ ref, expected }) => {
     mockContext.ref = ref;
-    await main();
-    expect(runState.calls[0].ref).toBe(expected);
+    const h = makeHarness();
+    await main(h.deps);
+    expect(h.runCalls[0].ref).toBe(expected);
   });
 });
 
@@ -365,34 +385,36 @@ describe("main: output wiring", () => {
   beforeEach(resetState);
 
   test("sets all outputs from run result", async () => {
-    runState.result = makeRunResult({
-      evaluation: makeEvaluation({
-        workflow: "tracker.yml",
-        tracker: "9",
-        sprint: 9,
-        openIssueCount: 4,
-        openPrCount: 2,
-        stalePrCount: 1,
-        reason: "because",
+    const h = makeHarness({
+      result: makeRunResult({
+        evaluation: makeEvaluation({
+          workflow: "tracker.yml",
+          tracker: "9",
+          sprint: 9,
+          openIssueCount: 4,
+          openPrCount: 2,
+          stalePrCount: 1,
+          reason: "because",
+        }),
+        prCi: makePrCi({
+          pending: [{ number: 1, branch: "b", sha: "s", url: "u" }],
+          dispatched: [
+            { number: 2, branch: "b", sha: "s", url: "u" },
+            { number: 3, branch: "b", sha: "s", url: "u" },
+          ],
+          active: [{ number: 4, branch: "b", sha: "s", url: "u" }],
+          current: [],
+          failed: [{ number: 5, branch: "b", sha: "s", url: "u" }],
+        }),
+        decision: makeDecision({
+          holdTarget: true,
+          targetDispatched: "skipped",
+        }),
+        summary: "## hello",
       }),
-      prCi: makePrCi({
-        pending: [{ number: 1, branch: "b", sha: "s", url: "u" }],
-        dispatched: [
-          { number: 2, branch: "b", sha: "s", url: "u" },
-          { number: 3, branch: "b", sha: "s", url: "u" },
-        ],
-        active: [{ number: 4, branch: "b", sha: "s", url: "u" }],
-        current: [],
-        failed: [{ number: 5, branch: "b", sha: "s", url: "u" }],
-      }),
-      decision: makeDecision({
-        holdTarget: true,
-        targetDispatched: "skipped",
-      }),
-      summary: "## hello",
     });
 
-    await main();
+    await main(h.deps);
 
     expect(coreState.outputs).toMatchObject({
       workflow: "tracker.yml",
@@ -421,10 +443,10 @@ describe("main: output wiring", () => {
   ])(
     "sprint output for evaluation.sprint=$sprint → '$expected'",
     async ({ sprint, expected }) => {
-      runState.result = makeRunResult({
-        evaluation: makeEvaluation({ sprint }),
+      const h = makeHarness({
+        result: makeRunResult({ evaluation: makeEvaluation({ sprint }) }),
       });
-      await main();
+      await main(h.deps);
       expect(coreState.outputs.sprint).toBe(expected);
     },
   );
@@ -435,26 +457,23 @@ describe("main: output wiring", () => {
   ])(
     "hold_target output for decision.holdTarget=$holdTarget",
     async ({ holdTarget, expected }) => {
-      runState.result = makeRunResult({
-        decision: makeDecision({ holdTarget }),
+      const h = makeHarness({
+        result: makeRunResult({ decision: makeDecision({ holdTarget }) }),
       });
-      await main();
+      await main(h.deps);
       expect(coreState.outputs.hold_target).toBe(expected);
     },
   );
 
-  test.each([
-    "tracker",
-    "factory",
-    "skipped",
-    "executed",
-  ] as const)(
+  test.each(["tracker", "factory", "skipped", "executed"] as const)(
     "target_dispatched output for decision='%s'",
     async (targetDispatched) => {
-      runState.result = makeRunResult({
-        decision: makeDecision({ targetDispatched }),
+      const h = makeHarness({
+        result: makeRunResult({
+          decision: makeDecision({ targetDispatched }),
+        }),
       });
-      await main();
+      await main(h.deps);
       expect(coreState.outputs.target_dispatched).toBe(targetDispatched);
     },
   );
@@ -464,8 +483,8 @@ describe("main: error propagation", () => {
   beforeEach(resetState);
 
   test("rejects when runAutopilot throws", async () => {
-    runState.throwError = new Error("boom");
-    await expect(main()).rejects.toThrow("boom");
+    const h = makeHarness({ throwError: new Error("boom") });
+    await expect(main(h.deps)).rejects.toThrow("boom");
     expect(coreState.outputs).toEqual({});
     expect(coreState.summaryWritten).toBe(false);
   });

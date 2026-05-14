@@ -62050,109 +62050,6 @@ var __webpack_exports__ = {};
 var lib_core = __nccwpck_require__(7484);
 // EXTERNAL MODULE: ./node_modules/@actions/github/lib/github.js
 var github = __nccwpck_require__(3228);
-;// CONCATENATED MODULE: ./src/github.ts
-
-function createOctokitClient(token, owner, repo) {
-    const octokit = github.getOctokit(token);
-    return new OctokitClient(octokit, owner, repo);
-}
-class OctokitClient {
-    octokit;
-    owner;
-    repo;
-    constructor(octokit, owner, repo) {
-        this.octokit = octokit;
-        this.owner = owner;
-        this.repo = repo;
-    }
-    async listOpenIssues() {
-        const res = await this.octokit.paginate(this.octokit.rest.issues.listForRepo, {
-            owner: this.owner,
-            repo: this.repo,
-            state: "open",
-            per_page: 100,
-        });
-        return res
-            .filter((i) => !i.pull_request)
-            .slice(0, 100)
-            .map((i) => ({
-            number: i.number,
-            title: i.title,
-            labels: (i.labels ?? []).map((l) => typeof l === "string" ? { name: l } : { name: l.name ?? "" }),
-            updatedAt: i.updated_at,
-            url: i.html_url,
-        }));
-    }
-    async listOpenPullRequests() {
-        const list = await this.octokit.paginate(this.octokit.rest.pulls.list, {
-            owner: this.owner,
-            repo: this.repo,
-            state: "open",
-            per_page: 100,
-        });
-        const trimmed = list.slice(0, 100);
-        const enriched = [];
-        for (const pr of trimmed) {
-            const detail = await this.octokit.graphql(`query($owner:String!,$repo:String!,$number:Int!){
-          repository(owner:$owner,name:$repo){
-            pullRequest(number:$number){ reviewDecision mergeStateStatus }
-          }
-        }`, { owner: this.owner, repo: this.repo, number: pr.number });
-            enriched.push({
-                number: pr.number,
-                title: pr.title,
-                isDraft: pr.draft ?? false,
-                reviewDecision: detail.repository.pullRequest.reviewDecision,
-                updatedAt: pr.updated_at,
-                url: pr.html_url,
-                headRefName: pr.head.ref,
-                headRefOid: pr.head.sha,
-                mergeStateStatus: detail.repository.pullRequest.mergeStateStatus,
-            });
-        }
-        return enriched;
-    }
-    async listWorkflowRuns(workflow, status, branch) {
-        const res = await this.octokit.rest.actions.listWorkflowRuns({
-            owner: this.owner,
-            repo: this.repo,
-            workflow_id: workflow,
-            status: status,
-            branch,
-            per_page: 50,
-        });
-        return res.data.workflow_runs.map((r) => ({
-            id: r.id,
-            headSha: r.head_sha,
-            status: r.status ?? "",
-        }));
-    }
-    async listCheckRuns(sha) {
-        const res = await this.octokit.rest.checks.listForRef({
-            owner: this.owner,
-            repo: this.repo,
-            ref: sha,
-            per_page: 100,
-        });
-        return res.data.check_runs.map((c) => ({
-            name: c.name,
-            status: c.status,
-            conclusion: c.conclusion,
-            startedAt: c.started_at,
-            createdAt: c.created_at ?? null,
-        }));
-    }
-    async dispatchWorkflow(workflow, ref, inputs) {
-        await this.octokit.rest.actions.createWorkflowDispatch({
-            owner: this.owner,
-            repo: this.repo,
-            workflow_id: workflow,
-            ref,
-            inputs,
-        });
-    }
-}
-
 // EXTERNAL MODULE: external "string_decoder"
 var external_string_decoder_ = __nccwpck_require__(3193);
 // EXTERNAL MODULE: external "os"
@@ -63297,6 +63194,109 @@ class DefaultExecClient {
     }
     async getExecOutput(commandLine, args, options) {
         return await getExecOutput(commandLine, args, options);
+    }
+}
+
+;// CONCATENATED MODULE: ./src/github.ts
+
+function createOctokitClient(token, owner, repo) {
+    const octokit = github.getOctokit(token);
+    return new OctokitClient(octokit, owner, repo);
+}
+class OctokitClient {
+    octokit;
+    owner;
+    repo;
+    constructor(octokit, owner, repo) {
+        this.octokit = octokit;
+        this.owner = owner;
+        this.repo = repo;
+    }
+    async listOpenIssues() {
+        const res = await this.octokit.paginate(this.octokit.rest.issues.listForRepo, {
+            owner: this.owner,
+            repo: this.repo,
+            state: "open",
+            per_page: 100,
+        });
+        return res
+            .filter((i) => !i.pull_request)
+            .slice(0, 100)
+            .map((i) => ({
+            number: i.number,
+            title: i.title,
+            labels: (i.labels ?? []).map((l) => typeof l === "string" ? { name: l } : { name: l.name ?? "" }),
+            updatedAt: i.updated_at,
+            url: i.html_url,
+        }));
+    }
+    async listOpenPullRequests() {
+        const list = await this.octokit.paginate(this.octokit.rest.pulls.list, {
+            owner: this.owner,
+            repo: this.repo,
+            state: "open",
+            per_page: 100,
+        });
+        const trimmed = list.slice(0, 100);
+        const enriched = [];
+        for (const pr of trimmed) {
+            const detail = await this.octokit.graphql(`query($owner:String!,$repo:String!,$number:Int!){
+          repository(owner:$owner,name:$repo){
+            pullRequest(number:$number){ reviewDecision mergeStateStatus }
+          }
+        }`, { owner: this.owner, repo: this.repo, number: pr.number });
+            enriched.push({
+                number: pr.number,
+                title: pr.title,
+                isDraft: pr.draft ?? false,
+                reviewDecision: detail.repository.pullRequest.reviewDecision,
+                updatedAt: pr.updated_at,
+                url: pr.html_url,
+                headRefName: pr.head.ref,
+                headRefOid: pr.head.sha,
+                mergeStateStatus: detail.repository.pullRequest.mergeStateStatus,
+            });
+        }
+        return enriched;
+    }
+    async listWorkflowRuns(workflow, status, branch) {
+        const res = await this.octokit.rest.actions.listWorkflowRuns({
+            owner: this.owner,
+            repo: this.repo,
+            workflow_id: workflow,
+            status: status,
+            branch,
+            per_page: 50,
+        });
+        return res.data.workflow_runs.map((r) => ({
+            id: r.id,
+            headSha: r.head_sha,
+            status: r.status ?? "",
+        }));
+    }
+    async listCheckRuns(sha) {
+        const res = await this.octokit.rest.checks.listForRef({
+            owner: this.owner,
+            repo: this.repo,
+            ref: sha,
+            per_page: 100,
+        });
+        return res.data.check_runs.map((c) => ({
+            name: c.name,
+            status: c.status,
+            conclusion: c.conclusion,
+            startedAt: c.started_at,
+            createdAt: c.created_at ?? null,
+        }));
+    }
+    async dispatchWorkflow(workflow, ref, inputs) {
+        await this.octokit.rest.actions.createWorkflowDispatch({
+            owner: this.owner,
+            repo: this.repo,
+            workflow_id: workflow,
+            ref,
+            inputs,
+        });
     }
 }
 
@@ -66511,7 +66511,12 @@ const DEFAULT_TEST_CHECK_NAME = "Test";
 
 
 
-async function main() {
+const defaultDependencies = {
+    createGitHubClient: createOctokitClient,
+    createExecClient: () => new DefaultExecClient(),
+    runAutopilot: runAutopilot,
+};
+async function main(deps = defaultDependencies) {
     const token = lib_core.getInput("github-token", { required: true });
     const modeInput = lib_core.getInput("mode") || "evaluate";
     const mode = modeInput === "execute" ? "execute" : "evaluate";
@@ -66543,9 +66548,9 @@ async function main() {
         agentBranchPattern: DEFAULT_AGENT_BRANCH,
         testCheckName: DEFAULT_TEST_CHECK_NAME,
     };
-    const gh = createOctokitClient(token, owner, repo);
-    const exec = new DefaultExecClient();
-    const result = await runAutopilot(gh, exec, config, ref);
+    const gh = deps.createGitHubClient(token, owner, repo);
+    const exec = deps.createExecClient();
+    const result = await deps.runAutopilot(gh, exec, config, ref);
     lib_core.setOutput("workflow", result.evaluation.workflow);
     lib_core.setOutput("tracker", result.evaluation.tracker);
     lib_core.setOutput("sprint", result.evaluation.sprint?.toString() ?? "");
