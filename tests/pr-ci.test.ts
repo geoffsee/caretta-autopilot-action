@@ -23,7 +23,15 @@ describe("processAgentPRs", () => {
       name: "classifies a PR with an existing Test check as current and skips dispatch",
       setup: {
         checksBySha: {
-          "sha-1": [{ name: "Test", startedAt: null, createdAt: "2026-01-01T00:00:00Z" }],
+          "sha-1": [
+            {
+              name: "Test",
+              status: "completed",
+              conclusion: "success",
+              startedAt: null,
+              createdAt: "2026-01-01T00:00:00Z",
+            },
+          ],
         },
       },
       prs: [makePR({ number: 1 })],

@@ -24,6 +24,8 @@ export interface PullRequest {
 
 export interface CheckRun {
   name: string;
+  status: string;
+  conclusion: string | null;
   startedAt: string | null;
   createdAt: string | null;
 }
@@ -35,29 +37,29 @@ export interface WorkflowRun {
 }
 
 export interface PrEntry {
-  number: number;
-  branch: string;
-  sha: string;
-  url: string;
+  readonly number: number;
+  readonly branch: string;
+  readonly sha: string;
+  readonly url: string;
 }
 
 export interface EvaluationResult {
-  sprint: number | null;
-  openIssueCount: number;
-  openPrCount: number;
-  stalePrCount: number;
-  workflow: string;
-  tracker: string;
-  reason: string;
-  activeSprint: string;
+  readonly sprint: number | null;
+  readonly openIssueCount: number;
+  readonly openPrCount: number;
+  readonly stalePrCount: number;
+  readonly workflow: string;
+  readonly tracker: string;
+  readonly reason: string;
+  readonly activeSprint: string;
 }
 
 export interface PrCiResult {
-  pending: PrEntry[];
-  dispatched: PrEntry[];
-  active: PrEntry[];
-  current: PrEntry[];
-  failed: PrEntry[];
+  readonly pending: readonly PrEntry[];
+  readonly dispatched: readonly PrEntry[];
+  readonly active: readonly PrEntry[];
+  readonly current: readonly PrEntry[];
+  readonly failed: readonly PrEntry[];
 }
 
 export interface AutopilotDecision {

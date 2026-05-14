@@ -48,10 +48,10 @@ export interface DispatchCall {
 }
 
 export interface FakeData {
-  issues: Issue[];
-  prs: PullRequest[];
-  checksBySha: Record<string, CheckRun[]>;
-  runsByKey: Record<string, WorkflowRun[]>;
+  issues: readonly Issue[];
+  prs: readonly PullRequest[];
+  checksBySha: Record<string, readonly CheckRun[] | undefined>;
+  runsByKey: Record<string, readonly WorkflowRun[] | undefined>;
   dispatchShouldFail: (workflow: string, ref: string) => boolean;
 }
 
@@ -61,11 +61,11 @@ export class FakeGitHub implements GitHubClient {
   constructor(private readonly data: Partial<FakeData> = {}) {}
 
   async listOpenIssues(): Promise<Issue[]> {
-    return this.data.issues ?? [];
+    return [...(this.data.issues ?? [])];
   }
 
   async listOpenPullRequests(): Promise<PullRequest[]> {
-    return this.data.prs ?? [];
+    return [...(this.data.prs ?? [])];
   }
 
   async listWorkflowRuns(
@@ -74,11 +74,11 @@ export class FakeGitHub implements GitHubClient {
     branch?: string,
   ): Promise<WorkflowRun[]> {
     const key = `${workflow}|${status}|${branch ?? ""}`;
-    return this.data.runsByKey?.[key] ?? [];
+    return [...(this.data.runsByKey?.[key] ?? [])];
   }
 
   async listCheckRuns(sha: string): Promise<CheckRun[]> {
-    return this.data.checksBySha?.[sha] ?? [];
+    return [...(this.data.checksBySha?.[sha] ?? [])];
   }
 
   async dispatchWorkflow(

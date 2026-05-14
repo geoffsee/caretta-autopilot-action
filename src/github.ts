@@ -128,6 +128,8 @@ class OctokitClient implements GitHubClient {
     });
     return res.data.check_runs.map((c) => ({
       name: c.name,
+      status: c.status,
+      conclusion: c.conclusion,
       startedAt: c.started_at,
       createdAt: (c as { created_at?: string }).created_at ?? null,
     }));

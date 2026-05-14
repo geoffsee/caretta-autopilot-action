@@ -119,7 +119,13 @@ describe("runAutopilot", () => {
       prs: [makePR({ number: 101 })],
       checksBySha: {
         "sha-101": [
-          { name: "Test", startedAt: "2026-01-01T00:00:00Z", createdAt: null },
+          {
+            name: "Test",
+            status: "completed",
+            conclusion: "success",
+            startedAt: "2026-01-01T00:00:00Z",
+            createdAt: null,
+          },
         ],
       },
     });

@@ -1,7 +1,7 @@
 import type { EvaluationResult, Issue, PullRequest } from "./types.js";
 
-export function findActiveSprint(issues: Issue[]): number | null {
-  const sprints = issues.filter((i) =>
+export function findActiveSprint(issues: readonly Issue[]): number | null {
+  const sprints = [...issues].filter((i) =>
     i.labels.some((l) => l.name === "sprint"),
   );
   if (sprints.length === 0) return null;
@@ -11,7 +11,7 @@ export function findActiveSprint(issues: Issue[]): number | null {
   return sprints[0].number;
 }
 
-export function countStalePRs(prs: PullRequest[]): number {
+export function countStalePRs(prs: readonly PullRequest[]): number {
   return prs.filter(
     (p) =>
       !p.isDraft &&
@@ -21,8 +21,8 @@ export function countStalePRs(prs: PullRequest[]): number {
 }
 
 export function evaluate(
-  issues: Issue[],
-  prs: PullRequest[],
+  issues: readonly Issue[],
+  prs: readonly PullRequest[],
   trackerWorkflow: string,
   factoryWorkflow: string,
 ): EvaluationResult {

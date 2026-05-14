@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "description": "GitHub Action that evaluates repository state and dispatches the appropriate autopilot follow-up workflow.",
+  "type": "module",
   "main": "dist/index.js",
   "scripts": {
     "build": "ncc build src/index.ts -o dist --source-map --license licenses.txt",
