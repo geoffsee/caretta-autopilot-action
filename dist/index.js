@@ -66190,29 +66190,14 @@ class CarettaRunner {
         this.config = config;
     }
     async runCaretta(task, args = []) {
-        const fullArgs = [
-            "--agent",
-            this.config.agent,
-            "--preset",
-            "software-factory",
-            task,
-            ...args,
-        ];
+        const fullArgs = ["--agent", this.config.agent, task, ...args];
         lib_core.info(`Running: ${this.binaryPath} ${fullArgs.join(" ")}`);
         return await this.exec.exec(this.binaryPath, fullArgs, { env: this.env });
     }
     async runWorkDispatch(tracker) {
         lib_core.info(`Starting work dispatch for #${tracker}`);
         // 1. tracker-matrix
-        const matrixOutput = await this.exec.getExecOutput(this.binaryPath, [
-            "--agent",
-            this.config.agent,
-            "--preset",
-            "software-factory",
-            "tracker-matrix",
-            tracker,
-            "--json",
-        ], { env: this.env, silent: true });
+        const matrixOutput = await this.exec.getExecOutput(this.binaryPath, ["--agent", this.config.agent, "tracker-matrix", tracker, "--json"], { env: this.env, silent: true });
         const issues = JSON.parse(matrixOutput.stdout.trim() || "[]");
         lib_core.info(`Found ${issues.length} issues in tracker matrix.`);
         // 2. tracker-issue

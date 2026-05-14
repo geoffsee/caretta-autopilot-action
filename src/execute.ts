@@ -66,14 +66,7 @@ class CarettaRunner {
   ) {}
 
   async runCaretta(task: string, args: string[] = []): Promise<number> {
-    const fullArgs = [
-      "--agent",
-      this.config.agent,
-      "--preset",
-      "software-factory",
-      task,
-      ...args,
-    ];
+    const fullArgs = ["--agent", this.config.agent, task, ...args];
     core.info(`Running: ${this.binaryPath} ${fullArgs.join(" ")}`);
     return await this.exec.exec(this.binaryPath, fullArgs, { env: this.env });
   }
@@ -84,15 +77,7 @@ class CarettaRunner {
     // 1. tracker-matrix
     const matrixOutput = await this.exec.getExecOutput(
       this.binaryPath,
-      [
-        "--agent",
-        this.config.agent,
-        "--preset",
-        "software-factory",
-        "tracker-matrix",
-        tracker,
-        "--json",
-      ],
+      ["--agent", this.config.agent, "tracker-matrix", tracker, "--json"],
       { env: this.env, silent: true },
     );
     const issues: number[] = JSON.parse(matrixOutput.stdout.trim() || "[]");
