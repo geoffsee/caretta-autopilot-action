@@ -1,0 +1,23 @@
+{
+  "name": "@caretta/tracker-loop-action",
+  "version": "0.1.0",
+  "private": true,
+  "description": "TypeScript GitHub Action replacement for tracker-loop-dispatch workflow logic.",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "ncc build src/index.ts -o dist --source-map --license licenses.txt",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@actions/core": "^1.11.1",
+    "@actions/exec": "^3.0.0",
+    "@actions/github": "^6.0.0",
+    "@actions/tool-cache": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "@vercel/ncc": "^0.38.3",
+    "typescript": "^5.6.3"
+  }
+}

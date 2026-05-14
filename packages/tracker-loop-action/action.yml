@@ -1,0 +1,57 @@
+name: "caretta-tracker-loop-action"
+description: "Run the tracker loop in TypeScript, replacing tracker-loop-dispatch workflow logic."
+author: "geoffsee"
+branding:
+  icon: "git-pull-request"
+  color: "blue"
+
+inputs:
+  github-token:
+    description: "Token used for GitHub API calls. Defaults to the workflow GITHUB_TOKEN."
+    required: false
+    default: ${{ github.token }}
+  tracker:
+    description: "Tracker issue number (for example: 1234)."
+    required: true
+  context:
+    description: "Optional natural-language steering context."
+    required: false
+    default: ""
+  model:
+    description: "Optional caretta model override."
+    required: false
+    default: ""
+  caretta-version:
+    description: "Version of caretta to install. Defaults to latest release."
+    required: false
+    default: "latest"
+  agent:
+    description: "Agent to use for caretta tasks (for example: claude)."
+    required: false
+    default: "claude"
+  test-check-name:
+    description: "Check run name required before review/fix (for example: Test)."
+    required: false
+    default: "Test"
+  agent-branch-pattern:
+    description: "Regex used to match agent branches."
+    required: false
+    default: "^agent/issue-[0-9]+$"
+  ci-timeout-minutes:
+    description: "Minutes to wait for CI completion in each tracker gate."
+    required: false
+    default: "20"
+
+outputs:
+  tracker:
+    description: "Tracker issue number that was processed."
+  issue_count:
+    description: "Issue count returned by tracker-matrix."
+  reviewed_pr_count:
+    description: "Tracker-scoped PRs that passed the test gate and were reviewed/fixed."
+  caretta_version:
+    description: "Resolved caretta version used by this run."
+
+runs:
+  using: "node20"
+  main: "dist/index.js"

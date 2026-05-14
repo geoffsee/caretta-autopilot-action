@@ -1,0 +1,40 @@
+name: "caretta-factory-cycle-action"
+description: "Run the factory cycle in TypeScript, replacing factory-cycle-dispatch workflow logic."
+author: "geoffsee"
+branding:
+  icon: "refresh-cw"
+  color: "green"
+
+inputs:
+  github-token:
+    description: "Token used for GitHub API calls. Defaults to the workflow GITHUB_TOKEN."
+    required: false
+    default: ${{ github.token }}
+  context:
+    description: "Optional natural-language steering context."
+    required: false
+    default: ""
+  model:
+    description: "Optional caretta model override."
+    required: false
+    default: ""
+  caretta-version:
+    description: "Version of caretta to install. Defaults to latest release."
+    required: false
+    default: "latest"
+  agent:
+    description: "Agent to use for caretta tasks (for example: claude)."
+    required: false
+    default: "claude"
+
+outputs:
+  skipped_due_to_open_sprint:
+    description: "True when an open sprint exists and ideation steps are skipped."
+  active_sprint:
+    description: "Issue number of the first open sprint when skipped."
+  caretta_version:
+    description: "Resolved caretta version used by this run."
+
+runs:
+  using: "node20"
+  main: "dist/index.js"
