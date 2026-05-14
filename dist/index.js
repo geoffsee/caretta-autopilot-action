@@ -29958,7 +29958,7 @@ function computeHoldTarget(prCi, dryRun) {
 }
 async function dispatchTarget(gh, evaluation, prCi, config, ref, targetBusy) {
     const holdTarget = computeHoldTarget(prCi, config.dryRun);
-    if (targetBusy || holdTarget || config.dryRun) {
+    if (targetBusy || holdTarget || config.dryRun || !config.enableDispatch) {
         return { holdTarget, targetDispatched: "skipped", targetBusy };
     }
     if (evaluation.workflow === config.trackerWorkflow) {
@@ -30223,6 +30223,9 @@ async function main() {
     const token = core.getInput("github-token", { required: true });
     const context = core.getInput("context") || "Autopilot scheduled evaluation of open issues and pull requests.";
     const dryRun = core.getBooleanInput("dry-run");
+    const enableDispatch = core.getInput("enable-dispatch") === ""
+        ? true
+        : core.getBooleanInput("enable-dispatch");
     const trackerWorkflow = core.getInput("tracker-workflow") || "tracker-loop-dispatch.yml";
     const factoryWorkflow = core.getInput("factory-workflow") || "factory-cycle-dispatch.yml";
     const ciWorkflow = core.getInput("ci-workflow") || "ci.yml";
@@ -30233,6 +30236,7 @@ async function main() {
     const config = {
         context,
         dryRun,
+        enableDispatch,
         trackerWorkflow,
         factoryWorkflow,
         ciWorkflow,
@@ -30307,7 +30311,7 @@ async function processAgentPRs(gh, prs, config) {
             result.active.push(entry);
             continue;
         }
-        if (config.dryRun) {
+        if (config.dryRun || !config.enableDispatch) {
             continue;
         }
         try {

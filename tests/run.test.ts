@@ -66,6 +66,21 @@ describe("runAutopilot", () => {
     expect(gh.dispatched).toHaveLength(0);
   });
 
+  test("enable-dispatch=false: evaluates and classifies, but calls no dispatch", async () => {
+    const gh = new FakeGitHub({
+      issues: [makeIssue({ number: 50, labels: [{ name: "sprint" }] })],
+      prs: [makePR({ number: 101 }), makePR({ number: 102 })],
+    });
+    const result = await runAutopilot(gh, makeConfig({ enableDispatch: false }), "master");
+
+    expect(result.evaluation.workflow).toBe("tracker-loop-dispatch.yml");
+    expect(result.evaluation.tracker).toBe("50");
+    expect(result.prCi.pending).toHaveLength(2);
+    expect(result.prCi.dispatched).toHaveLength(0);
+    expect(result.decision.targetDispatched).toBe("skipped");
+    expect(gh.dispatched).toHaveLength(0);
+  });
+
   test("PR with Test check is current → no CI dispatch, tracker still dispatches", async () => {
     const gh = new FakeGitHub({
       issues: [makeIssue({ number: 50, labels: [{ name: "sprint" }] })],

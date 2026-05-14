@@ -14,6 +14,10 @@ inputs:
     description: "Evaluate and report the selected workflow without dispatching it."
     required: false
     default: "false"
+  enable-dispatch:
+    description: "When false, evaluate and report only; do not call any workflow_dispatch. Useful while migrating control-plane logic into this action."
+    required: false
+    default: "true"
   github-token:
     description: "Token used for GitHub API calls. Defaults to the workflow's GITHUB_TOKEN."
     required: false

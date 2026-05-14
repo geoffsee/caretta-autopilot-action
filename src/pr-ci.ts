@@ -49,7 +49,7 @@ export async function processAgentPRs(
       continue;
     }
 
-    if (config.dryRun) {
+    if (config.dryRun || !config.enableDispatch) {
       continue;
     }
 

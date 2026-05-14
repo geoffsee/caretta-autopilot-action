@@ -81,6 +81,7 @@ export function makeConfig(overrides: Partial<import("../src/types.js").Autopilo
   return {
     context: "test context",
     dryRun: false,
+    enableDispatch: true,
     trackerWorkflow: "tracker-loop-dispatch.yml",
     factoryWorkflow: "factory-cycle-dispatch.yml",
     ciWorkflow: "ci.yml",

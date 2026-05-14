@@ -8,6 +8,9 @@ async function main(): Promise<void> {
   const token = core.getInput("github-token", { required: true });
   const context = core.getInput("context") || "Autopilot scheduled evaluation of open issues and pull requests.";
   const dryRun = core.getBooleanInput("dry-run");
+  const enableDispatch = core.getInput("enable-dispatch") === ""
+    ? true
+    : core.getBooleanInput("enable-dispatch");
   const trackerWorkflow = core.getInput("tracker-workflow") || "tracker-loop-dispatch.yml";
   const factoryWorkflow = core.getInput("factory-workflow") || "factory-cycle-dispatch.yml";
   const ciWorkflow = core.getInput("ci-workflow") || "ci.yml";
@@ -20,6 +23,7 @@ async function main(): Promise<void> {
   const config: AutopilotConfig = {
     context,
     dryRun,
+    enableDispatch,
     trackerWorkflow,
     factoryWorkflow,
     ciWorkflow,

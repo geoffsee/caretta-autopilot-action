@@ -18,7 +18,7 @@ export async function dispatchTarget(
 ): Promise<AutopilotDecision> {
   const holdTarget = computeHoldTarget(prCi, config.dryRun);
 
-  if (targetBusy || holdTarget || config.dryRun) {
+  if (targetBusy || holdTarget || config.dryRun || !config.enableDispatch) {
     return { holdTarget, targetDispatched: "skipped", targetBusy };
   }
 
