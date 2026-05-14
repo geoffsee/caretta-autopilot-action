@@ -66034,12 +66034,7 @@ function detectPlatform() {
         throw new Error(`Unsupported architecture: ${rawArch}`);
     return { os: osName, arch: archName };
 }
-async function resolveVersion(requested, token) {
-    if (requested && requested !== "latest") {
-        return requested.startsWith("v")
-            ? requested
-            : `v${requested.replace(/^v/, "")}`;
-    }
+async function resolveVersion(token) {
     const headers = {
         Accept: "application/vnd.github+json",
         "User-Agent": "caretta-autopilot-action",
@@ -66078,7 +66073,7 @@ async function saveVersionManifest(manifest, platform) {
 }
 async function checkNewReleaseAvailable(currentVersion, token) {
     try {
-        const latestVersion = await resolveVersion("latest", token);
+        const latestVersion = await resolveVersion(token);
         if (latestVersion !== currentVersion) {
             lib_core.info(`New release available: ${latestVersion} (current: ${currentVersion})`);
             return latestVersion;
@@ -66112,7 +66107,7 @@ async function installCaretta(versionInput, token) {
             : `v${versionInput.replace(/^v/, "")}`;
     }
     else {
-        version = await resolveVersion(versionInput, token);
+        version = await resolveVersion(token);
     }
     const cached = find(BINARY, version, platform.arch);
     if (cached) {

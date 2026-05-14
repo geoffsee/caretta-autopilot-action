@@ -39,15 +39,7 @@ function detectPlatform(): Platform {
   return { os: osName, arch: archName };
 }
 
-async function resolveVersion(
-  requested: string,
-  token: string,
-): Promise<string> {
-  if (requested && requested !== "latest") {
-    return requested.startsWith("v")
-      ? requested
-      : `v${requested.replace(/^v/, "")}`;
-  }
+async function resolveVersion(token: string): Promise<string> {
   const headers: Record<string, string> = {
     Accept: "application/vnd.github+json",
     "User-Agent": "caretta-autopilot-action",
@@ -105,7 +97,7 @@ async function checkNewReleaseAvailable(
   token: string,
 ): Promise<string | null> {
   try {
-    const latestVersion = await resolveVersion("latest", token);
+    const latestVersion = await resolveVersion(token);
     if (latestVersion !== currentVersion) {
       core.info(
         `New release available: ${latestVersion} (current: ${currentVersion})`,
@@ -146,7 +138,7 @@ export async function installCaretta(
       ? versionInput
       : `v${versionInput.replace(/^v/, "")}`;
   } else {
-    version = await resolveVersion(versionInput, token);
+    version = await resolveVersion(token);
   }
 
   const cached = tc.find(BINARY, version, platform.arch);
