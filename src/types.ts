@@ -43,12 +43,14 @@ export interface PrEntry {
   readonly url: string;
 }
 
+export type AutopilotRoute = "work" | "factory";
+
 export interface EvaluationResult {
+  readonly route: AutopilotRoute;
   readonly sprint: number | null;
   readonly openIssueCount: number;
   readonly openPrCount: number;
   readonly stalePrCount: number;
-  readonly workflow: string;
   readonly tracker: string;
   readonly reason: string;
   readonly activeSprint: string;
@@ -64,19 +66,15 @@ export interface PrCiResult {
 
 export interface AutopilotDecision {
   holdTarget: boolean;
-  targetDispatched: "tracker" | "factory" | "skipped" | "executed";
-  targetBusy: boolean;
+  targetDispatched: "executed" | "skipped";
 }
 
 export interface AutopilotConfig {
-  mode: "evaluate" | "execute";
   carettaVersion: string;
   agent: string;
   context: string;
   dryRun: boolean;
   enableDispatch: boolean;
-  trackerWorkflow: string;
-  factoryWorkflow: string;
   ciWorkflow: string;
   agentBranchPattern: RegExp;
   testCheckName: string;

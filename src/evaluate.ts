@@ -23,8 +23,6 @@ export function countStalePRs(prs: readonly PullRequest[]): number {
 export function evaluate(
   issues: readonly Issue[],
   prs: readonly PullRequest[],
-  trackerWorkflow: string,
-  factoryWorkflow: string,
 ): EvaluationResult {
   const sprint = findActiveSprint(issues);
   const openIssueCount = issues.length;
@@ -33,25 +31,25 @@ export function evaluate(
 
   if (sprint !== null) {
     return {
+      route: "work",
       sprint,
       openIssueCount,
       openPrCount,
       stalePrCount,
-      workflow: trackerWorkflow,
       tracker: String(sprint),
-      reason: `open sprint #${sprint} found; dispatching tracker loop`,
+      reason: `open sprint #${sprint} found; running work dispatch`,
       activeSprint: `#${sprint}`,
     };
   }
 
   return {
+    route: "factory",
     sprint: null,
     openIssueCount,
     openPrCount,
     stalePrCount,
-    workflow: factoryWorkflow,
     tracker: "",
-    reason: "no open sprint found; dispatching factory cycle",
+    reason: "no open sprint found; running factory cycle",
     activeSprint: "none",
   };
 }

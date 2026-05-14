@@ -121,16 +121,13 @@ export function makePR(
 
 export function makeConfig(
   overrides: Partial<import("../src/types.js").AutopilotConfig> = {},
-) {
+): import("../src/types.js").AutopilotConfig {
   return {
-    mode: "evaluate" as const,
     carettaVersion: "latest",
     agent: "claude",
     context: "test context",
     dryRun: false,
     enableDispatch: true,
-    trackerWorkflow: "tracker-loop-dispatch.yml",
-    factoryWorkflow: "factory-cycle-dispatch.yml",
     ciWorkflow: "ci.yml",
     agentBranchPattern: /^agent\/issue-[0-9]+$/,
     testCheckName: "Test",

@@ -44,14 +44,15 @@ export async function executeAutopilot(
 
   const runner = new CarettaRunner(binaryPath, env, exec, gh, config);
 
-  if (evaluation.workflow === config.trackerWorkflow) {
-    await runner.runTrackerLoop(evaluation.tracker);
-  } else if (evaluation.workflow === config.factoryWorkflow) {
-    await runner.runFactoryCycle();
-  } else {
-    core.info(
-      `No specific workflow logic to execute for ${evaluation.workflow}`,
-    );
+  switch (evaluation.route) {
+    case "work":
+      await runner.runWorkDispatch(evaluation.tracker);
+      break;
+    case "factory":
+      await runner.runFactoryCycle();
+      break;
+    default:
+      core.info(`No logic to execute for route '${evaluation.route}'`);
   }
 }
 
@@ -77,8 +78,8 @@ class CarettaRunner {
     return await this.exec.exec(this.binaryPath, fullArgs, { env: this.env });
   }
 
-  async runTrackerLoop(tracker: string): Promise<void> {
-    core.info(`Starting tracker loop for #${tracker}`);
+  async runWorkDispatch(tracker: string): Promise<void> {
+    core.info(`Starting work dispatch for #${tracker}`);
 
     // 1. tracker-matrix
     const matrixOutput = await this.exec.getExecOutput(

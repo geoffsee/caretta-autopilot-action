@@ -46,11 +46,7 @@ describe("countStalePRs", () => {
       ],
       expected: 2,
     },
-    {
-      name: "returns 0 for empty PR list",
-      prs: [],
-      expected: 0,
-    },
+    { name: "returns 0 for empty PR list", prs: [], expected: 0 },
     {
       name: "returns 0 if no PRs need action",
       prs: [
@@ -65,40 +61,24 @@ describe("countStalePRs", () => {
 });
 
 describe("evaluate", () => {
-  test.each([
-    {
-      name: "chooses tracker workflow when sprint exists",
-      issues: [makeIssue({ number: 42, labels: [{ name: "sprint" }] })],
-      prs: [],
-      expectedWorkflow: "tracker.yml",
-      expectedTracker: "42",
-      expectedSprint: 42,
-    },
-    {
-      name: "chooses factory workflow when no sprint exists",
-      issues: [],
-      prs: [],
-      expectedWorkflow: "factory.yml",
-      expectedTracker: "",
-      expectedSprint: null,
-    },
-  ])("$name", ({
-    issues,
-    prs,
-    expectedWorkflow,
-    expectedTracker,
-    expectedSprint,
-  }) => {
-    const result = evaluate(issues, prs, "tracker.yml", "factory.yml");
-    expect(result.workflow).toBe(expectedWorkflow);
-    expect(result.tracker).toBe(expectedTracker);
-    expect(result.sprint).toBe(expectedSprint);
-    if (expectedSprint) {
-      expect(result.reason).toContain(`#${expectedSprint}`);
-      expect(result.activeSprint).toBe(`#${expectedSprint}`);
-    } else {
-      expect(result.activeSprint).toBe("none");
-    }
+  test("chooses work route when sprint exists", () => {
+    const result = evaluate(
+      [makeIssue({ number: 42, labels: [{ name: "sprint" }] })],
+      [],
+    );
+    expect(result.route).toBe("work");
+    expect(result.tracker).toBe("42");
+    expect(result.sprint).toBe(42);
+    expect(result.reason).toContain("#42");
+    expect(result.activeSprint).toBe("#42");
+  });
+
+  test("chooses factory route when no sprint exists", () => {
+    const result = evaluate([], []);
+    expect(result.route).toBe("factory");
+    expect(result.tracker).toBe("");
+    expect(result.sprint).toBeNull();
+    expect(result.activeSprint).toBe("none");
   });
 
   test("reports counts on the result", () => {
@@ -107,7 +87,7 @@ describe("evaluate", () => {
       makePR({ number: 10 }),
       makePR({ number: 11, reviewDecision: "CHANGES_REQUESTED" }),
     ];
-    const result = evaluate(issues, prs, "tracker.yml", "factory.yml");
+    const result = evaluate(issues, prs);
     expect(result.openIssueCount).toBe(2);
     expect(result.openPrCount).toBe(2);
     expect(result.stalePrCount).toBe(1);

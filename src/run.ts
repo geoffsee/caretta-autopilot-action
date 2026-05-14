@@ -1,5 +1,4 @@
-import { isWorkflowBusy } from "./activity.js";
-import { dispatchTarget } from "./decide.js";
+import { decideExecution } from "./decide.js";
 import { evaluate } from "./evaluate.js";
 import type { ExecClient } from "./exec.js";
 import { type ExecuteDeps, executeAutopilot } from "./execute.js";
@@ -24,31 +23,16 @@ export async function runAutopilot(
   gh: GitHubClient,
   exec: ExecClient,
   config: AutopilotConfig,
-  ref: string,
+  _ref: string,
   executeDeps?: ExecuteDeps,
 ): Promise<AutopilotRunResult> {
   const [issues, prs] = await Promise.all([
     gh.listOpenIssues(),
     gh.listOpenPullRequests(),
   ]);
-  const evaluation = evaluate(
-    issues,
-    prs,
-    config.trackerWorkflow,
-    config.factoryWorkflow,
-  );
-  const targetBusy = await isWorkflowBusy(gh, evaluation.workflow);
-  const prCi = targetBusy
-    ? { pending: [], dispatched: [], active: [], current: [], failed: [] }
-    : await processAgentPRs(gh, prs, config);
-  const decision = await dispatchTarget(
-    gh,
-    evaluation,
-    prCi,
-    config,
-    ref,
-    targetBusy,
-  );
+  const evaluation = evaluate(issues, prs);
+  const prCi = await processAgentPRs(gh, prs, config);
+  const decision = decideExecution(prCi, config);
 
   if (decision.targetDispatched === "executed") {
     await executeAutopilot(gh, exec, config, evaluation, executeDeps);

@@ -3,14 +3,14 @@ import { buildSummary } from "../src/summary.js";
 import type { EvaluationResult, PrCiResult } from "../src/types.js";
 import { makeConfig } from "./fakes.js";
 
-const evalResult: EvaluationResult = {
+const workEval: EvaluationResult = {
+  route: "work",
   sprint: 7,
   openIssueCount: 3,
   openPrCount: 2,
   stalePrCount: 1,
-  workflow: "tracker-loop-dispatch.yml",
   tracker: "7",
-  reason: "open sprint #7 found; dispatching tracker loop",
+  reason: "open sprint #7 found; running work dispatch",
   activeSprint: "#7",
 };
 
@@ -25,12 +25,8 @@ const emptyPrCi: PrCiResult = {
 describe("buildSummary", () => {
   test.each([
     {
-      name: "renders the evaluation block with counts and selected workflow",
-      decision: {
-        holdTarget: false,
-        targetDispatched: "tracker",
-        targetBusy: false,
-      },
+      name: "renders the evaluation block with counts and route",
+      decision: { holdTarget: false, targetDispatched: "executed" as const },
       prCi: emptyPrCi,
       config: makeConfig(),
       expectedContains: [
@@ -38,58 +34,35 @@ describe("buildSummary", () => {
         "- Open issues: 3",
         "- Open pull requests: 2",
         "- Active sprint: #7",
-        "- Selected workflow: tracker-loop-dispatch.yml",
+        "- Route: work",
       ],
     },
     {
-      name: "notes when the target workflow is busy",
-      decision: {
-        holdTarget: false,
-        targetDispatched: "skipped",
-        targetBusy: true,
-      },
+      name: "notes hold_target when PR-CI activity gates execution",
+      decision: { holdTarget: true, targetDispatched: "skipped" as const },
       prCi: emptyPrCi,
       config: makeConfig(),
-      expectedContains: ["already queued or running"],
-    },
-    {
-      name: "notes hold_target when PR-CI activity gates dispatch",
-      decision: {
-        holdTarget: true,
-        targetDispatched: "skipped",
-        targetBusy: false,
-      },
-      prCi: emptyPrCi,
-      config: makeConfig(),
-      expectedContains: ["Target workflow dispatch skipped this pass"],
+      expectedContains: ["Execution skipped this pass"],
     },
     {
       name: "notes dispatch failures even when proceeding",
-      decision: {
-        holdTarget: false,
-        targetDispatched: "tracker",
-        targetBusy: false,
-      },
+      decision: { holdTarget: false, targetDispatched: "executed" as const },
       prCi: {
         ...emptyPrCi,
         failed: [{ number: 1, branch: "agent/issue-1", sha: "sha", url: "u" }],
       },
       config: makeConfig(),
-      expectedContains: ["Target workflow dispatch may continue"],
+      expectedContains: ["Execution proceeded"],
     },
     {
-      name: "renders a dry-run footer when dispatch was held but no busy/hold",
-      decision: {
-        holdTarget: false,
-        targetDispatched: "skipped",
-        targetBusy: false,
-      },
+      name: "renders a dry-run footer with the would-execute route",
+      decision: { holdTarget: false, targetDispatched: "skipped" as const },
       prCi: emptyPrCi,
       config: makeConfig({ dryRun: true }),
-      expectedContains: ["Dry run enabled", "Tracker: #7"],
+      expectedContains: ["Dry run enabled", "would execute work route", "Tracker: #7"],
     },
   ])("$name", ({ decision, prCi, config, expectedContains }) => {
-    const out = buildSummary(evalResult, prCi, decision, config);
+    const out = buildSummary(workEval, prCi, decision, config);
     for (const text of expectedContains) {
       expect(out).toContain(text);
     }

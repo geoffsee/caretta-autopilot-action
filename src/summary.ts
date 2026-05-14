@@ -18,14 +18,8 @@ export function buildSummary(
   lines.push(`- Open pull requests: ${evaluation.openPrCount}`);
   lines.push(`- Active sprint: ${evaluation.activeSprint}`);
   lines.push(`- PRs requiring attention: ${evaluation.stalePrCount}`);
-  lines.push(`- Selected workflow: ${evaluation.workflow || "none"}`);
+  lines.push(`- Route: ${evaluation.route}`);
   lines.push(`- Reason: ${evaluation.reason}`);
-
-  if (decision.targetBusy) {
-    lines.push(
-      `- Target workflow ${evaluation.workflow} is already queued or running; skipping dispatch.`,
-    );
-  }
 
   lines.push("");
   lines.push("### PR CI check");
@@ -44,22 +38,17 @@ export function buildSummary(
 
   if (decision.holdTarget) {
     lines.push(
-      "- Target workflow dispatch skipped this pass so pending tests can attach to the current PR heads.",
+      "- Execution skipped this pass so pending tests can attach to the current PR heads.",
     );
   } else if (prCi.failed.length > 0) {
     lines.push(
-      "- Target workflow dispatch may continue so the tracker loop can refresh branches that cannot dispatch CI yet.",
+      "- Execution proceeded so the work-dispatch loop can refresh branches that cannot dispatch CI yet.",
     );
   }
 
-  if (
-    config.dryRun &&
-    evaluation.workflow &&
-    !decision.targetBusy &&
-    !decision.holdTarget
-  ) {
+  if (config.dryRun && !decision.holdTarget) {
     lines.push("");
-    lines.push(`Dry run enabled; would dispatch ${evaluation.workflow}.`);
+    lines.push(`Dry run enabled; would execute ${evaluation.route} route.`);
     if (evaluation.tracker) {
       lines.push(`Tracker: #${evaluation.tracker}`);
     }

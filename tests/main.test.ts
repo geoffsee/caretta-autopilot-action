@@ -86,11 +86,11 @@ function makeEvaluation(
   overrides: Partial<EvaluationResult> = {},
 ): EvaluationResult {
   return {
+    route: "work",
     sprint: 7,
     openIssueCount: 3,
     openPrCount: 2,
     stalePrCount: 1,
-    workflow: "tracker-loop-dispatch.yml",
     tracker: "7",
     reason: "open sprint #7",
     activeSprint: "#7",
@@ -114,8 +114,7 @@ function makeDecision(
 ): AutopilotDecision {
   return {
     holdTarget: false,
-    targetDispatched: "tracker",
-    targetBusy: false,
+    targetDispatched: "executed",
     ...overrides,
   };
 }
@@ -194,14 +193,11 @@ function makeHarness(
 function baseInputs(): Record<string, string> {
   return {
     "github-token": "tok",
-    mode: "",
     "caretta-version": "",
     agent: "",
     context: "",
     "dry-run": "false",
     "enable-dispatch": "",
-    "tracker-workflow": "",
-    "factory-workflow": "",
     "ci-workflow": "",
   };
 }
@@ -271,20 +267,6 @@ describe("main: input parsing", () => {
   beforeEach(resetState);
 
   test.each([
-    { input: "", expected: "evaluate" },
-    { input: "evaluate", expected: "evaluate" },
-    { input: "execute", expected: "execute" },
-    { input: "garbage", expected: "evaluate" },
-    { input: "EXECUTE", expected: "evaluate" },
-  ])("mode '$input' → '$expected'", async ({ input, expected }) => {
-    coreState.inputs.mode = input;
-    const h = makeHarness();
-    await main(h.deps);
-    expect(h.runCalls).toHaveLength(1);
-    expect(h.runCalls[0].config.mode).toBe(expected as AutopilotConfig["mode"]);
-  });
-
-  test.each([
     {
       field: "carettaVersion" as const,
       key: "caretta-version",
@@ -316,30 +298,6 @@ describe("main: input parsing", () => {
       key: "context",
       input: "ship it",
       expected: "ship it",
-    },
-    {
-      field: "trackerWorkflow" as const,
-      key: "tracker-workflow",
-      input: "",
-      expected: "tracker-loop-dispatch.yml",
-    },
-    {
-      field: "trackerWorkflow" as const,
-      key: "tracker-workflow",
-      input: "custom.yml",
-      expected: "custom.yml",
-    },
-    {
-      field: "factoryWorkflow" as const,
-      key: "factory-workflow",
-      input: "",
-      expected: "factory-cycle-dispatch.yml",
-    },
-    {
-      field: "factoryWorkflow" as const,
-      key: "factory-workflow",
-      input: "factory.yml",
-      expected: "factory.yml",
     },
     {
       field: "ciWorkflow" as const,
@@ -440,7 +398,7 @@ describe("main: output wiring", () => {
     const h = makeHarness({
       result: makeRunResult({
         evaluation: makeEvaluation({
-          workflow: "tracker.yml",
+          route: "work",
           tracker: "9",
           sprint: 9,
           openIssueCount: 4,
@@ -469,7 +427,7 @@ describe("main: output wiring", () => {
     await main(h.deps);
 
     expect(coreState.outputs).toMatchObject({
-      workflow: "tracker.yml",
+      route: "work",
       tracker: "9",
       sprint: "9",
       open_issue_count: "4",
@@ -517,20 +475,18 @@ describe("main: output wiring", () => {
     expect(coreState.outputs.hold_target).toBe(expected);
   });
 
-  test.each([
-    "tracker",
-    "factory",
-    "skipped",
-    "executed",
-  ] as const)("target_dispatched output for decision='%s'", async (targetDispatched) => {
-    const h = makeHarness({
-      result: makeRunResult({
-        decision: makeDecision({ targetDispatched }),
-      }),
-    });
-    await main(h.deps);
-    expect(coreState.outputs.target_dispatched).toBe(targetDispatched);
-  });
+  test.each(["executed", "skipped"] as const)(
+    "target_dispatched output for decision='%s'",
+    async (targetDispatched) => {
+      const h = makeHarness({
+        result: makeRunResult({
+          decision: makeDecision({ targetDispatched }),
+        }),
+      });
+      await main(h.deps);
+      expect(coreState.outputs.target_dispatched).toBe(targetDispatched);
+    },
+  );
 });
 
 describe("main: error propagation", () => {

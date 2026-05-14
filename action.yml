@@ -1,17 +1,13 @@
 name: "caretta-autopilot"
-description: "Evaluate repository state and dispatch the appropriate autopilot follow-up workflow."
+description: "Evaluate repository state and execute the appropriate autopilot run (work dispatch or factory cycle)."
 author: "geoffsee"
 branding:
   icon: "navigation"
   color: "purple"
 
 inputs:
-  mode:
-    description: "Action mode: 'evaluate' (only report state and optionally dispatch) or 'execute' (install caretta and run the factory logic inline)."
-    required: false
-    default: "evaluate"
   caretta-version:
-    description: "Version of caretta to install when mode is 'execute'. Defaults to 'latest'."
+    description: "Version of caretta to install. Defaults to 'latest'."
     required: false
     default: "latest"
   agent:
@@ -19,37 +15,29 @@ inputs:
     required: false
     default: "claude"
   context:
-    description: "Natural-language steering context forwarded to the dispatched target workflow or used for inline execution."
+    description: "Natural-language steering context."
     required: false
     default: "Autopilot scheduled evaluation of open issues and pull requests."
   dry-run:
-    description: "Evaluate and report the selected workflow without dispatching it."
+    description: "Evaluate and report without executing caretta or dispatching CI."
     required: false
     default: "false"
   enable-dispatch:
-    description: "When false, evaluate and report only; do not call any workflow_dispatch. Useful while migrating control-plane logic into this action."
+    description: "When false, evaluate and classify only; do not call any workflow_dispatch or execute caretta."
     required: false
     default: "true"
   github-token:
     description: "Token used for GitHub API calls. Defaults to the workflow's GITHUB_TOKEN."
     required: false
     default: ${{ github.token }}
-  tracker-workflow:
-    description: "Workflow file dispatched when an open sprint is found."
-    required: false
-    default: "tracker-loop-dispatch.yml"
-  factory-workflow:
-    description: "Workflow file dispatched when no open sprint is found."
-    required: false
-    default: "factory-cycle-dispatch.yml"
   ci-workflow:
     description: "Workflow file dispatched per agent PR to attach a Test check to the head SHA."
     required: false
     default: "ci.yml"
 
 outputs:
-  workflow:
-    description: "Selected target workflow file (tracker or factory)."
+  route:
+    description: "Selected route: 'work' or 'factory'."
   tracker:
     description: "Sprint issue number used as tracker input, when a sprint was found."
   sprint:
@@ -61,7 +49,7 @@ outputs:
   stale_pr_count:
     description: "Non-draft PRs whose review decision is CHANGES_REQUESTED or REVIEW_REQUIRED."
   reason:
-    description: "Human-readable reason for the workflow selection."
+    description: "Human-readable reason for the route selection."
   pending_count:
     description: "Agent PRs that need a Test check on their head SHA."
   dispatched_count:
@@ -73,9 +61,9 @@ outputs:
   failed_count:
     description: "Agent PRs whose CI dispatch attempt failed."
   hold_target:
-    description: "True when the target workflow dispatch was held this pass."
+    description: "True when execution was held this pass."
   target_dispatched:
-    description: "Which target dispatched: 'tracker', 'factory', or 'skipped'."
+    description: "Outcome: 'executed' or 'skipped'."
 
 runs:
   using: "node20"

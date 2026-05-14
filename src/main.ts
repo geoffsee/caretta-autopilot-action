@@ -38,8 +38,6 @@ export async function main(
   deps: MainDependencies = defaultDependencies,
 ): Promise<void> {
   const token = core.getInput("github-token", { required: true });
-  const modeInput = core.getInput("mode") || "evaluate";
-  const mode = modeInput === "execute" ? "execute" : "evaluate";
   const carettaVersion = core.getInput("caretta-version") || "latest";
   const agent = core.getInput("agent") || "claude";
   const context =
@@ -50,10 +48,6 @@ export async function main(
     core.getInput("enable-dispatch") === ""
       ? true
       : core.getBooleanInput("enable-dispatch");
-  const trackerWorkflow =
-    core.getInput("tracker-workflow") || "tracker-loop-dispatch.yml";
-  const factoryWorkflow =
-    core.getInput("factory-workflow") || "factory-cycle-dispatch.yml";
   const ciWorkflow = core.getInput("ci-workflow") || "ci.yml";
 
   const ctx = github.context;
@@ -76,14 +70,11 @@ export async function main(
   core.info(`autopilot: running (${trigger.reason})`);
 
   const config: AutopilotConfig = {
-    mode,
     carettaVersion,
     agent,
     context,
     dryRun,
     enableDispatch,
-    trackerWorkflow,
-    factoryWorkflow,
     ciWorkflow,
     agentBranchPattern: DEFAULT_AGENT_BRANCH,
     testCheckName: DEFAULT_TEST_CHECK_NAME,
@@ -93,7 +84,7 @@ export async function main(
   const exec = deps.createExecClient();
   const result = await deps.runAutopilot(gh, exec, config, ref);
 
-  core.setOutput("workflow", result.evaluation.workflow);
+  core.setOutput("route", result.evaluation.route);
   core.setOutput("tracker", result.evaluation.tracker);
   core.setOutput("sprint", result.evaluation.sprint?.toString() ?? "");
   core.setOutput("open_issue_count", String(result.evaluation.openIssueCount));

@@ -63300,15 +63300,6 @@ class OctokitClient {
     }
 }
 
-;// CONCATENATED MODULE: ./src/activity.ts
-async function isWorkflowBusy(gh, workflow) {
-    const [queued, inProgress] = await Promise.all([
-        gh.listWorkflowRuns(workflow, "queued"),
-        gh.listWorkflowRuns(workflow, "in_progress"),
-    ]);
-    return queued.length > 0 || inProgress.length > 0;
-}
-
 ;// CONCATENATED MODULE: ./src/decide.ts
 function computeHoldTarget(prCi, dryRun) {
     const holdCount = prCi.dispatched.length + prCi.active.length;
@@ -63318,33 +63309,12 @@ function computeHoldTarget(prCi, dryRun) {
         return true;
     return false;
 }
-async function dispatchTarget(gh, evaluation, prCi, config, ref, targetBusy) {
+function decideExecution(prCi, config) {
     const holdTarget = computeHoldTarget(prCi, config.dryRun);
-    if (config.mode === "execute") {
-        // If we're in execute mode, we don't dispatch workflows; we run logic inline.
-        // Decision is "executed" if we would have dispatched.
-        if (targetBusy || holdTarget || config.dryRun || !config.enableDispatch) {
-            return { holdTarget, targetDispatched: "skipped", targetBusy };
-        }
-        return { holdTarget, targetDispatched: "executed", targetBusy };
+    if (holdTarget || config.dryRun || !config.enableDispatch) {
+        return { holdTarget, targetDispatched: "skipped" };
     }
-    if (targetBusy || holdTarget || config.dryRun || !config.enableDispatch) {
-        return { holdTarget, targetDispatched: "skipped", targetBusy };
-    }
-    if (evaluation.workflow === config.trackerWorkflow) {
-        await gh.dispatchWorkflow(config.trackerWorkflow, ref, {
-            tracker: evaluation.tracker,
-            context: config.context,
-        });
-        return { holdTarget, targetDispatched: "tracker", targetBusy };
-    }
-    if (evaluation.workflow === config.factoryWorkflow) {
-        await gh.dispatchWorkflow(config.factoryWorkflow, ref, {
-            context: config.context,
-        });
-        return { holdTarget, targetDispatched: "factory", targetBusy };
-    }
-    return { holdTarget, targetDispatched: "skipped", targetBusy };
+    return { holdTarget, targetDispatched: "executed" };
 }
 
 ;// CONCATENATED MODULE: ./src/evaluate.ts
@@ -63360,31 +63330,31 @@ function countStalePRs(prs) {
         (p.reviewDecision === "CHANGES_REQUESTED" ||
             p.reviewDecision === "REVIEW_REQUIRED")).length;
 }
-function evaluate(issues, prs, trackerWorkflow, factoryWorkflow) {
+function evaluate(issues, prs) {
     const sprint = findActiveSprint(issues);
     const openIssueCount = issues.length;
     const openPrCount = prs.length;
     const stalePrCount = countStalePRs(prs);
     if (sprint !== null) {
         return {
+            route: "work",
             sprint,
             openIssueCount,
             openPrCount,
             stalePrCount,
-            workflow: trackerWorkflow,
             tracker: String(sprint),
-            reason: `open sprint #${sprint} found; dispatching tracker loop`,
+            reason: `open sprint #${sprint} found; running work dispatch`,
             activeSprint: `#${sprint}`,
         };
     }
     return {
+        route: "factory",
         sprint: null,
         openIssueCount,
         openPrCount,
         stalePrCount,
-        workflow: factoryWorkflow,
         tracker: "",
-        reason: "no open sprint found; dispatching factory cycle",
+        reason: "no open sprint found; running factory cycle",
         activeSprint: "none",
     };
 }
@@ -66195,14 +66165,15 @@ async function executeAutopilot(gh, exec, config, evaluation, deps = defaultExec
         env.CARETTA_CONTEXT = config.context;
     deps.materializeBotPrivateKey(env);
     const runner = new CarettaRunner(binaryPath, env, exec, gh, config);
-    if (evaluation.workflow === config.trackerWorkflow) {
-        await runner.runTrackerLoop(evaluation.tracker);
-    }
-    else if (evaluation.workflow === config.factoryWorkflow) {
-        await runner.runFactoryCycle();
-    }
-    else {
-        lib_core.info(`No specific workflow logic to execute for ${evaluation.workflow}`);
+    switch (evaluation.route) {
+        case "work":
+            await runner.runWorkDispatch(evaluation.tracker);
+            break;
+        case "factory":
+            await runner.runFactoryCycle();
+            break;
+        default:
+            lib_core.info(`No logic to execute for route '${evaluation.route}'`);
     }
 }
 class CarettaRunner {
@@ -66230,8 +66201,8 @@ class CarettaRunner {
         lib_core.info(`Running: ${this.binaryPath} ${fullArgs.join(" ")}`);
         return await this.exec.exec(this.binaryPath, fullArgs, { env: this.env });
     }
-    async runTrackerLoop(tracker) {
-        lib_core.info(`Starting tracker loop for #${tracker}`);
+    async runWorkDispatch(tracker) {
+        lib_core.info(`Starting work dispatch for #${tracker}`);
         // 1. tracker-matrix
         const matrixOutput = await this.exec.getExecOutput(this.binaryPath, [
             "--agent",
@@ -66443,11 +66414,8 @@ function buildSummary(evaluation, prCi, decision, config) {
     lines.push(`- Open pull requests: ${evaluation.openPrCount}`);
     lines.push(`- Active sprint: ${evaluation.activeSprint}`);
     lines.push(`- PRs requiring attention: ${evaluation.stalePrCount}`);
-    lines.push(`- Selected workflow: ${evaluation.workflow || "none"}`);
+    lines.push(`- Route: ${evaluation.route}`);
     lines.push(`- Reason: ${evaluation.reason}`);
-    if (decision.targetBusy) {
-        lines.push(`- Target workflow ${evaluation.workflow} is already queued or running; skipping dispatch.`);
-    }
     lines.push("");
     lines.push("### PR CI check");
     lines.push("");
@@ -66457,17 +66425,14 @@ function buildSummary(evaluation, prCi, decision, config) {
     lines.push(`- CI dispatches started: ${prCi.dispatched.length}`);
     lines.push(`- CI dispatches unavailable: ${prCi.failed.length}`);
     if (decision.holdTarget) {
-        lines.push("- Target workflow dispatch skipped this pass so pending tests can attach to the current PR heads.");
+        lines.push("- Execution skipped this pass so pending tests can attach to the current PR heads.");
     }
     else if (prCi.failed.length > 0) {
-        lines.push("- Target workflow dispatch may continue so the tracker loop can refresh branches that cannot dispatch CI yet.");
+        lines.push("- Execution proceeded so the work-dispatch loop can refresh branches that cannot dispatch CI yet.");
     }
-    if (config.dryRun &&
-        evaluation.workflow &&
-        !decision.targetBusy &&
-        !decision.holdTarget) {
+    if (config.dryRun && !decision.holdTarget) {
         lines.push("");
-        lines.push(`Dry run enabled; would dispatch ${evaluation.workflow}.`);
+        lines.push(`Dry run enabled; would execute ${evaluation.route} route.`);
         if (evaluation.tracker) {
             lines.push(`Tracker: #${evaluation.tracker}`);
         }
@@ -66481,18 +66446,14 @@ function buildSummary(evaluation, prCi, decision, config) {
 
 
 
-
-async function runAutopilot(gh, exec, config, ref, executeDeps) {
+async function runAutopilot(gh, exec, config, _ref, executeDeps) {
     const [issues, prs] = await Promise.all([
         gh.listOpenIssues(),
         gh.listOpenPullRequests(),
     ]);
-    const evaluation = evaluate(issues, prs, config.trackerWorkflow, config.factoryWorkflow);
-    const targetBusy = await isWorkflowBusy(gh, evaluation.workflow);
-    const prCi = targetBusy
-        ? { pending: [], dispatched: [], active: [], current: [], failed: [] }
-        : await processAgentPRs(gh, prs, config);
-    const decision = await dispatchTarget(gh, evaluation, prCi, config, ref, targetBusy);
+    const evaluation = evaluate(issues, prs);
+    const prCi = await processAgentPRs(gh, prs, config);
+    const decision = decideExecution(prCi, config);
     if (decision.targetDispatched === "executed") {
         await executeAutopilot(gh, exec, config, evaluation, executeDeps);
     }
@@ -66605,8 +66566,6 @@ const defaultDependencies = {
 };
 async function main(deps = defaultDependencies) {
     const token = lib_core.getInput("github-token", { required: true });
-    const modeInput = lib_core.getInput("mode") || "evaluate";
-    const mode = modeInput === "execute" ? "execute" : "evaluate";
     const carettaVersion = lib_core.getInput("caretta-version") || "latest";
     const agent = lib_core.getInput("agent") || "claude";
     const context = lib_core.getInput("context") ||
@@ -66615,8 +66574,6 @@ async function main(deps = defaultDependencies) {
     const enableDispatch = lib_core.getInput("enable-dispatch") === ""
         ? true
         : lib_core.getBooleanInput("enable-dispatch");
-    const trackerWorkflow = lib_core.getInput("tracker-workflow") || "tracker-loop-dispatch.yml";
-    const factoryWorkflow = lib_core.getInput("factory-workflow") || "factory-cycle-dispatch.yml";
     const ciWorkflow = lib_core.getInput("ci-workflow") || "ci.yml";
     const ctx = github.context;
     const owner = ctx.repo.owner;
@@ -66636,14 +66593,11 @@ async function main(deps = defaultDependencies) {
     }
     lib_core.info(`autopilot: running (${trigger.reason})`);
     const config = {
-        mode,
         carettaVersion,
         agent,
         context,
         dryRun,
         enableDispatch,
-        trackerWorkflow,
-        factoryWorkflow,
         ciWorkflow,
         agentBranchPattern: DEFAULT_AGENT_BRANCH,
         testCheckName: DEFAULT_TEST_CHECK_NAME,
@@ -66651,7 +66605,7 @@ async function main(deps = defaultDependencies) {
     const gh = deps.createGitHubClient(token, owner, repo);
     const exec = deps.createExecClient();
     const result = await deps.runAutopilot(gh, exec, config, ref);
-    lib_core.setOutput("workflow", result.evaluation.workflow);
+    lib_core.setOutput("route", result.evaluation.route);
     lib_core.setOutput("tracker", result.evaluation.tracker);
     lib_core.setOutput("sprint", result.evaluation.sprint?.toString() ?? "");
     lib_core.setOutput("open_issue_count", String(result.evaluation.openIssueCount));

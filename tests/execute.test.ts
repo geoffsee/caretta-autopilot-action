@@ -18,28 +18,28 @@ const fakeInstallDeps: ExecuteDeps = {
   materializeBotPrivateKey: () => {},
 };
 
-const trackerEval: EvaluationResult = {
+const workEval: EvaluationResult = {
+  route: "work",
   sprint: 7,
   openIssueCount: 0,
   openPrCount: 0,
   stalePrCount: 0,
-  workflow: "tracker-loop-dispatch.yml",
   tracker: "7",
   reason: "",
   activeSprint: "#7",
 };
 
 const factoryEval: EvaluationResult = {
-  ...trackerEval,
+  ...workEval,
+  route: "factory",
   sprint: null,
-  workflow: "factory-cycle-dispatch.yml",
   tracker: "",
   activeSprint: "none",
 };
 
-const unknownEval: EvaluationResult = {
-  ...trackerEval,
-  workflow: "other.yml",
+const unknownEval = {
+  ...workEval,
+  route: "other" as unknown as EvaluationResult["route"],
   tracker: "",
 };
 
@@ -50,12 +50,12 @@ describe("executeAutopilot", () => {
     exec = new FakeExec();
   });
 
-  test("no-op when workflow matches neither tracker nor factory", async () => {
+  test("no-op when route matches neither work nor factory", async () => {
     const gh = new FakeGitHub();
     await executeAutopilot(
       gh,
       exec,
-      makeConfig({ mode: "execute" }),
+      makeConfig(),
       unknownEval,
       fakeInstallDeps,
     );
@@ -70,7 +70,7 @@ describe("executeAutopilot", () => {
     await executeAutopilot(
       gh,
       exec,
-      makeConfig({ mode: "execute" }),
+      makeConfig(),
       factoryEval,
       fakeInstallDeps,
     );
@@ -88,7 +88,7 @@ describe("executeAutopilot", () => {
     );
   });
 
-  test("tracker loop runs fix-conflicts on DIRTY agent-branch PRs", async () => {
+  test("work dispatch runs fix-conflicts on DIRTY agent-branch PRs", async () => {
     const gh = new FakeGitHub({
       prs: [
         makePR({
@@ -114,8 +114,8 @@ describe("executeAutopilot", () => {
     await executeAutopilot(
       gh,
       exec,
-      makeConfig({ mode: "execute" }),
-      trackerEval,
+      makeConfig(),
+      workEval,
       fakeInstallDeps,
     );
 
@@ -127,7 +127,7 @@ describe("executeAutopilot", () => {
     expect(exec.calls.some((c) => c.args.includes("fix-pr"))).toBe(false);
   });
 
-  test("tracker loop skips code-review/fix-pr when CI is not successful", async () => {
+  test("work dispatch skips code-review/fix-pr when CI is not successful", async () => {
     const gh = new FakeGitHub({
       prs: [makePR({ number: 301, headRefName: "agent/issue-301" })],
       checksBySha: {
@@ -147,8 +147,8 @@ describe("executeAutopilot", () => {
     await executeAutopilot(
       gh,
       exec,
-      makeConfig({ mode: "execute" }),
-      trackerEval,
+      makeConfig(),
+      workEval,
       fakeInstallDeps,
     );
 
@@ -176,8 +176,8 @@ describe("executeAutopilot", () => {
     await executeAutopilot(
       gh,
       exec,
-      makeConfig({ mode: "execute" }),
-      trackerEval,
+      makeConfig(),
+      workEval,
       fakeInstallDeps,
     );
 
