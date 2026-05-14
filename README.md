@@ -51,3 +51,14 @@ bun run build   # bundles dist/index.js — must be committed
 ```
 
 `action.yml` points at `dist/index.js`, so the bundled output is committed alongside the source. Re-run `bun run build` after every change to `src/`.
+
+### Local testing
+
+Run the action against the real GitHub API without committing or pushing using [`@github/local-action`](https://github.com/github/local-action):
+
+```bash
+# npx @github/local-action <action-yaml-path> <entrypoint> <dotenv-file>
+npx @github/local-action . src/index.ts .env
+```
+
+The repo ships a starter `.env` (gitignored) — fill in `INPUT_GITHUB-TOKEN` before running. Keep `INPUT_DRY-RUN=true` and `INPUT_ENABLE-DISPATCH=false` until you're ready to actually dispatch workflows. `INPUT_MODE=execute` will install caretta and shell out, so only use it on a machine where that's acceptable.
