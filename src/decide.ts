@@ -18,6 +18,15 @@ export async function dispatchTarget(
 ): Promise<AutopilotDecision> {
   const holdTarget = computeHoldTarget(prCi, config.dryRun);
 
+  if (config.mode === "execute") {
+    // If we're in execute mode, we don't dispatch workflows; we run logic inline.
+    // Decision is "executed" if we would have dispatched.
+    if (targetBusy || holdTarget || config.dryRun || !config.enableDispatch) {
+      return { holdTarget, targetDispatched: "skipped", targetBusy };
+    }
+    return { holdTarget, targetDispatched: "executed", targetBusy };
+  }
+
   if (targetBusy || holdTarget || config.dryRun || !config.enableDispatch) {
     return { holdTarget, targetDispatched: "skipped", targetBusy };
   }

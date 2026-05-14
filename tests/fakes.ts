@@ -1,5 +1,32 @@
+import * as exec from "@actions/exec";
+import type { ExecClient } from "../src/exec.js";
 import type { GitHubClient } from "../src/github.js";
 import type { CheckRun, Issue, PullRequest, WorkflowRun } from "../src/types.js";
+
+export interface ExecCall {
+  command: string;
+  args: string[];
+  options?: exec.ExecOptions;
+}
+
+export class FakeExec implements ExecClient {
+  readonly calls: ExecCall[] = [];
+  stdout = "";
+
+  async exec(commandLine: string, args?: string[], options?: exec.ExecOptions): Promise<number> {
+    this.calls.push({ command: commandLine, args: args ?? [], options });
+    return 0;
+  }
+
+  async getExecOutput(commandLine: string, args?: string[], options?: exec.ExecOptions): Promise<exec.ExecOutput> {
+    this.calls.push({ command: commandLine, args: args ?? [], options });
+    return {
+      exitCode: 0,
+      stdout: this.stdout,
+      stderr: "",
+    };
+  }
+}
 
 export interface DispatchCall {
   workflow: string;
@@ -79,6 +106,9 @@ export function makePR(partial: Partial<PullRequest> & { number: number }): Pull
 
 export function makeConfig(overrides: Partial<import("../src/types.js").AutopilotConfig> = {}) {
   return {
+    mode: "evaluate" as const,
+    carettaVersion: "latest",
+    agent: "claude",
     context: "test context",
     dryRun: false,
     enableDispatch: true,

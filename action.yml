@@ -6,8 +6,20 @@ branding:
   color: "purple"
 
 inputs:
+  mode:
+    description: "Action mode: 'evaluate' (only report state and optionally dispatch) or 'execute' (install caretta and run the factory logic inline)."
+    required: false
+    default: "evaluate"
+  caretta-version:
+    description: "Version of caretta to install when mode is 'execute'. Defaults to 'latest'."
+    required: false
+    default: "latest"
+  agent:
+    description: "Agent to use for caretta tasks (e.g. 'claude')."
+    required: false
+    default: "claude"
   context:
-    description: "Natural-language steering context forwarded to the dispatched target workflow."
+    description: "Natural-language steering context forwarded to the dispatched target workflow or used for inline execution."
     required: false
     default: "Autopilot scheduled evaluation of open issues and pull requests."
   dry-run:

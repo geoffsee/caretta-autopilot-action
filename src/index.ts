@@ -1,11 +1,16 @@
 import * as core from "@actions/core";
 import * as github from "@actions/github";
 import { createOctokitClient } from "./github.js";
+import { DefaultExecClient } from "./exec.js";
 import { runAutopilot } from "./run.js";
 import { DEFAULT_AGENT_BRANCH, DEFAULT_TEST_CHECK_NAME, type AutopilotConfig } from "./types.js";
 
 async function main(): Promise<void> {
   const token = core.getInput("github-token", { required: true });
+  const modeInput = core.getInput("mode") || "evaluate";
+  const mode = modeInput === "execute" ? "execute" : "evaluate";
+  const carettaVersion = core.getInput("caretta-version") || "latest";
+  const agent = core.getInput("agent") || "claude";
   const context = core.getInput("context") || "Autopilot scheduled evaluation of open issues and pull requests.";
   const dryRun = core.getBooleanInput("dry-run");
   const enableDispatch = core.getInput("enable-dispatch") === ""
@@ -21,6 +26,9 @@ async function main(): Promise<void> {
   const ref = ctx.ref?.replace(/^refs\/heads\//, "") || "master";
 
   const config: AutopilotConfig = {
+    mode,
+    carettaVersion,
+    agent,
     context,
     dryRun,
     enableDispatch,
@@ -32,7 +40,8 @@ async function main(): Promise<void> {
   };
 
   const gh = createOctokitClient(token, owner, repo);
-  const result = await runAutopilot(gh, config, ref);
+  const exec = new DefaultExecClient();
+  const result = await runAutopilot(gh, exec, config, ref);
 
   core.setOutput("workflow", result.evaluation.workflow);
   core.setOutput("tracker", result.evaluation.tracker);

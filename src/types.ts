@@ -62,11 +62,14 @@ export interface PrCiResult {
 
 export interface AutopilotDecision {
   holdTarget: boolean;
-  targetDispatched: "tracker" | "factory" | "skipped";
+  targetDispatched: "tracker" | "factory" | "skipped" | "executed";
   targetBusy: boolean;
 }
 
 export interface AutopilotConfig {
+  mode: "evaluate" | "execute";
+  carettaVersion: string;
+  agent: string;
   context: string;
   dryRun: boolean;
   enableDispatch: boolean;
