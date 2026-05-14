@@ -1,7 +1,7 @@
-import { describe, expect, test, beforeEach, mock } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { DefaultExecClient, type ExecClient } from "../src/exec.js";
 import { createOctokitClient, type GitHubClient } from "../src/github.js";
-import { runAutopilot, type AutopilotRunResult } from "../src/run.js";
+import { type AutopilotRunResult, runAutopilot } from "../src/run.js";
 import type {
   AutopilotConfig,
   AutopilotDecision,
@@ -226,9 +226,7 @@ describe("main: input parsing", () => {
     const h = makeHarness();
     await main(h.deps);
     expect(h.runCalls).toHaveLength(1);
-    expect(h.runCalls[0].config.mode).toBe(
-      expected as AutopilotConfig["mode"],
-    );
+    expect(h.runCalls[0].config.mode).toBe(expected as AutopilotConfig["mode"]);
   });
 
   test.each([
@@ -300,29 +298,28 @@ describe("main: input parsing", () => {
       input: "tests.yml",
       expected: "tests.yml",
     },
-  ])(
-    "$field: input '$input' → '$expected'",
-    async ({ field, key, input, expected }) => {
-      coreState.inputs[key] = input;
-      const h = makeHarness();
-      await main(h.deps);
-      expect(h.runCalls[0].config[field]).toBe(expected as never);
-    },
-  );
+  ])("$field: input '$input' → '$expected'", async ({
+    field,
+    key,
+    input,
+    expected,
+  }) => {
+    coreState.inputs[key] = input;
+    const h = makeHarness();
+    await main(h.deps);
+    expect(h.runCalls[0].config[field]).toBe(expected as never);
+  });
 
   test.each([
     { input: "", expected: true },
     { input: "true", expected: true },
     { input: "false", expected: false },
-  ])(
-    "enable-dispatch '$input' → $expected",
-    async ({ input, expected }) => {
-      coreState.inputs["enable-dispatch"] = input;
-      const h = makeHarness();
-      await main(h.deps);
-      expect(h.runCalls[0].config.enableDispatch).toBe(expected);
-    },
-  );
+  ])("enable-dispatch '$input' → $expected", async ({ input, expected }) => {
+    coreState.inputs["enable-dispatch"] = input;
+    const h = makeHarness();
+    await main(h.deps);
+    expect(h.runCalls[0].config.enableDispatch).toBe(expected);
+  });
 
   test.each([
     { input: "true", expected: true },
@@ -440,43 +437,45 @@ describe("main: output wiring", () => {
     { sprint: null, expected: "" },
     { sprint: 0, expected: "0" },
     { sprint: 42, expected: "42" },
-  ])(
-    "sprint output for evaluation.sprint=$sprint → '$expected'",
-    async ({ sprint, expected }) => {
-      const h = makeHarness({
-        result: makeRunResult({ evaluation: makeEvaluation({ sprint }) }),
-      });
-      await main(h.deps);
-      expect(coreState.outputs.sprint).toBe(expected);
-    },
-  );
+  ])("sprint output for evaluation.sprint=$sprint → '$expected'", async ({
+    sprint,
+    expected,
+  }) => {
+    const h = makeHarness({
+      result: makeRunResult({ evaluation: makeEvaluation({ sprint }) }),
+    });
+    await main(h.deps);
+    expect(coreState.outputs.sprint).toBe(expected);
+  });
 
   test.each([
     { holdTarget: true, expected: "true" },
     { holdTarget: false, expected: "false" },
-  ])(
-    "hold_target output for decision.holdTarget=$holdTarget",
-    async ({ holdTarget, expected }) => {
-      const h = makeHarness({
-        result: makeRunResult({ decision: makeDecision({ holdTarget }) }),
-      });
-      await main(h.deps);
-      expect(coreState.outputs.hold_target).toBe(expected);
-    },
-  );
+  ])("hold_target output for decision.holdTarget=$holdTarget", async ({
+    holdTarget,
+    expected,
+  }) => {
+    const h = makeHarness({
+      result: makeRunResult({ decision: makeDecision({ holdTarget }) }),
+    });
+    await main(h.deps);
+    expect(coreState.outputs.hold_target).toBe(expected);
+  });
 
-  test.each(["tracker", "factory", "skipped", "executed"] as const)(
-    "target_dispatched output for decision='%s'",
-    async (targetDispatched) => {
-      const h = makeHarness({
-        result: makeRunResult({
-          decision: makeDecision({ targetDispatched }),
-        }),
-      });
-      await main(h.deps);
-      expect(coreState.outputs.target_dispatched).toBe(targetDispatched);
-    },
-  );
+  test.each([
+    "tracker",
+    "factory",
+    "skipped",
+    "executed",
+  ] as const)("target_dispatched output for decision='%s'", async (targetDispatched) => {
+    const h = makeHarness({
+      result: makeRunResult({
+        decision: makeDecision({ targetDispatched }),
+      }),
+    });
+    await main(h.deps);
+    expect(coreState.outputs.target_dispatched).toBe(targetDispatched);
+  });
 });
 
 describe("main: error propagation", () => {

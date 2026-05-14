@@ -38,7 +38,11 @@ describe("countStalePRs", () => {
         makePR({ number: 1, reviewDecision: "CHANGES_REQUESTED" }),
         makePR({ number: 2, reviewDecision: "REVIEW_REQUIRED" }),
         makePR({ number: 3, reviewDecision: "APPROVED" }),
-        makePR({ number: 4, isDraft: true, reviewDecision: "CHANGES_REQUESTED" }),
+        makePR({
+          number: 4,
+          isDraft: true,
+          reviewDecision: "CHANGES_REQUESTED",
+        }),
       ],
       expected: 2,
     },
@@ -78,7 +82,13 @@ describe("evaluate", () => {
       expectedTracker: "",
       expectedSprint: null,
     },
-  ])("$name", ({ issues, prs, expectedWorkflow, expectedTracker, expectedSprint }) => {
+  ])("$name", ({
+    issues,
+    prs,
+    expectedWorkflow,
+    expectedTracker,
+    expectedSprint,
+  }) => {
     const result = evaluate(issues, prs, "tracker.yml", "factory.yml");
     expect(result.workflow).toBe(expectedWorkflow);
     expect(result.tracker).toBe(expectedTracker);

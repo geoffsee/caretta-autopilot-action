@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { computeHoldTarget, dispatchTarget } from "../src/decide.js";
-import { FakeGitHub, makeConfig } from "./fakes.js";
 import type { EvaluationResult, PrCiResult } from "../src/types.js";
+import { FakeGitHub, makeConfig } from "./fakes.js";
 
 const emptyPrCi: PrCiResult = {
   pending: [],
@@ -37,19 +37,28 @@ describe("computeHoldTarget", () => {
   test.each([
     {
       name: "holds when any PR was dispatched",
-      prCi: { ...emptyPrCi, dispatched: [{ number: 1, branch: "b", sha: "s", url: "u" }] },
+      prCi: {
+        ...emptyPrCi,
+        dispatched: [{ number: 1, branch: "b", sha: "s", url: "u" }],
+      },
       dryRun: false,
       expected: true,
     },
     {
       name: "holds when any PR is active",
-      prCi: { ...emptyPrCi, active: [{ number: 1, branch: "b", sha: "s", url: "u" }] },
+      prCi: {
+        ...emptyPrCi,
+        active: [{ number: 1, branch: "b", sha: "s", url: "u" }],
+      },
       dryRun: false,
       expected: true,
     },
     {
       name: "holds in dry-run when there is pending work",
-      prCi: { ...emptyPrCi, pending: [{ number: 1, branch: "b", sha: "s", url: "u" }] },
+      prCi: {
+        ...emptyPrCi,
+        pending: [{ number: 1, branch: "b", sha: "s", url: "u" }],
+      },
       dryRun: true,
       expected: true,
     },

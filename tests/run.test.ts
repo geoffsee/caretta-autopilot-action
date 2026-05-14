@@ -1,8 +1,8 @@
-import { describe, expect, test, mock, beforeEach } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { runAutopilot } from "../src/run.js";
 import {
-  FakeGitHub,
   FakeExec,
+  FakeGitHub,
   makeConfig,
   makeIssue,
   makePR,

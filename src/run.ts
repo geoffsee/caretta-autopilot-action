@@ -1,8 +1,8 @@
 import { isWorkflowBusy } from "./activity.js";
 import { dispatchTarget } from "./decide.js";
 import { evaluate } from "./evaluate.js";
-import { executeAutopilot } from "./execute.js";
 import type { ExecClient } from "./exec.js";
+import { executeAutopilot } from "./execute.js";
 import type { GitHubClient } from "./github.js";
 import { processAgentPRs } from "./pr-ci.js";
 import { buildSummary } from "./summary.js";

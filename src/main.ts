@@ -7,9 +7,9 @@ import { createOctokitClient } from "./github.js";
 import type { AutopilotRunResult } from "./run.js";
 import { runAutopilot } from "./run.js";
 import {
+  type AutopilotConfig,
   DEFAULT_AGENT_BRANCH,
   DEFAULT_TEST_CHECK_NAME,
-  type AutopilotConfig,
 } from "./types.js";
 
 export interface MainDependencies {

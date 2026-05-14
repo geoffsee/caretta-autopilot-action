@@ -1,4 +1,4 @@
-import * as exec from "@actions/exec";
+import type * as exec from "@actions/exec";
 import type { ExecClient } from "../src/exec.js";
 import type { GitHubClient } from "../src/github.js";
 import type {

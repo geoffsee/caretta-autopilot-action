@@ -1,6 +1,12 @@
-import { describe, expect, test, mock, beforeEach } from "bun:test";
-import { FakeExec, FakeGitHub, makeConfig, makeIssue, makePR } from "./fakes.js";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 import type { EvaluationResult } from "../src/types.js";
+import {
+  FakeExec,
+  FakeGitHub,
+  makeConfig,
+  makeIssue,
+  makePR,
+} from "./fakes.js";
 
 mock.module("../src/install.js", () => ({
   installCaretta: async () => ({
@@ -47,7 +53,12 @@ describe("executeAutopilot", () => {
 
   test("no-op when workflow matches neither tracker nor factory", async () => {
     const gh = new FakeGitHub();
-    await executeAutopilot(gh, exec, makeConfig({ mode: "execute" }), unknownEval);
+    await executeAutopilot(
+      gh,
+      exec,
+      makeConfig({ mode: "execute" }),
+      unknownEval,
+    );
     expect(exec.calls).toHaveLength(0);
     expect(gh.dispatched).toHaveLength(0);
   });
@@ -56,13 +67,24 @@ describe("executeAutopilot", () => {
     const gh = new FakeGitHub({
       issues: [makeIssue({ number: 9, labels: [{ name: "sprint" }] })],
     });
-    await executeAutopilot(gh, exec, makeConfig({ mode: "execute" }), factoryEval);
+    await executeAutopilot(
+      gh,
+      exec,
+      makeConfig({ mode: "execute" }),
+      factoryEval,
+    );
 
     expect(exec.calls.some((c) => c.args.includes("housekeeping"))).toBe(true);
     expect(exec.calls.some((c) => c.args.includes("ideation"))).toBe(false);
-    expect(exec.calls.some((c) => c.args.includes("report-research"))).toBe(false);
-    expect(exec.calls.some((c) => c.args.includes("strategic-review"))).toBe(false);
-    expect(exec.calls.some((c) => c.args.includes("sprint-planning"))).toBe(false);
+    expect(exec.calls.some((c) => c.args.includes("report-research"))).toBe(
+      false,
+    );
+    expect(exec.calls.some((c) => c.args.includes("strategic-review"))).toBe(
+      false,
+    );
+    expect(exec.calls.some((c) => c.args.includes("sprint-planning"))).toBe(
+      false,
+    );
   });
 
   test("tracker loop runs fix-conflicts on DIRTY agent-branch PRs", async () => {
@@ -88,11 +110,14 @@ describe("executeAutopilot", () => {
     });
     exec.stdout = JSON.stringify([201]);
 
-    await executeAutopilot(gh, exec, makeConfig({ mode: "execute" }), trackerEval);
-
-    const fixCalls = exec.calls.filter((c) =>
-      c.args.includes("fix-conflicts"),
+    await executeAutopilot(
+      gh,
+      exec,
+      makeConfig({ mode: "execute" }),
+      trackerEval,
     );
+
+    const fixCalls = exec.calls.filter((c) => c.args.includes("fix-conflicts"));
     expect(fixCalls.length).toBeGreaterThanOrEqual(1);
     expect(fixCalls[0].args).toContain("201");
     // DIRTY PR must not reach code-review / fix-pr
@@ -117,7 +142,12 @@ describe("executeAutopilot", () => {
     });
     exec.stdout = JSON.stringify([301]);
 
-    await executeAutopilot(gh, exec, makeConfig({ mode: "execute" }), trackerEval);
+    await executeAutopilot(
+      gh,
+      exec,
+      makeConfig({ mode: "execute" }),
+      trackerEval,
+    );
 
     expect(exec.calls.some((c) => c.args.includes("code-review"))).toBe(false);
     expect(exec.calls.some((c) => c.args.includes("fix-pr"))).toBe(false);
@@ -140,11 +170,18 @@ describe("executeAutopilot", () => {
     });
     exec.stdout = JSON.stringify([]);
 
-    await executeAutopilot(gh, exec, makeConfig({ mode: "execute" }), trackerEval);
+    await executeAutopilot(
+      gh,
+      exec,
+      makeConfig({ mode: "execute" }),
+      trackerEval,
+    );
 
     // Empty matrix → no per-issue caretta call
     expect(
-      exec.calls.some((c) => c.args.includes("issue") && c.args.includes("--tracker")),
+      exec.calls.some(
+        (c) => c.args.includes("issue") && c.args.includes("--tracker"),
+      ),
     ).toBe(false);
     // Fallback finds the agent-branch PR with passing CI → code-review and fix-pr called
     expect(

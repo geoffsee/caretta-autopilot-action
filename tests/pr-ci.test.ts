@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { filterAgentPRs, processAgentPRs } from "../src/pr-ci.js";
-import { FakeGitHub, makeConfig, makePR } from "./fakes.js";
 import { DEFAULT_AGENT_BRANCH } from "../src/types.js";
+import { FakeGitHub, makeConfig, makePR } from "./fakes.js";
 
 describe("filterAgentPRs", () => {
   test("keeps non-draft, non-DIRTY agent PRs only", () => {
@@ -42,7 +42,9 @@ describe("processAgentPRs", () => {
       name: "classifies a PR with an in-progress CI run as active and skips dispatch",
       setup: {
         runsByKey: {
-          "ci.yml|in_progress|agent/issue-2": [{ id: 99, headSha: "sha-2", status: "in_progress" }],
+          "ci.yml|in_progress|agent/issue-2": [
+            { id: 99, headSha: "sha-2", status: "in_progress" },
+          ],
         },
       },
       prs: [makePR({ number: 2 })],
@@ -74,7 +76,9 @@ describe("processAgentPRs", () => {
       name: "ignores runs whose head SHA differs from the PR head SHA",
       setup: {
         runsByKey: {
-          "ci.yml|queued|agent/issue-6": [{ id: 1, headSha: "stale-sha", status: "queued" }],
+          "ci.yml|queued|agent/issue-6": [
+            { id: 1, headSha: "stale-sha", status: "queued" },
+          ],
         },
       },
       prs: [makePR({ number: 6 })],
@@ -84,13 +88,18 @@ describe("processAgentPRs", () => {
   ])("$name", async ({ setup, prs, config, expected }) => {
     const gh = new FakeGitHub(setup);
     const result = await processAgentPRs(gh, prs, config);
-    
-    if (expected.current !== undefined) expect(result.current).toHaveLength(expected.current);
-    if (expected.pending !== undefined) expect(result.pending).toHaveLength(expected.pending);
-    if (expected.active !== undefined) expect(result.active).toHaveLength(expected.active);
-    if (expected.dispatched !== undefined) expect(result.dispatched).toHaveLength(expected.dispatched);
-    if (expected.failed !== undefined) expect(result.failed).toHaveLength(expected.failed);
-    
+
+    if (expected.current !== undefined)
+      expect(result.current).toHaveLength(expected.current);
+    if (expected.pending !== undefined)
+      expect(result.pending).toHaveLength(expected.pending);
+    if (expected.active !== undefined)
+      expect(result.active).toHaveLength(expected.active);
+    if (expected.dispatched !== undefined)
+      expect(result.dispatched).toHaveLength(expected.dispatched);
+    if (expected.failed !== undefined)
+      expect(result.failed).toHaveLength(expected.failed);
+
     expect(gh.dispatched).toHaveLength(expected.ghDispatched);
   });
 });
