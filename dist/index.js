@@ -66154,11 +66154,19 @@ const defaultExecuteDeps = {
     materializeBotPrivateKey: materializeBotPrivateKey,
 };
 async function executeAutopilot(gh, exec, config, evaluation, deps = defaultExecuteDeps) {
-    const { binaryPath } = await deps.installCaretta(config.carettaVersion, process.env.GITHUB_TOKEN || "");
+    const installToken = config.githubToken?.trim() || process.env.GITHUB_TOKEN || "";
+    const { binaryPath } = await deps.installCaretta(config.carettaVersion, installToken);
     await deps.installLinuxRuntimeDeps();
     const env = { ...process.env };
-    if (!env.GH_TOKEN)
-        env.GH_TOKEN = process.env.GITHUB_TOKEN || "";
+    const authToken = config.githubToken?.trim() ||
+        env.GH_TOKEN?.trim() ||
+        env.GITHUB_TOKEN?.trim() ||
+        process.env.GITHUB_TOKEN?.trim() ||
+        "";
+    if (authToken) {
+        env.GH_TOKEN = authToken;
+        env.GITHUB_TOKEN = authToken;
+    }
     if (!env.RUST_LOG)
         env.RUST_LOG = "info";
     if (config.context)
@@ -66586,6 +66594,7 @@ async function main(deps = defaultDependencies) {
         ciWorkflow,
         agentBranchPattern: DEFAULT_AGENT_BRANCH,
         testCheckName: DEFAULT_TEST_CHECK_NAME,
+        githubToken: token,
     };
     const gh = deps.createGitHubClient(token, owner, repo);
     const exec = deps.createExecClient();

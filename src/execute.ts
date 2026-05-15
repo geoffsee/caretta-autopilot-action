@@ -27,9 +27,11 @@ export async function executeAutopilot(
   evaluation: EvaluationResult,
   deps: ExecuteDeps = defaultExecuteDeps,
 ): Promise<void> {
+  const installToken =
+    config.githubToken?.trim() || process.env.GITHUB_TOKEN || "";
   const { binaryPath } = await deps.installCaretta(
     config.carettaVersion,
-    process.env.GITHUB_TOKEN || "",
+    installToken,
   );
   await deps.installLinuxRuntimeDeps();
 
@@ -37,7 +39,16 @@ export async function executeAutopilot(
     string,
     string
   >;
-  if (!env.GH_TOKEN) env.GH_TOKEN = process.env.GITHUB_TOKEN || "";
+  const authToken =
+    config.githubToken?.trim() ||
+    env.GH_TOKEN?.trim() ||
+    env.GITHUB_TOKEN?.trim() ||
+    process.env.GITHUB_TOKEN?.trim() ||
+    "";
+  if (authToken) {
+    env.GH_TOKEN = authToken;
+    env.GITHUB_TOKEN = authToken;
+  }
   if (!env.RUST_LOG) env.RUST_LOG = "info";
   if (config.context) env.CARETTA_CONTEXT = config.context;
   deps.materializeBotPrivateKey(env);

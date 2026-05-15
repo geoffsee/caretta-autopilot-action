@@ -78,6 +78,7 @@ export async function main(
     ciWorkflow,
     agentBranchPattern: DEFAULT_AGENT_BRANCH,
     testCheckName: DEFAULT_TEST_CHECK_NAME,
+    githubToken: token,
   };
 
   const gh = deps.createGitHubClient(token, owner, repo);

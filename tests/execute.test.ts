@@ -63,6 +63,26 @@ describe("executeAutopilot", () => {
     expect(gh.dispatched).toHaveLength(0);
   });
 
+  test("propagates github-token to caretta subprocess env as GH_TOKEN", async () => {
+    const gh = new FakeGitHub({
+      issues: [makeIssue({ number: 9, labels: [{ name: "sprint" }] })],
+    });
+    await executeAutopilot(
+      gh,
+      exec,
+      makeConfig({ githubToken: "resolved-input-token" }),
+      factoryEval,
+      fakeInstallDeps,
+    );
+    const housekeeping = exec.calls.find((c) =>
+      c.args.includes("housekeeping"),
+    );
+    expect(housekeeping?.options?.env?.GH_TOKEN).toBe("resolved-input-token");
+    expect(housekeeping?.options?.env?.GITHUB_TOKEN).toBe(
+      "resolved-input-token",
+    );
+  });
+
   test("factory cycle skips ideation when an open 'sprint' issue exists", async () => {
     const gh = new FakeGitHub({
       issues: [makeIssue({ number: 9, labels: [{ name: "sprint" }] })],

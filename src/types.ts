@@ -78,6 +78,8 @@ export interface AutopilotConfig {
   ciWorkflow: string;
   agentBranchPattern: RegExp;
   testCheckName: string;
+  /** Resolved `github-token` input; propagated to `gh` / caretta subprocess env. */
+  githubToken?: string;
 }
 
 export const DEFAULT_AGENT_BRANCH = /^agent\/issue-[0-9]+$/;
