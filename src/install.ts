@@ -1,3 +1,4 @@
+import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -216,6 +217,85 @@ export async function installLinuxRuntimeDeps(): Promise<void> {
     ],
     { silent: true },
   );
+}
+
+function base64urlEncode(input: Buffer | string): string {
+  const buf = typeof input === "string" ? Buffer.from(input) : input;
+  return buf
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+}
+
+function signAppJwt(appId: string, pem: string): string {
+  const header = base64urlEncode(JSON.stringify({ alg: "RS256", typ: "JWT" }));
+  const now = Math.floor(Date.now() / 1000);
+  const payload = base64urlEncode(
+    JSON.stringify({ iat: now - 60, exp: now + 540, iss: appId }),
+  );
+  const data = `${header}.${payload}`;
+  const sig = crypto.createSign("RSA-SHA256").update(data).sign(pem);
+  return `${data}.${base64urlEncode(sig)}`;
+}
+
+export interface MintInstallationTokenOptions {
+  appId: string;
+  privateKeyB64: string;
+  owner: string;
+  repo: string;
+  /** When provided, skips installation lookup. */
+  installationId?: string;
+}
+
+/**
+ * Exchange a GitHub App's private key + app id for a short-lived installation
+ * access token (used as `GH_TOKEN` so caretta can create PRs).
+ */
+export async function mintInstallationToken(
+  opts: MintInstallationTokenOptions,
+): Promise<string> {
+  const pem = Buffer.from(opts.privateKeyB64, "base64").toString("utf8");
+  const jwt = signAppJwt(opts.appId, pem);
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${jwt}`,
+    Accept: "application/vnd.github+json",
+    "User-Agent": "caretta-autopilot-action",
+  };
+
+  let installationId = opts.installationId;
+  if (!installationId) {
+    const lookup = await fetch(
+      `https://api.github.com/repos/${opts.owner}/${opts.repo}/installation`,
+      { headers },
+    );
+    if (!lookup.ok) {
+      throw new Error(
+        `Failed to resolve GitHub App installation for ${opts.owner}/${opts.repo}: ${lookup.status} ${lookup.statusText}`,
+      );
+    }
+    const body = (await lookup.json()) as { id?: number };
+    if (!body.id) {
+      throw new Error("Installation lookup returned no id");
+    }
+    installationId = String(body.id);
+  }
+
+  const tokRes = await fetch(
+    `https://api.github.com/app/installations/${installationId}/access_tokens`,
+    { method: "POST", headers },
+  );
+  if (!tokRes.ok) {
+    throw new Error(
+      `Failed to mint installation token: ${tokRes.status} ${tokRes.statusText}`,
+    );
+  }
+  const tokBody = (await tokRes.json()) as { token?: string };
+  if (!tokBody.token) {
+    throw new Error("Installation token response missing token");
+  }
+  core.setSecret(tokBody.token);
+  return tokBody.token;
 }
 
 export async function configureGitIdentity(

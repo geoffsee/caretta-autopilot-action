@@ -27,9 +27,13 @@ inputs:
     required: false
     default: "true"
   github-token:
-    description: "Token used for GitHub API calls. Defaults to the workflow's GITHUB_TOKEN."
+    description: "Token used by the action for GitHub API calls (listing PRs, dispatching CI). Defaults to the workflow's GITHUB_TOKEN."
     required: false
     default: ${{ github.token }}
+  bot-token:
+    description: "Token forwarded to the caretta subprocess as GH_TOKEN / GITHUB_TOKEN. Use a GitHub App installation token (e.g. from `actions/create-github-app-token`) so caretta can create pull requests; the default GITHUB_TOKEN cannot. Falls back to `github-token` when unset."
+    required: false
+    default: ""
   ci-workflow:
     description: "Workflow file dispatched per agent PR to attach a Test check to the head SHA."
     required: false

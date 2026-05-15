@@ -131,6 +131,8 @@ export function makeConfig(
     ciWorkflow: "ci.yml",
     agentBranchPattern: /^agent\/issue-[0-9]+$/,
     testCheckName: "Test",
+    owner: "test-owner",
+    repo: "test-repo",
     gitUserName: "caretta-autopilot[bot]",
     gitUserEmail: "caretta-autopilot[bot]@users.noreply.github.com",
     ...overrides,

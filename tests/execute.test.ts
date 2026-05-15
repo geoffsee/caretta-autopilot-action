@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { type ExecuteDeps, executeAutopilot } from "../src/execute.js";
 import type { EvaluationResult } from "../src/types.js";
 import {
@@ -17,6 +17,7 @@ const fakeInstallDeps: ExecuteDeps = {
   installLinuxRuntimeDeps: async () => {},
   materializeBotPrivateKey: () => {},
   configureGitIdentity: async () => {},
+  mintInstallationToken: async () => "should-not-be-called",
 };
 
 const workEval: EvaluationResult = {
@@ -46,9 +47,23 @@ const unknownEval = {
 
 describe("executeAutopilot", () => {
   let exec: FakeExec;
+  const originalAppId = process.env.DEV_BOT_APP_ID;
+  const originalPemB64 = process.env.DEV_BOT_PRIVATE_KEY_B64;
+  const originalInstallId = process.env.DEV_BOT_INSTALLATION_ID;
 
   beforeEach(() => {
     exec = new FakeExec();
+    delete process.env.DEV_BOT_APP_ID;
+    delete process.env.DEV_BOT_PRIVATE_KEY_B64;
+    delete process.env.DEV_BOT_INSTALLATION_ID;
+  });
+
+  afterEach(() => {
+    if (originalAppId !== undefined) process.env.DEV_BOT_APP_ID = originalAppId;
+    if (originalPemB64 !== undefined)
+      process.env.DEV_BOT_PRIVATE_KEY_B64 = originalPemB64;
+    if (originalInstallId !== undefined)
+      process.env.DEV_BOT_INSTALLATION_ID = originalInstallId;
   });
 
   test("no-op when route matches neither work nor factory", async () => {
@@ -120,6 +135,137 @@ describe("executeAutopilot", () => {
     expect(housekeeping?.options?.env?.GH_TOKEN).toBe("resolved-input-token");
     expect(housekeeping?.options?.env?.GITHUB_TOKEN).toBe(
       "resolved-input-token",
+    );
+  });
+
+  test("mints installation token from DEV_BOT_* env when bot-token is unset", async () => {
+    process.env.DEV_BOT_APP_ID = "12345";
+    process.env.DEV_BOT_PRIVATE_KEY_B64 = "pem-b64";
+    process.env.DEV_BOT_INSTALLATION_ID = "67890";
+
+    const gh = new FakeGitHub({
+      issues: [makeIssue({ number: 9, labels: [{ name: "sprint" }] })],
+    });
+    const mintCalls: Array<{
+      appId: string;
+      privateKeyB64: string;
+      owner: string;
+      repo: string;
+      installationId?: string;
+    }> = [];
+    await executeAutopilot(
+      gh,
+      exec,
+      makeConfig({
+        githubToken: "default-actions-token",
+        owner: "acme",
+        repo: "widgets",
+      }),
+      factoryEval,
+      {
+        ...fakeInstallDeps,
+        mintInstallationToken: async (opts) => {
+          mintCalls.push(opts);
+          return "minted-installation-token";
+        },
+      },
+    );
+
+    expect(mintCalls).toEqual([
+      {
+        appId: "12345",
+        privateKeyB64: "pem-b64",
+        owner: "acme",
+        repo: "widgets",
+        installationId: "67890",
+      },
+    ]);
+    const housekeeping = exec.calls.find((c) =>
+      c.args.includes("housekeeping"),
+    );
+    expect(housekeeping?.options?.env?.GH_TOKEN).toBe(
+      "minted-installation-token",
+    );
+    expect(housekeeping?.options?.env?.GITHUB_TOKEN).toBe(
+      "minted-installation-token",
+    );
+  });
+
+  test("falls back to github-token when mint fails", async () => {
+    process.env.DEV_BOT_APP_ID = "12345";
+    process.env.DEV_BOT_PRIVATE_KEY_B64 = "pem-b64";
+
+    const gh = new FakeGitHub({
+      issues: [makeIssue({ number: 9, labels: [{ name: "sprint" }] })],
+    });
+    await executeAutopilot(
+      gh,
+      exec,
+      makeConfig({ githubToken: "default-actions-token" }),
+      factoryEval,
+      {
+        ...fakeInstallDeps,
+        mintInstallationToken: async () => {
+          throw new Error("api down");
+        },
+      },
+    );
+
+    const housekeeping = exec.calls.find((c) =>
+      c.args.includes("housekeeping"),
+    );
+    expect(housekeeping?.options?.env?.GH_TOKEN).toBe("default-actions-token");
+  });
+
+  test("does not mint when bot-token is explicitly provided", async () => {
+    process.env.DEV_BOT_APP_ID = "12345";
+    process.env.DEV_BOT_PRIVATE_KEY_B64 = "pem-b64";
+
+    const gh = new FakeGitHub({
+      issues: [makeIssue({ number: 9, labels: [{ name: "sprint" }] })],
+    });
+    let mintCalled = false;
+    await executeAutopilot(
+      gh,
+      exec,
+      makeConfig({ botToken: "explicit-token" }),
+      factoryEval,
+      {
+        ...fakeInstallDeps,
+        mintInstallationToken: async () => {
+          mintCalled = true;
+          return "minted";
+        },
+      },
+    );
+
+    expect(mintCalled).toBe(false);
+    const housekeeping = exec.calls.find((c) =>
+      c.args.includes("housekeeping"),
+    );
+    expect(housekeeping?.options?.env?.GH_TOKEN).toBe("explicit-token");
+  });
+
+  test("bot-token overrides github-token for caretta subprocess env", async () => {
+    const gh = new FakeGitHub({
+      issues: [makeIssue({ number: 9, labels: [{ name: "sprint" }] })],
+    });
+    await executeAutopilot(
+      gh,
+      exec,
+      makeConfig({
+        githubToken: "default-actions-token",
+        botToken: "ghs_installation_token",
+      }),
+      factoryEval,
+      fakeInstallDeps,
+    );
+    const housekeeping = exec.calls.find((c) =>
+      c.args.includes("housekeeping"),
+    );
+    expect(housekeeping?.options?.env?.GH_TOKEN).toBe("ghs_installation_token");
+    expect(housekeeping?.options?.env?.GITHUB_TOKEN).toBe(
+      "ghs_installation_token",
     );
   });
 

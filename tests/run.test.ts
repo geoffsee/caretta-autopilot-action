@@ -17,6 +17,7 @@ const fakeInstallDeps: ExecuteDeps = {
   installLinuxRuntimeDeps: async () => {},
   materializeBotPrivateKey: () => {},
   configureGitIdentity: async () => {},
+  mintInstallationToken: async () => "should-not-be-called",
 };
 
 describe("runAutopilot", () => {

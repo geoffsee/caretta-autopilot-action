@@ -126,9 +126,9 @@ describe("decideTrigger", () => {
   });
 
   test("malformed payloads are tolerated", () => {
-    expect(
-      decideTrigger({ eventName: "pull_request", payload: {} }).run,
-    ).toBe(false);
+    expect(decideTrigger({ eventName: "pull_request", payload: {} }).run).toBe(
+      false,
+    );
     expect(
       decideTrigger({
         eventName: "workflow_run",
