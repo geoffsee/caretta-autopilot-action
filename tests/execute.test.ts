@@ -77,6 +77,7 @@ describe("executeAutopilot", () => {
     const housekeeping = exec.calls.find((c) =>
       c.args.includes("housekeeping"),
     );
+    expect(housekeeping?.args[0]).toBe("--auto");
     expect(housekeeping?.options?.env?.GH_TOKEN).toBe("resolved-input-token");
     expect(housekeeping?.options?.env?.GITHUB_TOKEN).toBe(
       "resolved-input-token",

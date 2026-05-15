@@ -76,8 +76,13 @@ class CarettaRunner {
     private readonly config: AutopilotConfig,
   ) {}
 
+  /** Headless CI runs need `--auto`: two-phase workflows synthesize feedback and run finalize. */
+  private carettaBaseArgs(): string[] {
+    return ["--auto", "--agent", this.config.agent];
+  }
+
   async runCaretta(task: string, args: string[] = []): Promise<number> {
-    const fullArgs = ["--agent", this.config.agent, task, ...args];
+    const fullArgs = [...this.carettaBaseArgs(), task, ...args];
     core.info(`Running: ${this.binaryPath} ${fullArgs.join(" ")}`);
     return await this.exec.exec(this.binaryPath, fullArgs, { env: this.env });
   }
@@ -88,7 +93,7 @@ class CarettaRunner {
     // 1. tracker-matrix
     const matrixOutput = await this.exec.getExecOutput(
       this.binaryPath,
-      ["--agent", this.config.agent, "tracker-matrix", tracker, "--json"],
+      [...this.carettaBaseArgs(), "tracker-matrix", tracker, "--json"],
       { env: this.env, silent: true },
     );
     const issues: number[] = JSON.parse(matrixOutput.stdout.trim() || "[]");

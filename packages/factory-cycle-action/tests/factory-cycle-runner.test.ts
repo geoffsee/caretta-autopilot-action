@@ -94,6 +94,7 @@ describe("FactoryCycleRunner", () => {
 
     const tasks = exec.calls.map((call) => taskFromArgs(call.args));
     expect(tasks).toEqual(["housekeeping", "run", "run", "run", "run"]);
+    expect(exec.calls.every((call) => call.args[0] === "--auto")).toBe(true);
     expect(exec.calls[1].args.at(-1)).toBe("ideation");
     expect(exec.calls[2].args.at(-1)).toBe("report-research");
     expect(exec.calls[3].args.at(-1)).toBe("strategic-review");

@@ -54,6 +54,8 @@ describe("runAutopilot", () => {
     expect(result.evaluation.route).toBe("factory");
     expect(result.decision.holdTarget).toBe(false);
     expect(result.decision.targetDispatched).toBe("executed");
+    const hk = exec.calls.find((c) => c.args.includes("housekeeping"));
+    expect(hk?.args[0]).toBe("--auto");
     expect(exec.calls.some((c) => c.args.includes("housekeeping"))).toBe(true);
   });
 
@@ -156,6 +158,7 @@ describe("runAutopilot", () => {
       c.args.includes("tracker-matrix"),
     );
     expect(matrixCall).toBeDefined();
+    expect(matrixCall?.args.slice(0, 2)).toEqual(["--auto", "--agent"]);
     expect(matrixCall?.args).toContain("50");
 
     const issueCalls = exec.calls.filter((c) => c.args.includes("issue"));

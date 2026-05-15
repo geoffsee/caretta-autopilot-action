@@ -63229,6 +63229,7 @@ class FactoryCycleRunner {
     }
     async runCaretta(task, args = []) {
         const fullArgs = [
+            "--auto",
             "--agent",
             this.agent,
             "--preset",

@@ -76,6 +76,7 @@ export class TrackerLoopRunner {
     const matrixOutput = await this.exec.getExecOutput(
       this.binaryPath,
       [
+        "--auto",
         "--agent",
         this.config.agent,
         "--preset",
@@ -109,6 +110,7 @@ export class TrackerLoopRunner {
 
   private async runCaretta(task: string, args: string[] = []): Promise<void> {
     const fullArgs = [
+      "--auto",
       "--agent",
       this.config.agent,
       "--preset",

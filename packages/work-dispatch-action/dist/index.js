@@ -66142,6 +66142,7 @@ class TrackerLoopRunner {
     }
     async resolveTrackerIssues() {
         const matrixOutput = await this.exec.getExecOutput(this.binaryPath, [
+            "--auto",
             "--agent",
             this.config.agent,
             "--preset",
@@ -66168,6 +66169,7 @@ class TrackerLoopRunner {
     }
     async runCaretta(task, args = []) {
         const fullArgs = [
+            "--auto",
             "--agent",
             this.config.agent,
             "--preset",

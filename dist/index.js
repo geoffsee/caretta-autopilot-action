@@ -66197,15 +66197,19 @@ class CarettaRunner {
         this.gh = gh;
         this.config = config;
     }
+    /** Headless CI runs need `--auto`: two-phase workflows synthesize feedback and run finalize. */
+    carettaBaseArgs() {
+        return ["--auto", "--agent", this.config.agent];
+    }
     async runCaretta(task, args = []) {
-        const fullArgs = ["--agent", this.config.agent, task, ...args];
+        const fullArgs = [...this.carettaBaseArgs(), task, ...args];
         lib_core.info(`Running: ${this.binaryPath} ${fullArgs.join(" ")}`);
         return await this.exec.exec(this.binaryPath, fullArgs, { env: this.env });
     }
     async runWorkDispatch(tracker) {
         lib_core.info(`Starting work dispatch for #${tracker}`);
         // 1. tracker-matrix
-        const matrixOutput = await this.exec.getExecOutput(this.binaryPath, ["--agent", this.config.agent, "tracker-matrix", tracker, "--json"], { env: this.env, silent: true });
+        const matrixOutput = await this.exec.getExecOutput(this.binaryPath, [...this.carettaBaseArgs(), "tracker-matrix", tracker, "--json"], { env: this.env, silent: true });
         const issues = JSON.parse(matrixOutput.stdout.trim() || "[]");
         lib_core.info(`Found ${issues.length} issues in tracker matrix.`);
         // 2. tracker-issue

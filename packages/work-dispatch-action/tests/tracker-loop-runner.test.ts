@@ -158,6 +158,7 @@ describe("TrackerLoopRunner", () => {
       (call) => call.kind === "getExecOutput",
     );
     expect(matrixCalls).toHaveLength(1);
+    expect(matrixCalls[0].args[0]).toBe("--auto");
     expect(taskFromArgs(matrixCalls[0].args)).toBe("tracker-matrix");
 
     const executedTasks = exec.calls

@@ -36,6 +36,7 @@ export class FactoryCycleRunner {
 
   private async runCaretta(task: string, args: string[] = []): Promise<void> {
     const fullArgs = [
+      "--auto",
       "--agent",
       this.agent,
       "--preset",
