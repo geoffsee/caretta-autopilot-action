@@ -209,6 +209,55 @@ describe("executeAutopilot", () => {
     expect(exec.calls.some((c) => c.args.includes("fix-pr"))).toBe(false);
   });
 
+  test("work dispatch fires CI after automerge-queue advances the branch tip", async () => {
+    const pr = makePR({
+      number: 501,
+      headRefName: "agent/issue-501",
+      headRefOid: "sha-501-original",
+    });
+    const passingTest = {
+      name: "Test",
+      status: "completed" as const,
+      conclusion: "success" as const,
+      startedAt: "2026-01-01T00:00:00Z",
+      createdAt: null,
+    };
+    const gh = new FakeGitHub({
+      prs: [pr],
+      checksBySha: {
+        "sha-501-original": [passingTest],
+        // sha-501-advanced intentionally has no Test check — emulates the
+        // post-update-branch state that auto-merge then waits on forever.
+      },
+    });
+    exec.stdout = JSON.stringify([501]);
+
+    // Simulate caretta's `auto-merge --automerge-queue` advancing the PR tip
+    // via `gh pr update-branch`.
+    const origExec = exec.exec.bind(exec);
+    exec.exec = async (cmd, args, opts) => {
+      const ret = await origExec(cmd, args, opts);
+      if (args?.includes("auto-merge") && args.includes("--automerge-queue")) {
+        (pr as { headRefOid: string }).headRefOid = "sha-501-advanced";
+      }
+      return ret;
+    };
+
+    await executeAutopilot(gh, exec, makeConfig(), workEval, fakeInstallDeps);
+
+    const dispatches = gh.dispatched.filter(
+      (d) => d.ref === "agent/issue-501" && d.workflow === "ci.yml",
+    );
+    expect(dispatches.length).toBeGreaterThanOrEqual(1);
+    // The dispatch must happen after caretta enters --automerge-queue (which
+    // is the only thing in this test that mutates the tip to a check-less SHA).
+    const automergeQueueIdx = exec.calls.findIndex(
+      (c) =>
+        c.args.includes("auto-merge") && c.args.includes("--automerge-queue"),
+    );
+    expect(automergeQueueIdx).toBeGreaterThanOrEqual(0);
+  });
+
   test("empty tracker-matrix: CI gate breaks early and resolveTrackerScopedPrs falls back to any agent-branch PR", async () => {
     const gh = new FakeGitHub({
       prs: [makePR({ number: 401, headRefName: "agent/issue-401" })],

@@ -88,6 +88,16 @@ The `default` ruleset pins the required check by literal name `Test`. The autopi
 
 Admin bypass is `always`, not `pull_request` or audit-only. An admin pushing directly to `main` would succeed and bypass the `Test` check entirely. For a single-maintainer repo this is acceptable; for a team repo it would be a foot-gun.
 
+### 6. Auto-merge queue stalls when `update-branch` advances tips — **resolved 2026-05-15**
+
+The work-dispatch loop's step 14 runs `caretta auto-merge --automerge-queue`, which in turn calls `gh pr update-branch` on each tracker-scoped PR before enabling auto-merge. When `main` has moved since the PR last ran CI, that fast-forwards the head ref to a new SHA. The `Test` check from the preceding `runCiGate` step (step 13) is attached to the *prior* SHA, so the new tip has no `Test` check. The `default` ruleset's `required_status_checks` rule then keeps auto-merge waiting on a check that nothing will dispatch — the queue sits idle until something else fires CI.
+
+Observed on 2026-05-15 on `autopilot-example-project`: after `auto-merge --automerge-queue` ran, 4 of 5 tracker PRs (#15, #16, #17, #20) had auto-merge enabled and were APPROVED but stuck at `mergeStateStatus: BLOCKED`. None of the new tips had any `Test` check. Manual fix at the time was `gh workflow run ci.yml --ref agent/issue-N` for each branch.
+
+Patched in `src/execute.ts:runWorkDispatch` by calling `dispatchMissingCi` once more as step 15, after the `--automerge-queue` step. The helper inspects each PR's current head SHA, skips any that already have a `Test` check or an in-flight workflow run at that SHA, and dispatches `ciWorkflow` for the rest. Cost: one extra round of GitHub API calls per pass; benefit: the queue drains without manual intervention. Covered by a regression test in `tests/execute.test.ts` ("work dispatch fires CI after automerge-queue advances the branch tip") that simulates the SHA-advance via an inline `FakeExec` hook and asserts a dispatch lands for the advanced tip.
+
+This is the third instance of the same shape that already appears at steps 5 and 12 — a caretta sub-command advances the tip, and the next gate needs a fresh CI run. The pattern suggests `caretta auto-merge --automerge-queue` should arguably do the dispatch itself (one-stop-shop in the CLI rather than scattered across the action wrapper). Tracked as a future improvement; not blocking.
+
 ## Mitigations and follow-ups
 
 - **Tighten default workflow permissions.** Switch the repository default to "Read repository contents and packages permissions" and declare `permissions:` blocks explicitly in each workflow that needs more. The autopilot workflow opts into `contents: write`, `pull-requests: write`, `checks: write` at the job level; the CI workflow stays read-only.

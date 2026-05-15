@@ -66438,6 +66438,13 @@ class CarettaRunner {
             tracker,
             "--automerge-queue",
         ]);
+        // 15. dispatch CI on tips that automerge-queue advanced.
+        // `auto-merge --automerge-queue` calls `gh pr update-branch` for each PR,
+        // which fast-forwards the branch tip to a new SHA when main has moved.
+        // The Test check from step 13 is attached to the prior SHA, so the new tip
+        // has no Test check — auto-merge then sits waiting on a check that nothing
+        // will dispatch. Fire one more dispatch so the queue can drain.
+        await dispatchMissingCi(this.gh, this.config, { issueNumbers: issues });
     }
     async runFactoryCycle() {
         lib_core.info("Starting factory cycle");
