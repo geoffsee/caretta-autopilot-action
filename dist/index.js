@@ -63359,6 +63359,104 @@ function evaluate(issues, prs) {
     };
 }
 
+;// CONCATENATED MODULE: ./src/conflict-resolver.ts
+
+const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
+const DEFAULT_INTERVAL_MS = 30 * 1000;
+const DEFAULT_MAX_ATTEMPTS = 2;
+/**
+ * GitHub computes mergeStateStatus asynchronously, so conflicts surface after
+ * the initial PR scan; without polling, a DIRTY PR blocks downstream CI until
+ * the next autopilot tick.
+ */
+class ConflictResolver {
+    gh;
+    config;
+    timeoutMs;
+    intervalMs;
+    maxAttemptsPerPr;
+    scope;
+    deps;
+    attempts = new Map();
+    constructor(gh, config, options = {}, deps) {
+        this.gh = gh;
+        this.config = config;
+        this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+        this.intervalMs = options.intervalMs ?? DEFAULT_INTERVAL_MS;
+        this.maxAttemptsPerPr = options.maxAttemptsPerPr ?? DEFAULT_MAX_ATTEMPTS;
+        this.scope = options.prNumbers ? new Set(options.prNumbers) : undefined;
+        this.deps = {
+            now: deps?.now ?? Date.now,
+            sleep: deps?.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms))),
+            fixConflicts: deps?.fixConflicts ??
+                ((n) => {
+                    throw new Error(`ConflictResolver: no fixConflicts dependency configured (pr #${n})`);
+                }),
+        };
+    }
+    static withCaretta(gh, config, binaryPath, env, exec, options = {}) {
+        return new ConflictResolver(gh, config, options, {
+            fixConflicts: async (prNumber) => {
+                await exec.exec(binaryPath, [
+                    "--auto",
+                    "--agent",
+                    config.agent,
+                    "fix-conflicts",
+                    String(prNumber),
+                ], { env });
+            },
+        });
+    }
+    async resolveAll() {
+        const fixed = new Set();
+        const start = this.deps.now();
+        let timedOut = false;
+        while (true) {
+            const dirty = await this.findDirty();
+            const actionable = dirty.filter((pr) => (this.attempts.get(pr.number) ?? 0) < this.maxAttemptsPerPr);
+            if (actionable.length === 0)
+                break;
+            for (const pr of actionable) {
+                const prior = this.attempts.get(pr.number) ?? 0;
+                this.attempts.set(pr.number, prior + 1);
+                lib_core.info(`ConflictResolver: fix-conflicts on PR #${pr.number} (attempt ${prior + 1})`);
+                try {
+                    await this.deps.fixConflicts(pr.number);
+                    fixed.add(pr.number);
+                }
+                catch (err) {
+                    lib_core.warning(`ConflictResolver: fix-conflicts failed for PR #${pr.number}: ${err.message}`);
+                }
+            }
+            if (this.deps.now() - start >= this.timeoutMs) {
+                timedOut = true;
+                break;
+            }
+            await this.deps.sleep(this.intervalMs);
+        }
+        const remaining = await this.findDirty();
+        return {
+            fixed: [...fixed],
+            unresolved: remaining.map((p) => p.number),
+            timedOut,
+        };
+    }
+    async findDirty() {
+        const prs = await this.gh.listOpenPullRequests();
+        return prs.filter((pr) => {
+            if (pr.isDraft)
+                return false;
+            if (!this.config.agentBranchPattern.test(pr.headRefName))
+                return false;
+            if (pr.mergeStateStatus !== "DIRTY")
+                return false;
+            if (this.scope && !this.scope.has(pr.number))
+                return false;
+            return true;
+        });
+    }
+}
+
 ;// CONCATENATED MODULE: external "node:fs"
 const external_node_fs_namespaceObject = __WEBPACK_EXTERNAL_createRequire(import.meta.url)("node:fs");
 ;// CONCATENATED MODULE: external "node:os"
@@ -66155,6 +66253,7 @@ function materializeBotPrivateKey(env) {
 ;// CONCATENATED MODULE: ./src/execute.ts
 
 
+
 const defaultExecuteDeps = {
     installCaretta: installCaretta,
     installLinuxRuntimeDeps: installLinuxRuntimeDeps,
@@ -66188,7 +66287,7 @@ async function executeAutopilot(gh, exec, config, evaluation, deps = defaultExec
     deps.materializeBotPrivateKey(env);
     warnIfBotCredsIncomplete(env);
     await deps.configureGitIdentity(config.gitUserName, config.gitUserEmail);
-    const runner = new CarettaRunner(binaryPath, env, exec, gh, config);
+    const runner = new CarettaRunner(binaryPath, env, exec, gh, config, deps.conflictResolverOptions);
     switch (evaluation.route) {
         case "work":
             await runner.runWorkDispatch(evaluation.tracker);
@@ -66218,12 +66317,14 @@ class CarettaRunner {
     exec;
     gh;
     config;
-    constructor(binaryPath, env, exec, gh, config) {
+    conflictResolverOptions;
+    constructor(binaryPath, env, exec, gh, config, conflictResolverOptions = {}) {
         this.binaryPath = binaryPath;
         this.env = env;
         this.exec = exec;
         this.gh = gh;
         this.config = config;
+        this.conflictResolverOptions = conflictResolverOptions;
     }
     /** Headless CI runs need `--auto`: two-phase workflows synthesize feedback and run finalize. */
     carettaBaseArgs() {
@@ -66298,12 +66399,10 @@ class CarettaRunner {
         await this.runCaretta("run", ["sprint-planning"]);
     }
     async fixConflicts() {
-        const prs = await this.gh.listOpenPullRequests();
-        const dirtyPrs = prs.filter((pr) => !pr.isDraft &&
-            pr.mergeStateStatus === "DIRTY" &&
-            this.config.agentBranchPattern.test(pr.headRefName));
-        for (const pr of dirtyPrs) {
-            await this.runCaretta("fix-conflicts", [String(pr.number)]);
+        const resolver = ConflictResolver.withCaretta(this.gh, this.config, this.binaryPath, this.env, this.exec, this.conflictResolverOptions);
+        const result = await resolver.resolveAll();
+        if (result.unresolved.length > 0) {
+            lib_core.warning(`ConflictResolver left ${result.unresolved.length} PR(s) DIRTY after retries: ${result.unresolved.join(", ")}${result.timedOut ? " (timed out)" : ""}`);
         }
     }
     async resolveTrackerScopedPrs(issues, requirePassingCi) {

@@ -17,6 +17,11 @@ const fakeInstallDeps: ExecuteDeps = {
   installLinuxRuntimeDeps: async () => {},
   materializeBotPrivateKey: () => {},
   configureGitIdentity: async () => {},
+  conflictResolverOptions: {
+    intervalMs: 0,
+    timeoutMs: 60_000,
+    maxAttemptsPerPr: 1,
+  },
 };
 
 const workEval: EvaluationResult = {

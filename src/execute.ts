@@ -1,4 +1,8 @@
 import * as core from "@actions/core";
+import {
+  ConflictResolver,
+  type ConflictResolverOptions,
+} from "./conflict-resolver.js";
 import type { ExecClient } from "./exec.js";
 import type { GitHubClient } from "./github.js";
 import {
@@ -14,6 +18,7 @@ export interface ExecuteDeps {
   installLinuxRuntimeDeps: typeof installLinuxRuntimeDeps;
   materializeBotPrivateKey: typeof materializeBotPrivateKey;
   configureGitIdentity: typeof configureGitIdentity;
+  conflictResolverOptions?: ConflictResolverOptions;
 }
 
 export const defaultExecuteDeps: ExecuteDeps = {
@@ -64,7 +69,14 @@ export async function executeAutopilot(
   warnIfBotCredsIncomplete(env);
   await deps.configureGitIdentity(config.gitUserName, config.gitUserEmail);
 
-  const runner = new CarettaRunner(binaryPath, env, exec, gh, config);
+  const runner = new CarettaRunner(
+    binaryPath,
+    env,
+    exec,
+    gh,
+    config,
+    deps.conflictResolverOptions,
+  );
 
   switch (evaluation.route) {
     case "work":
@@ -102,6 +114,7 @@ class CarettaRunner {
     private readonly exec: ExecClient,
     private readonly gh: GitHubClient,
     private readonly config: AutopilotConfig,
+    private readonly conflictResolverOptions: ConflictResolverOptions = {},
   ) {}
 
   /** Headless CI runs need `--auto`: two-phase workflows synthesize feedback and run finalize. */
@@ -203,16 +216,19 @@ class CarettaRunner {
   }
 
   private async fixConflicts(): Promise<void> {
-    const prs = await this.gh.listOpenPullRequests();
-    const dirtyPrs = prs.filter(
-      (pr) =>
-        !pr.isDraft &&
-        pr.mergeStateStatus === "DIRTY" &&
-        this.config.agentBranchPattern.test(pr.headRefName),
+    const resolver = ConflictResolver.withCaretta(
+      this.gh,
+      this.config,
+      this.binaryPath,
+      this.env,
+      this.exec,
+      this.conflictResolverOptions,
     );
-
-    for (const pr of dirtyPrs) {
-      await this.runCaretta("fix-conflicts", [String(pr.number)]);
+    const result = await resolver.resolveAll();
+    if (result.unresolved.length > 0) {
+      core.warning(
+        `ConflictResolver left ${result.unresolved.length} PR(s) DIRTY after retries: ${result.unresolved.join(", ")}${result.timedOut ? " (timed out)" : ""}`,
+      );
     }
   }
 
