@@ -66186,6 +66186,7 @@ async function executeAutopilot(gh, exec, config, evaluation, deps = defaultExec
         env.GIT_COMMITTER_EMAIL = config.gitUserEmail;
     }
     deps.materializeBotPrivateKey(env);
+    warnIfBotCredsIncomplete(env);
     await deps.configureGitIdentity(config.gitUserName, config.gitUserEmail);
     const runner = new CarettaRunner(binaryPath, env, exec, gh, config);
     switch (evaluation.route) {
@@ -66197,6 +66198,18 @@ async function executeAutopilot(gh, exec, config, evaluation, deps = defaultExec
             break;
         default:
             lib_core.info(`No logic to execute for route '${evaluation.route}'`);
+    }
+}
+function warnIfBotCredsIncomplete(env) {
+    const hasTokenCreds = !!env.DEV_BOT_TOKEN?.trim() || !!env.DEV_BOT_TOKEN_PATH?.trim();
+    if (hasTokenCreds)
+        return;
+    const hasAppId = !!env.DEV_BOT_APP_ID?.trim();
+    const hasPrivateKey = !!env.DEV_BOT_PRIVATE_KEY?.trim();
+    const hasInstallationId = !!env.DEV_BOT_INSTALLATION_ID?.trim();
+    if (hasAppId && hasPrivateKey && !hasInstallationId) {
+        lib_core.warning("DEV_BOT_APP_ID and DEV_BOT_PRIVATE_KEY are set but DEV_BOT_INSTALLATION_ID is missing. " +
+            "caretta will fall back to GITHUB_TOKEN, which cannot post pull-request reviews (expect HTTP 403 on code-review).");
     }
 }
 class CarettaRunner {
