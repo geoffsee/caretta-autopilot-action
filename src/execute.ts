@@ -1,4 +1,5 @@
 import * as core from "@actions/core";
+import { dispatchMissingCi } from "./ci-dispatcher.js";
 import {
   ConflictResolver,
   type ConflictResolverOptions,
@@ -154,6 +155,7 @@ class CarettaRunner {
 
     // 4 & 5. fix-conflicts
     await this.fixConflicts();
+    await dispatchMissingCi(this.gh, this.config, { issueNumbers: issues });
 
     // 6. CI before review
     await this.runCiGate(issues);
@@ -174,6 +176,7 @@ class CarettaRunner {
 
     // 11 & 12. fix-conflicts (after fix)
     await this.fixConflicts();
+    await dispatchMissingCi(this.gh, this.config, { issueNumbers: issues });
 
     // 13. CI after fix
     await this.runCiGate(issues);
