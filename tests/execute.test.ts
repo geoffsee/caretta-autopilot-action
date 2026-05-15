@@ -16,6 +16,7 @@ const fakeInstallDeps: ExecuteDeps = {
   }),
   installLinuxRuntimeDeps: async () => {},
   materializeBotPrivateKey: () => {},
+  configureGitIdentity: async () => {},
 };
 
 const workEval: EvaluationResult = {
@@ -61,6 +62,44 @@ describe("executeAutopilot", () => {
     );
     expect(exec.calls).toHaveLength(0);
     expect(gh.dispatched).toHaveLength(0);
+  });
+
+  test("configures git identity and propagates it to caretta subprocess env", async () => {
+    const gh = new FakeGitHub({
+      issues: [makeIssue({ number: 9, labels: [{ name: "sprint" }] })],
+    });
+    const identityCalls: Array<{ name: string; email: string }> = [];
+    await executeAutopilot(
+      gh,
+      exec,
+      makeConfig({
+        gitUserName: "bot-name",
+        gitUserEmail: "bot@example.com",
+      }),
+      factoryEval,
+      {
+        ...fakeInstallDeps,
+        configureGitIdentity: async (name, email) => {
+          identityCalls.push({ name, email });
+        },
+      },
+    );
+
+    expect(identityCalls).toEqual([
+      { name: "bot-name", email: "bot@example.com" },
+    ]);
+
+    const housekeeping = exec.calls.find((c) =>
+      c.args.includes("housekeeping"),
+    );
+    expect(housekeeping?.options?.env?.GIT_AUTHOR_NAME).toBe("bot-name");
+    expect(housekeeping?.options?.env?.GIT_AUTHOR_EMAIL).toBe(
+      "bot@example.com",
+    );
+    expect(housekeeping?.options?.env?.GIT_COMMITTER_NAME).toBe("bot-name");
+    expect(housekeeping?.options?.env?.GIT_COMMITTER_EMAIL).toBe(
+      "bot@example.com",
+    );
   });
 
   test("propagates github-token to caretta subprocess env as GH_TOKEN", async () => {
@@ -132,13 +171,7 @@ describe("executeAutopilot", () => {
     });
     exec.stdout = JSON.stringify([201]);
 
-    await executeAutopilot(
-      gh,
-      exec,
-      makeConfig(),
-      workEval,
-      fakeInstallDeps,
-    );
+    await executeAutopilot(gh, exec, makeConfig(), workEval, fakeInstallDeps);
 
     const fixCalls = exec.calls.filter((c) => c.args.includes("fix-conflicts"));
     expect(fixCalls.length).toBeGreaterThanOrEqual(1);
@@ -165,13 +198,7 @@ describe("executeAutopilot", () => {
     });
     exec.stdout = JSON.stringify([301]);
 
-    await executeAutopilot(
-      gh,
-      exec,
-      makeConfig(),
-      workEval,
-      fakeInstallDeps,
-    );
+    await executeAutopilot(gh, exec, makeConfig(), workEval, fakeInstallDeps);
 
     expect(exec.calls.some((c) => c.args.includes("code-review"))).toBe(false);
     expect(exec.calls.some((c) => c.args.includes("fix-pr"))).toBe(false);
@@ -194,13 +221,7 @@ describe("executeAutopilot", () => {
     });
     exec.stdout = JSON.stringify([]);
 
-    await executeAutopilot(
-      gh,
-      exec,
-      makeConfig(),
-      workEval,
-      fakeInstallDeps,
-    );
+    await executeAutopilot(gh, exec, makeConfig(), workEval, fakeInstallDeps);
 
     // Empty matrix → no per-issue caretta call
     expect(

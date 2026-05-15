@@ -34,6 +34,14 @@ inputs:
     description: "Workflow file dispatched per agent PR to attach a Test check to the head SHA."
     required: false
     default: "ci.yml"
+  git-user-name:
+    description: "Git author/committer name used when caretta creates commits."
+    required: false
+    default: "caretta-autopilot[bot]"
+  git-user-email:
+    description: "Git author/committer email used when caretta creates commits."
+    required: false
+    default: "caretta-autopilot[bot]@users.noreply.github.com"
 
 outputs:
   route:

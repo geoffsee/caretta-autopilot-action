@@ -16,6 +16,7 @@ const fakeInstallDeps: ExecuteDeps = {
   }),
   installLinuxRuntimeDeps: async () => {},
   materializeBotPrivateKey: () => {},
+  configureGitIdentity: async () => {},
 };
 
 describe("runAutopilot", () => {
@@ -184,8 +185,7 @@ describe("runAutopilot", () => {
     expect(
       exec.calls.some(
         (c) =>
-          c.args.includes("auto-merge") &&
-          c.args.includes("--automerge-queue"),
+          c.args.includes("auto-merge") && c.args.includes("--automerge-queue"),
       ),
     ).toBe(true);
   });

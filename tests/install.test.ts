@@ -9,6 +9,7 @@ import * as core from "@actions/core";
 import * as exec from "@actions/exec";
 import * as tc from "@actions/tool-cache";
 import {
+  configureGitIdentity,
   installCaretta,
   installLinuxRuntimeDeps,
   materializeBotPrivateKey,
@@ -270,6 +271,30 @@ describe("install.ts", () => {
         expect.arrayContaining(["apt-get", "update", "-qq"]),
         expect.anything(),
       );
+    });
+  });
+
+  describe("configureGitIdentity", () => {
+    it("does nothing when name or email is empty", async () => {
+      await configureGitIdentity("", "bot@example.com");
+      await configureGitIdentity("bot", "");
+      expect(exec.exec).not.toHaveBeenCalled();
+    });
+
+    it("configures git user.name and user.email globally", async () => {
+      await configureGitIdentity("bot-name", "bot@example.com");
+      expect(exec.exec).toHaveBeenCalledWith("git", [
+        "config",
+        "--global",
+        "user.name",
+        "bot-name",
+      ]);
+      expect(exec.exec).toHaveBeenCalledWith("git", [
+        "config",
+        "--global",
+        "user.email",
+        "bot@example.com",
+      ]);
     });
   });
 

@@ -66130,6 +66130,13 @@ async function installLinuxRuntimeDeps() {
         ...LINUX_RUNTIME_DEPS,
     ], { silent: true });
 }
+async function configureGitIdentity(name, email) {
+    if (!name || !email)
+        return;
+    lib_core.info(`Configuring git identity: ${name} <${email}>`);
+    await exec_exec("git", ["config", "--global", "user.name", name]);
+    await exec_exec("git", ["config", "--global", "user.email", email]);
+}
 function materializeBotPrivateKey(env) {
     const b64 = env.DEV_BOT_PRIVATE_KEY_B64;
     if (!b64 || env.DEV_BOT_PRIVATE_KEY)
@@ -66152,6 +66159,7 @@ const defaultExecuteDeps = {
     installCaretta: installCaretta,
     installLinuxRuntimeDeps: installLinuxRuntimeDeps,
     materializeBotPrivateKey: materializeBotPrivateKey,
+    configureGitIdentity: configureGitIdentity,
 };
 async function executeAutopilot(gh, exec, config, evaluation, deps = defaultExecuteDeps) {
     const installToken = config.githubToken?.trim() || process.env.GITHUB_TOKEN || "";
@@ -66171,7 +66179,14 @@ async function executeAutopilot(gh, exec, config, evaluation, deps = defaultExec
         env.RUST_LOG = "info";
     if (config.context)
         env.CARETTA_CONTEXT = config.context;
+    if (config.gitUserName && config.gitUserEmail) {
+        env.GIT_AUTHOR_NAME = config.gitUserName;
+        env.GIT_AUTHOR_EMAIL = config.gitUserEmail;
+        env.GIT_COMMITTER_NAME = config.gitUserName;
+        env.GIT_COMMITTER_EMAIL = config.gitUserEmail;
+    }
     deps.materializeBotPrivateKey(env);
+    await deps.configureGitIdentity(config.gitUserName, config.gitUserEmail);
     const runner = new CarettaRunner(binaryPath, env, exec, gh, config);
     switch (evaluation.route) {
         case "work":
@@ -66572,6 +66587,9 @@ async function main(deps = defaultDependencies) {
         ? true
         : lib_core.getBooleanInput("enable-dispatch");
     const ciWorkflow = lib_core.getInput("ci-workflow") || "ci.yml";
+    const gitUserName = lib_core.getInput("git-user-name") || "caretta-autopilot[bot]";
+    const gitUserEmail = lib_core.getInput("git-user-email") ||
+        "caretta-autopilot[bot]@users.noreply.github.com";
     const ctx = github.context;
     const owner = ctx.repo.owner;
     const repo = ctx.repo.repo;
@@ -66599,6 +66617,8 @@ async function main(deps = defaultDependencies) {
         agentBranchPattern: DEFAULT_AGENT_BRANCH,
         testCheckName: DEFAULT_TEST_CHECK_NAME,
         githubToken: token,
+        gitUserName,
+        gitUserEmail,
     };
     const gh = deps.createGitHubClient(token, owner, repo);
     const exec = deps.createExecClient();

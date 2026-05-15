@@ -218,6 +218,16 @@ export async function installLinuxRuntimeDeps(): Promise<void> {
   );
 }
 
+export async function configureGitIdentity(
+  name: string,
+  email: string,
+): Promise<void> {
+  if (!name || !email) return;
+  core.info(`Configuring git identity: ${name} <${email}>`);
+  await exec.exec("git", ["config", "--global", "user.name", name]);
+  await exec.exec("git", ["config", "--global", "user.email", email]);
+}
+
 export function materializeBotPrivateKey(env: Record<string, string>): void {
   const b64 = env.DEV_BOT_PRIVATE_KEY_B64;
   if (!b64 || env.DEV_BOT_PRIVATE_KEY) return;

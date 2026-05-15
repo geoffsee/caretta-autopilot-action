@@ -199,6 +199,8 @@ function baseInputs(): Record<string, string> {
     "dry-run": "false",
     "enable-dispatch": "",
     "ci-workflow": "",
+    "git-user-name": "",
+    "git-user-email": "",
   };
 }
 
@@ -310,6 +312,30 @@ describe("main: input parsing", () => {
       key: "ci-workflow",
       input: "tests.yml",
       expected: "tests.yml",
+    },
+    {
+      field: "gitUserName" as const,
+      key: "git-user-name",
+      input: "",
+      expected: "caretta-autopilot[bot]",
+    },
+    {
+      field: "gitUserName" as const,
+      key: "git-user-name",
+      input: "ada",
+      expected: "ada",
+    },
+    {
+      field: "gitUserEmail" as const,
+      key: "git-user-email",
+      input: "",
+      expected: "caretta-autopilot[bot]@users.noreply.github.com",
+    },
+    {
+      field: "gitUserEmail" as const,
+      key: "git-user-email",
+      input: "ada@example.com",
+      expected: "ada@example.com",
     },
   ])("$field: input '$input' → '$expected'", async ({
     field,
@@ -475,18 +501,18 @@ describe("main: output wiring", () => {
     expect(coreState.outputs.hold_target).toBe(expected);
   });
 
-  test.each(["executed", "skipped"] as const)(
-    "target_dispatched output for decision='%s'",
-    async (targetDispatched) => {
-      const h = makeHarness({
-        result: makeRunResult({
-          decision: makeDecision({ targetDispatched }),
-        }),
-      });
-      await main(h.deps);
-      expect(coreState.outputs.target_dispatched).toBe(targetDispatched);
-    },
-  );
+  test.each([
+    "executed",
+    "skipped",
+  ] as const)("target_dispatched output for decision='%s'", async (targetDispatched) => {
+    const h = makeHarness({
+      result: makeRunResult({
+        decision: makeDecision({ targetDispatched }),
+      }),
+    });
+    await main(h.deps);
+    expect(coreState.outputs.target_dispatched).toBe(targetDispatched);
+  });
 });
 
 describe("main: error propagation", () => {

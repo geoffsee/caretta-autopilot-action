@@ -49,6 +49,11 @@ export async function main(
       ? true
       : core.getBooleanInput("enable-dispatch");
   const ciWorkflow = core.getInput("ci-workflow") || "ci.yml";
+  const gitUserName =
+    core.getInput("git-user-name") || "caretta-autopilot[bot]";
+  const gitUserEmail =
+    core.getInput("git-user-email") ||
+    "caretta-autopilot[bot]@users.noreply.github.com";
 
   const ctx = github.context;
   const owner = ctx.repo.owner;
@@ -79,6 +84,8 @@ export async function main(
     agentBranchPattern: DEFAULT_AGENT_BRANCH,
     testCheckName: DEFAULT_TEST_CHECK_NAME,
     githubToken: token,
+    gitUserName,
+    gitUserEmail,
   };
 
   const gh = deps.createGitHubClient(token, owner, repo);

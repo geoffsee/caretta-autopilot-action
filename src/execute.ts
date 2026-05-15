@@ -2,6 +2,7 @@ import * as core from "@actions/core";
 import type { ExecClient } from "./exec.js";
 import type { GitHubClient } from "./github.js";
 import {
+  configureGitIdentity,
   installCaretta,
   installLinuxRuntimeDeps,
   materializeBotPrivateKey,
@@ -12,12 +13,14 @@ export interface ExecuteDeps {
   installCaretta: typeof installCaretta;
   installLinuxRuntimeDeps: typeof installLinuxRuntimeDeps;
   materializeBotPrivateKey: typeof materializeBotPrivateKey;
+  configureGitIdentity: typeof configureGitIdentity;
 }
 
 export const defaultExecuteDeps: ExecuteDeps = {
   installCaretta,
   installLinuxRuntimeDeps,
   materializeBotPrivateKey,
+  configureGitIdentity,
 };
 
 export async function executeAutopilot(
@@ -51,7 +54,14 @@ export async function executeAutopilot(
   }
   if (!env.RUST_LOG) env.RUST_LOG = "info";
   if (config.context) env.CARETTA_CONTEXT = config.context;
+  if (config.gitUserName && config.gitUserEmail) {
+    env.GIT_AUTHOR_NAME = config.gitUserName;
+    env.GIT_AUTHOR_EMAIL = config.gitUserEmail;
+    env.GIT_COMMITTER_NAME = config.gitUserName;
+    env.GIT_COMMITTER_EMAIL = config.gitUserEmail;
+  }
   deps.materializeBotPrivateKey(env);
+  await deps.configureGitIdentity(config.gitUserName, config.gitUserEmail);
 
   const runner = new CarettaRunner(binaryPath, env, exec, gh, config);
 

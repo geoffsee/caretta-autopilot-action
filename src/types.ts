@@ -80,6 +80,10 @@ export interface AutopilotConfig {
   testCheckName: string;
   /** Resolved `github-token` input; propagated to `gh` / caretta subprocess env. */
   githubToken?: string;
+  /** Git author/committer name used when caretta creates commits. */
+  gitUserName: string;
+  /** Git author/committer email used when caretta creates commits. */
+  gitUserEmail: string;
 }
 
 export const DEFAULT_AGENT_BRANCH = /^agent\/issue-[0-9]+$/;
