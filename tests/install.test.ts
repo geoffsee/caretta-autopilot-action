@@ -13,7 +13,6 @@ import {
   installCaretta,
   installLinuxRuntimeDeps,
   materializeBotPrivateKey,
-  mintInstallationToken,
 } from "../src/install.js";
 
 mock.module("node:fs", () => ({
@@ -296,100 +295,6 @@ describe("install.ts", () => {
         "user.email",
         "bot@example.com",
       ]);
-    });
-  });
-
-  describe("mintInstallationToken", () => {
-    const TEST_PEM_B64 = (() => {
-      const { generateKeyPairSync } = require("node:crypto");
-      const { privateKey } = generateKeyPairSync("rsa", {
-        modulusLength: 2048,
-      });
-      const pem = privateKey.export({ type: "pkcs1", format: "pem" }) as string;
-      return Buffer.from(pem).toString("base64");
-    })();
-
-    it("uses provided installation id and posts to access_tokens endpoint", async () => {
-      (global.fetch as unknown as AnyMock).mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ token: "ghs_abc123" }),
-      });
-
-      const token = await mintInstallationToken({
-        appId: "42",
-        privateKeyB64: TEST_PEM_B64,
-        owner: "acme",
-        repo: "widgets",
-        installationId: "100",
-      });
-
-      expect(token).toBe("ghs_abc123");
-      const calls = (global.fetch as unknown as AnyMock).mock.calls;
-      expect(calls).toHaveLength(1);
-      expect(calls[0][0]).toBe(
-        "https://api.github.com/app/installations/100/access_tokens",
-      );
-      expect(calls[0][1].method).toBe("POST");
-      expect(calls[0][1].headers.Authorization).toMatch(/^Bearer /);
-    });
-
-    it("looks up installation by repo when installation id is missing", async () => {
-      (global.fetch as unknown as AnyMock)
-        .mockResolvedValueOnce({ ok: true, json: async () => ({ id: 555 }) })
-        .mockResolvedValueOnce({
-          ok: true,
-          json: async () => ({ token: "ghs_xyz" }),
-        });
-
-      const token = await mintInstallationToken({
-        appId: "42",
-        privateKeyB64: TEST_PEM_B64,
-        owner: "acme",
-        repo: "widgets",
-      });
-
-      expect(token).toBe("ghs_xyz");
-      const calls = (global.fetch as unknown as AnyMock).mock.calls;
-      expect(calls[0][0]).toBe(
-        "https://api.github.com/repos/acme/widgets/installation",
-      );
-      expect(calls[1][0]).toBe(
-        "https://api.github.com/app/installations/555/access_tokens",
-      );
-    });
-
-    it("throws when installation lookup fails", async () => {
-      (global.fetch as unknown as AnyMock).mockResolvedValueOnce({
-        ok: false,
-        status: 404,
-        statusText: "Not Found",
-      });
-
-      await expect(
-        mintInstallationToken({
-          appId: "42",
-          privateKeyB64: TEST_PEM_B64,
-          owner: "acme",
-          repo: "widgets",
-        }),
-      ).rejects.toThrow(/Failed to resolve GitHub App installation/);
-    });
-
-    it("throws when access_tokens response is missing token", async () => {
-      (global.fetch as unknown as AnyMock).mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({}),
-      });
-
-      await expect(
-        mintInstallationToken({
-          appId: "42",
-          privateKeyB64: TEST_PEM_B64,
-          owner: "acme",
-          repo: "widgets",
-          installationId: "100",
-        }),
-      ).rejects.toThrow(/missing token/);
     });
   });
 

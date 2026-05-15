@@ -78,18 +78,8 @@ export interface AutopilotConfig {
   ciWorkflow: string;
   agentBranchPattern: RegExp;
   testCheckName: string;
-  /** Repo owner, used for GitHub App installation lookup. */
-  owner: string;
-  /** Repo name, used for GitHub App installation lookup. */
-  repo: string;
-  /** Resolved `github-token` input; used by the action for its own API calls. */
+  /** Resolved `github-token` input; propagated to `gh` / caretta subprocess env. */
   githubToken?: string;
-  /**
-   * Token forwarded to the caretta subprocess as GH_TOKEN/GITHUB_TOKEN.
-   * Should be a GitHub App installation token when caretta needs to create PRs
-   * (the default GITHUB_TOKEN cannot). Falls back to `githubToken` when empty.
-   */
-  botToken?: string;
   /** Git author/committer name used when caretta creates commits. */
   gitUserName: string;
   /** Git author/committer email used when caretta creates commits. */

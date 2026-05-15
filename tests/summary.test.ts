@@ -59,11 +59,7 @@ describe("buildSummary", () => {
       decision: { holdTarget: false, targetDispatched: "skipped" as const },
       prCi: emptyPrCi,
       config: makeConfig({ dryRun: true }),
-      expectedContains: [
-        "Dry run enabled",
-        "would execute work route",
-        "Tracker: #7",
-      ],
+      expectedContains: ["Dry run enabled", "would execute work route", "Tracker: #7"],
     },
   ])("$name", ({ decision, prCi, config, expectedContains }) => {
     const out = buildSummary(workEval, prCi, decision, config);

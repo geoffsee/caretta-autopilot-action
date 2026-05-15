@@ -38,7 +38,6 @@ export async function main(
   deps: MainDependencies = defaultDependencies,
 ): Promise<void> {
   const token = core.getInput("github-token", { required: true });
-  const botToken = core.getInput("bot-token");
   const carettaVersion = core.getInput("caretta-version") || "latest";
   const agent = core.getInput("agent") || "claude";
   const context =
@@ -84,10 +83,7 @@ export async function main(
     ciWorkflow,
     agentBranchPattern: DEFAULT_AGENT_BRANCH,
     testCheckName: DEFAULT_TEST_CHECK_NAME,
-    owner,
-    repo,
     githubToken: token,
-    botToken: botToken || undefined,
     gitUserName,
     gitUserEmail,
   };

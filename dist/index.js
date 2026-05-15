@@ -63359,8 +63359,6 @@ function evaluate(issues, prs) {
     };
 }
 
-// EXTERNAL MODULE: external "node:crypto"
-var external_node_crypto_ = __nccwpck_require__(7598);
 ;// CONCATENATED MODULE: external "node:fs"
 const external_node_fs_namespaceObject = __WEBPACK_EXTERNAL_createRequire(import.meta.url)("node:fs");
 ;// CONCATENATED MODULE: external "node:os"
@@ -65985,7 +65983,6 @@ function _unique(values) {
 
 
 
-
 const REPO = "geoffsee/caretta";
 const BINARY = "caretta";
 function detectPlatform() {
@@ -66133,57 +66130,6 @@ async function installLinuxRuntimeDeps() {
         ...LINUX_RUNTIME_DEPS,
     ], { silent: true });
 }
-function base64urlEncode(input) {
-    const buf = typeof input === "string" ? Buffer.from(input) : input;
-    return buf
-        .toString("base64")
-        .replace(/\+/g, "-")
-        .replace(/\//g, "_")
-        .replace(/=+$/, "");
-}
-function signAppJwt(appId, pem) {
-    const header = base64urlEncode(JSON.stringify({ alg: "RS256", typ: "JWT" }));
-    const now = Math.floor(Date.now() / 1000);
-    const payload = base64urlEncode(JSON.stringify({ iat: now - 60, exp: now + 540, iss: appId }));
-    const data = `${header}.${payload}`;
-    const sig = external_node_crypto_.createSign("RSA-SHA256").update(data).sign(pem);
-    return `${data}.${base64urlEncode(sig)}`;
-}
-/**
- * Exchange a GitHub App's private key + app id for a short-lived installation
- * access token (used as `GH_TOKEN` so caretta can create PRs).
- */
-async function mintInstallationToken(opts) {
-    const pem = Buffer.from(opts.privateKeyB64, "base64").toString("utf8");
-    const jwt = signAppJwt(opts.appId, pem);
-    const headers = {
-        Authorization: `Bearer ${jwt}`,
-        Accept: "application/vnd.github+json",
-        "User-Agent": "caretta-autopilot-action",
-    };
-    let installationId = opts.installationId;
-    if (!installationId) {
-        const lookup = await fetch(`https://api.github.com/repos/${opts.owner}/${opts.repo}/installation`, { headers });
-        if (!lookup.ok) {
-            throw new Error(`Failed to resolve GitHub App installation for ${opts.owner}/${opts.repo}: ${lookup.status} ${lookup.statusText}`);
-        }
-        const body = (await lookup.json());
-        if (!body.id) {
-            throw new Error("Installation lookup returned no id");
-        }
-        installationId = String(body.id);
-    }
-    const tokRes = await fetch(`https://api.github.com/app/installations/${installationId}/access_tokens`, { method: "POST", headers });
-    if (!tokRes.ok) {
-        throw new Error(`Failed to mint installation token: ${tokRes.status} ${tokRes.statusText}`);
-    }
-    const tokBody = (await tokRes.json());
-    if (!tokBody.token) {
-        throw new Error("Installation token response missing token");
-    }
-    lib_core.setSecret(tokBody.token);
-    return tokBody.token;
-}
 async function configureGitIdentity(name, email) {
     if (!name || !email)
         return;
@@ -66214,38 +66160,13 @@ const defaultExecuteDeps = {
     installLinuxRuntimeDeps: installLinuxRuntimeDeps,
     materializeBotPrivateKey: materializeBotPrivateKey,
     configureGitIdentity: configureGitIdentity,
-    mintInstallationToken: mintInstallationToken,
 };
 async function executeAutopilot(gh, exec, config, evaluation, deps = defaultExecuteDeps) {
     const installToken = config.githubToken?.trim() || process.env.GITHUB_TOKEN || "";
     const { binaryPath } = await deps.installCaretta(config.carettaVersion, installToken);
     await deps.installLinuxRuntimeDeps();
     const env = { ...process.env };
-    let botToken = config.botToken?.trim() || "";
-    if (!botToken) {
-        const appId = env.DEV_BOT_APP_ID?.trim();
-        const privateKeyB64 = env.DEV_BOT_PRIVATE_KEY_B64?.trim();
-        if (appId && privateKeyB64) {
-            try {
-                botToken = await deps.mintInstallationToken({
-                    appId,
-                    privateKeyB64,
-                    owner: config.owner,
-                    repo: config.repo,
-                    installationId: env.DEV_BOT_INSTALLATION_ID?.trim() || undefined,
-                });
-                lib_core.info("Minted GitHub App installation token for caretta GH_TOKEN/GITHUB_TOKEN.");
-            }
-            catch (err) {
-                lib_core.warning(`Failed to mint GitHub App installation token; falling back to github-token. ${err instanceof Error ? err.message : String(err)}`);
-            }
-        }
-    }
-    else {
-        lib_core.info("Using bot-token input for caretta GH_TOKEN/GITHUB_TOKEN.");
-    }
-    const authToken = botToken ||
-        config.githubToken?.trim() ||
+    const authToken = config.githubToken?.trim() ||
         env.GH_TOKEN?.trim() ||
         env.GITHUB_TOKEN?.trim() ||
         process.env.GITHUB_TOKEN?.trim() ||
@@ -66606,9 +66527,7 @@ function stringField(source, key) {
 }
 function recordField(source, key) {
     const v = source[key];
-    return v && typeof v === "object"
-        ? v
-        : undefined;
+    return v && typeof v === "object" ? v : undefined;
 }
 function issueLabels(payload) {
     const issue = recordField(payload, "issue");
@@ -66659,7 +66578,6 @@ const defaultDependencies = {
 };
 async function main(deps = defaultDependencies) {
     const token = lib_core.getInput("github-token", { required: true });
-    const botToken = lib_core.getInput("bot-token");
     const carettaVersion = lib_core.getInput("caretta-version") || "latest";
     const agent = lib_core.getInput("agent") || "claude";
     const context = lib_core.getInput("context") ||
@@ -66698,10 +66616,7 @@ async function main(deps = defaultDependencies) {
         ciWorkflow,
         agentBranchPattern: DEFAULT_AGENT_BRANCH,
         testCheckName: DEFAULT_TEST_CHECK_NAME,
-        owner,
-        repo,
         githubToken: token,
-        botToken: botToken || undefined,
         gitUserName,
         gitUserEmail,
     };

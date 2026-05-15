@@ -201,7 +201,6 @@ function baseInputs(): Record<string, string> {
     "ci-workflow": "",
     "git-user-name": "",
     "git-user-email": "",
-    "bot-token": "",
   };
 }
 
@@ -375,16 +374,6 @@ describe("main: input parsing", () => {
     coreState.inputs["github-token"] = "";
     const h = makeHarness();
     await expect(main(h.deps)).rejects.toThrow(/github-token/);
-  });
-
-  test.each([
-    { input: "", expected: undefined },
-    { input: "ghs_xyz", expected: "ghs_xyz" },
-  ])("bot-token '$input' → $expected", async ({ input, expected }) => {
-    coreState.inputs["bot-token"] = input;
-    const h = makeHarness();
-    await main(h.deps);
-    expect(h.runCalls[0].config.botToken).toBe(expected as never);
   });
 
   test("passes token+owner+repo to createGitHubClient", async () => {

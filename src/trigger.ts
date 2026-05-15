@@ -77,9 +77,7 @@ function recordField(
   key: string,
 ): Record<string, unknown> | undefined {
   const v = source[key];
-  return v && typeof v === "object"
-    ? (v as Record<string, unknown>)
-    : undefined;
+  return v && typeof v === "object" ? (v as Record<string, unknown>) : undefined;
 }
 
 function issueLabels(payload: Readonly<Record<string, unknown>>): string[] {

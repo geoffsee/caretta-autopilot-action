@@ -6,7 +6,6 @@ import {
   installCaretta,
   installLinuxRuntimeDeps,
   materializeBotPrivateKey,
-  mintInstallationToken,
 } from "./install.js";
 import type { AutopilotConfig, EvaluationResult } from "./types.js";
 
@@ -15,7 +14,6 @@ export interface ExecuteDeps {
   installLinuxRuntimeDeps: typeof installLinuxRuntimeDeps;
   materializeBotPrivateKey: typeof materializeBotPrivateKey;
   configureGitIdentity: typeof configureGitIdentity;
-  mintInstallationToken: typeof mintInstallationToken;
 }
 
 export const defaultExecuteDeps: ExecuteDeps = {
@@ -23,7 +21,6 @@ export const defaultExecuteDeps: ExecuteDeps = {
   installLinuxRuntimeDeps,
   materializeBotPrivateKey,
   configureGitIdentity,
-  mintInstallationToken,
 };
 
 export async function executeAutopilot(
@@ -45,35 +42,7 @@ export async function executeAutopilot(
     string,
     string
   >;
-
-  let botToken = config.botToken?.trim() || "";
-  if (!botToken) {
-    const appId = env.DEV_BOT_APP_ID?.trim();
-    const privateKeyB64 = env.DEV_BOT_PRIVATE_KEY_B64?.trim();
-    if (appId && privateKeyB64) {
-      try {
-        botToken = await deps.mintInstallationToken({
-          appId,
-          privateKeyB64,
-          owner: config.owner,
-          repo: config.repo,
-          installationId: env.DEV_BOT_INSTALLATION_ID?.trim() || undefined,
-        });
-        core.info(
-          "Minted GitHub App installation token for caretta GH_TOKEN/GITHUB_TOKEN.",
-        );
-      } catch (err) {
-        core.warning(
-          `Failed to mint GitHub App installation token; falling back to github-token. ${err instanceof Error ? err.message : String(err)}`,
-        );
-      }
-    }
-  } else {
-    core.info("Using bot-token input for caretta GH_TOKEN/GITHUB_TOKEN.");
-  }
-
   const authToken =
-    botToken ||
     config.githubToken?.trim() ||
     env.GH_TOKEN?.trim() ||
     env.GITHUB_TOKEN?.trim() ||
