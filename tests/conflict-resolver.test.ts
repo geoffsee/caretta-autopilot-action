@@ -20,6 +20,11 @@ function harness(snapshots: PullRequest[][]): Harness {
       cursor = Math.min(cursor + 1, snapshots.length - 1);
       return [...snap];
     },
+    listRecentlyMergedPullRequests: async () => [],
+    getDefaultBranch: async () => "main",
+    getIssueBody: async () => "",
+    updateIssueBody: async () => {},
+    closeIssueWithComment: async () => {},
     listWorkflowRuns: async () => [],
     listCheckRuns: async () => [],
     dispatchWorkflow: async () => {},

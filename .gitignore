@@ -5,3 +5,4 @@ lib/
 .env
 .env.*
 !.env.example
+/counter.db

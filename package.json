@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit",
     "lint": "biome check",
     "format": "biome check --write",
-    "test": "bun test"
+    "test": "bun test tests/*.test.ts",
+    "postinstall": ".dev/scripts/postinstall.sh"
   },
   "dependencies": {
     "@actions/core": "^1.11.1",

@@ -6,6 +6,7 @@ import {
   FakeGitHub,
   makeConfig,
   makeIssue,
+  makeMergedPR,
   makePR,
 } from "./fakes.js";
 
@@ -188,6 +189,53 @@ describe("runAutopilot", () => {
           c.args.includes("auto-merge") && c.args.includes("--automerge-queue"),
       ),
     ).toBe(true);
+  });
+
+  test("close-on-merge: closes issue referenced by merged PR with non-default base and excludes it from the evaluation issue list", async () => {
+    const gh = new FakeGitHub({
+      issues: [
+        makeIssue({ number: 43, labels: [{ name: "sprint" }] }),
+        makeIssue({ number: 40 }),
+        makeIssue({ number: 41 }),
+      ],
+      mergedPrs: [
+        makeMergedPR({
+          number: 54,
+          body: "Closes #40",
+          baseRefName: "agent/issue-36",
+        }),
+      ],
+      defaultBranch: "main",
+      issueBodies: { 43: "- [ ] #40 tracing\n- [ ] #41 ui\n" },
+    });
+    const result = await runAutopilot(
+      gh,
+      exec,
+      makeConfig({ dryRun: true }),
+      "main",
+    );
+
+    expect(result.closeOnMerge.closed).toEqual([40]);
+    expect(result.closeOnMerge.trackerUpdated).toBe(true);
+    expect(gh.closedIssues.map((c) => c.issueNumber)).toEqual([40]);
+    expect(gh.updatedIssueBodies[0].body).toContain("- [x] #40 tracing");
+    // Sprint #43 + remaining #41; #40 was closed and filtered out.
+    expect(result.evaluation.openIssueCount).toBe(2);
+  });
+
+  test("close-on-merge: no merged PRs → no side effects, evaluation runs normally", async () => {
+    const gh = new FakeGitHub({
+      issues: [makeIssue({ number: 50, labels: [{ name: "sprint" }] })],
+    });
+    const result = await runAutopilot(
+      gh,
+      exec,
+      makeConfig({ dryRun: true }),
+      "main",
+    );
+    expect(result.closeOnMerge.closed).toEqual([]);
+    expect(gh.closedIssues).toHaveLength(0);
+    expect(gh.updatedIssueBodies).toHaveLength(0);
   });
 
   test("factory route: runs factory cycle inline", async () => {

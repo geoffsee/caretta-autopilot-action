@@ -126,6 +126,7 @@ function makeRunResult(
     evaluation: makeEvaluation(),
     prCi: makePrCi(),
     decision: makeDecision(),
+    closeOnMerge: { closed: [], skipped: [], trackerUpdated: false },
     summary: "summary text",
     ...overrides,
   };
@@ -154,6 +155,17 @@ function makeHarness(
     async listOpenPullRequests() {
       return [];
     },
+    async listRecentlyMergedPullRequests() {
+      return [];
+    },
+    async getDefaultBranch() {
+      return "main";
+    },
+    async getIssueBody() {
+      return "";
+    },
+    async updateIssueBody() {},
+    async closeIssueWithComment() {},
     async listWorkflowRuns() {
       return [];
     },

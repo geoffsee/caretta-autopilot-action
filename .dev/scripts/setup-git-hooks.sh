@@ -43,7 +43,7 @@ echo "[pre-commit] typecheck (factory-cycle-action)"
 bun x tsc --noEmit -p packages/factory-cycle-action/tsconfig.json
 
 echo "[pre-commit] test"
-bun test
+bun run test
 
 if git diff --cached --quiet -- src/ package.json bun.lock tsconfig.json; then
   echo "[pre-commit] root build inputs unchanged, skipping root build"
@@ -94,7 +94,7 @@ set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 
 echo "[pre-push] test"
-bun test
+bun run test
 
 echo "[pre-push] typecheck (work-dispatch-action)"
 bun x tsc --noEmit -p packages/work-dispatch-action/tsconfig.json

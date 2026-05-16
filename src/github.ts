@@ -1,9 +1,20 @@
 import * as github from "@actions/github";
-import type { CheckRun, Issue, PullRequest, WorkflowRun } from "./types.js";
+import type {
+  CheckRun,
+  Issue,
+  MergedPullRequest,
+  PullRequest,
+  WorkflowRun,
+} from "./types.js";
 
 export interface GitHubClient {
   listOpenIssues(): Promise<Issue[]>;
   listOpenPullRequests(): Promise<PullRequest[]>;
+  listRecentlyMergedPullRequests(limit?: number): Promise<MergedPullRequest[]>;
+  getDefaultBranch(): Promise<string>;
+  getIssueBody(issueNumber: number): Promise<string>;
+  updateIssueBody(issueNumber: number, body: string): Promise<void>;
+  closeIssueWithComment(issueNumber: number, comment: string): Promise<void>;
   listWorkflowRuns(
     workflow: string,
     status: string,
@@ -97,6 +108,77 @@ class OctokitClient implements GitHubClient {
       });
     }
     return enriched;
+  }
+
+  async listRecentlyMergedPullRequests(
+    limit = 30,
+  ): Promise<MergedPullRequest[]> {
+    const res = await this.octokit.rest.pulls.list({
+      owner: this.owner,
+      repo: this.repo,
+      state: "closed",
+      sort: "updated",
+      direction: "desc",
+      per_page: Math.min(Math.max(limit, 1), 100),
+    });
+    return res.data
+      .filter((pr) => !!pr.merged_at)
+      .map((pr) => ({
+        number: pr.number,
+        title: pr.title,
+        body: pr.body ?? "",
+        headRefName: pr.head.ref,
+        baseRefName: pr.base.ref,
+        mergedAt: pr.merged_at as string,
+        url: pr.html_url,
+      }));
+  }
+
+  async getDefaultBranch(): Promise<string> {
+    const res = await this.octokit.rest.repos.get({
+      owner: this.owner,
+      repo: this.repo,
+    });
+    return res.data.default_branch;
+  }
+
+  async getIssueBody(issueNumber: number): Promise<string> {
+    const res = await this.octokit.rest.issues.get({
+      owner: this.owner,
+      repo: this.repo,
+      issue_number: issueNumber,
+    });
+    return res.data.body ?? "";
+  }
+
+  async updateIssueBody(issueNumber: number, body: string): Promise<void> {
+    await this.octokit.rest.issues.update({
+      owner: this.owner,
+      repo: this.repo,
+      issue_number: issueNumber,
+      body,
+    });
+  }
+
+  async closeIssueWithComment(
+    issueNumber: number,
+    comment: string,
+  ): Promise<void> {
+    if (comment.trim().length > 0) {
+      await this.octokit.rest.issues.createComment({
+        owner: this.owner,
+        repo: this.repo,
+        issue_number: issueNumber,
+        body: comment,
+      });
+    }
+    await this.octokit.rest.issues.update({
+      owner: this.owner,
+      repo: this.repo,
+      issue_number: issueNumber,
+      state: "closed",
+      state_reason: "completed",
+    });
   }
 
   async listWorkflowRuns(

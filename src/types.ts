@@ -22,6 +22,27 @@ export interface PullRequest {
   mergeStateStatus: string;
 }
 
+export interface MergedPullRequest {
+  readonly number: number;
+  readonly title: string;
+  readonly body: string;
+  readonly headRefName: string;
+  readonly baseRefName: string;
+  readonly mergedAt: string;
+  readonly url: string;
+}
+
+export interface IssueCloseSkip {
+  readonly number: number;
+  readonly reason: string;
+}
+
+export interface IssueCloseResult {
+  readonly closed: readonly number[];
+  readonly skipped: readonly IssueCloseSkip[];
+  readonly trackerUpdated: boolean;
+}
+
 export interface CheckRun {
   name: string;
   status: string;

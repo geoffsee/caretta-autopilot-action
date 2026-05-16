@@ -4,6 +4,7 @@ import type { GitHubClient } from "../src/github.js";
 import type {
   CheckRun,
   Issue,
+  MergedPullRequest,
   PullRequest,
   WorkflowRun,
 } from "../src/types.js";
@@ -50,15 +51,35 @@ export interface DispatchCall {
 export interface FakeData {
   issues: readonly Issue[];
   prs: readonly PullRequest[];
+  mergedPrs: readonly MergedPullRequest[];
+  defaultBranch: string;
+  issueBodies: Record<number, string>;
   checksBySha: Record<string, readonly CheckRun[] | undefined>;
   runsByKey: Record<string, readonly WorkflowRun[] | undefined>;
   dispatchShouldFail: (workflow: string, ref: string) => boolean;
+  closeIssueShouldFail: (issueNumber: number) => boolean;
+  updateIssueBodyShouldFail: (issueNumber: number) => boolean;
+}
+
+export interface CloseIssueCall {
+  issueNumber: number;
+  comment: string;
+}
+
+export interface UpdateIssueBodyCall {
+  issueNumber: number;
+  body: string;
 }
 
 export class FakeGitHub implements GitHubClient {
   readonly dispatched: DispatchCall[] = [];
+  readonly closedIssues: CloseIssueCall[] = [];
+  readonly updatedIssueBodies: UpdateIssueBodyCall[] = [];
+  private readonly issueBodies: Record<number, string>;
 
-  constructor(private readonly data: Partial<FakeData> = {}) {}
+  constructor(private readonly data: Partial<FakeData> = {}) {
+    this.issueBodies = { ...(data.issueBodies ?? {}) };
+  }
 
   async listOpenIssues(): Promise<Issue[]> {
     return [...(this.data.issues ?? [])];
@@ -66,6 +87,38 @@ export class FakeGitHub implements GitHubClient {
 
   async listOpenPullRequests(): Promise<PullRequest[]> {
     return [...(this.data.prs ?? [])];
+  }
+
+  async listRecentlyMergedPullRequests(
+    _limit?: number,
+  ): Promise<MergedPullRequest[]> {
+    return [...(this.data.mergedPrs ?? [])];
+  }
+
+  async getDefaultBranch(): Promise<string> {
+    return this.data.defaultBranch ?? "main";
+  }
+
+  async getIssueBody(issueNumber: number): Promise<string> {
+    return this.issueBodies[issueNumber] ?? "";
+  }
+
+  async updateIssueBody(issueNumber: number, body: string): Promise<void> {
+    if (this.data.updateIssueBodyShouldFail?.(issueNumber)) {
+      throw new Error(`updateIssueBody failed for #${issueNumber}`);
+    }
+    this.issueBodies[issueNumber] = body;
+    this.updatedIssueBodies.push({ issueNumber, body });
+  }
+
+  async closeIssueWithComment(
+    issueNumber: number,
+    comment: string,
+  ): Promise<void> {
+    if (this.data.closeIssueShouldFail?.(issueNumber)) {
+      throw new Error(`closeIssueWithComment failed for #${issueNumber}`);
+    }
+    this.closedIssues.push({ issueNumber, comment });
   }
 
   async listWorkflowRuns(
@@ -116,6 +169,20 @@ export function makePR(
     headRefName: partial.headRefName ?? `agent/issue-${partial.number}`,
     headRefOid: partial.headRefOid ?? `sha-${partial.number}`,
     mergeStateStatus: partial.mergeStateStatus ?? "CLEAN",
+  };
+}
+
+export function makeMergedPR(
+  partial: Partial<MergedPullRequest> & { number: number },
+): MergedPullRequest {
+  return {
+    number: partial.number,
+    title: partial.title ?? `PR ${partial.number}`,
+    body: partial.body ?? "",
+    headRefName: partial.headRefName ?? `agent/issue-${partial.number}`,
+    baseRefName: partial.baseRefName ?? "main",
+    mergedAt: partial.mergedAt ?? "2026-05-15T00:00:00Z",
+    url: partial.url ?? `https://example/pull/${partial.number}`,
   };
 }
 
