@@ -76,6 +76,36 @@ describe("decideTrigger", () => {
     expect(d.reason).toContain("agent PR");
   });
 
+  test("pull_request closed without merge on agent branch skips", () => {
+    const d = decideTrigger({
+      eventName: "pull_request",
+      payload: {
+        action: "closed",
+        pull_request: {
+          head: { ref: "agent/issue-38" },
+          merged: false,
+        },
+      },
+    });
+    expect(d.run).toBe(false);
+    expect(d.reason).toContain("closed without merge");
+  });
+
+  test("pull_request closed with merge on agent branch still runs", () => {
+    const d = decideTrigger({
+      eventName: "pull_request",
+      payload: {
+        action: "closed",
+        pull_request: {
+          head: { ref: "agent/issue-38" },
+          merged: true,
+        },
+      },
+    });
+    expect(d.run).toBe(true);
+    expect(d.reason).toContain("agent PR");
+  });
+
   test("pull_request on non-agent branch skips", () => {
     const d = decideTrigger({
       eventName: "pull_request",

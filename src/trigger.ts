@@ -41,6 +41,9 @@ export function decideTrigger(inputs: TriggerInputs): TriggerDecision {
       const headRef = prHeadRef(payload);
       if (headRef && headRef.startsWith(agentPrefix)) {
         const action = stringField(payload, "action");
+        if (action === "closed" && prMerged(payload) === false) {
+          return { run: false, reason: "agent PR closed without merge" };
+        }
         return { run: true, reason: `agent PR ${action ?? "event"}` };
       }
       return { run: false, reason: "non-agent pull request" };
@@ -105,4 +108,13 @@ function prHeadRef(
   const head = recordField(pr, "head");
   if (!head) return undefined;
   return stringField(head, "ref");
+}
+
+function prMerged(
+  payload: Readonly<Record<string, unknown>>,
+): boolean | undefined {
+  const pr = recordField(payload, "pull_request");
+  if (!pr) return undefined;
+  const v = pr.merged;
+  return typeof v === "boolean" ? v : undefined;
 }
