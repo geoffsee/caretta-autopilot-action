@@ -294,7 +294,10 @@ class CarettaRunner {
         return match && issueStrings.includes(match[1]);
       });
 
-      if (scopedPrs.length === 0) break;
+      if (scopedPrs.length === 0) {
+        core.info("No tracker-scoped PRs to wait on; skipping CI gate.");
+        return;
+      }
 
       let allDone = true;
       for (const pr of scopedPrs) {

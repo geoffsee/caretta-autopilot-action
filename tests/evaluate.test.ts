@@ -28,6 +28,30 @@ describe("findActiveSprint", () => {
     ];
     expect(findActiveSprint(issues)).toBe(11);
   });
+
+  test("prefers the issue labeled `tracker` even when sub-issues are newer", () => {
+    // Reproduces the geoffsee/autopilot-example-project state where every
+    // sub-issue carries `sprint` and is touched after the tracker, causing
+    // the wrong issue (a leaf) to be selected and tracker-matrix to return [].
+    const issues = [
+      makeIssue({
+        number: 89,
+        labels: [{ name: "sprint" }, { name: "tracker" }],
+        updatedAt: "2026-05-16T20:50:22Z",
+      }),
+      makeIssue({
+        number: 88,
+        labels: [{ name: "enhancement" }, { name: "sprint" }],
+        updatedAt: "2026-05-16T20:50:48Z",
+      }),
+      makeIssue({
+        number: 81,
+        labels: [{ name: "enhancement" }, { name: "sprint" }],
+        updatedAt: "2026-05-16T20:50:37Z",
+      }),
+    ];
+    expect(findActiveSprint(issues)).toBe(89);
+  });
 });
 
 describe("countStalePRs", () => {
