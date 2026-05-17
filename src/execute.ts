@@ -20,6 +20,8 @@ export interface ExecuteDeps {
   materializeBotPrivateKey: typeof materializeBotPrivateKey;
   configureGitIdentity: typeof configureGitIdentity;
   conflictResolverOptions?: ConflictResolverOptions;
+  ciGateTimeoutMs?: number;
+  ciGateIntervalMs?: number;
 }
 
 export const defaultExecuteDeps: ExecuteDeps = {
@@ -76,7 +78,7 @@ export async function executeAutopilot(
     exec,
     gh,
     config,
-    deps.conflictResolverOptions,
+    deps,
   );
 
   switch (evaluation.route) {
@@ -115,7 +117,7 @@ class CarettaRunner {
     private readonly exec: ExecClient,
     private readonly gh: GitHubClient,
     private readonly config: AutopilotConfig,
-    private readonly conflictResolverOptions: ConflictResolverOptions = {},
+    private readonly deps: ExecuteDeps,
   ) {}
 
   /** Headless CI runs need `--auto`: two-phase workflows synthesize feedback and run finalize. */
@@ -155,7 +157,7 @@ class CarettaRunner {
 
     // 4 & 5. fix-conflicts
     await this.fixConflicts();
-    await dispatchMissingCi(this.gh, this.config, { issueNumbers: issues });
+    await dispatchMissingCi(this.gh, this.config);
 
     // 6. CI before review
     await this.runCiGate(issues);
@@ -177,7 +179,7 @@ class CarettaRunner {
 
       // 11 & 12. fix-conflicts (after fix)
       await this.fixConflicts();
-      await dispatchMissingCi(this.gh, this.config, { issueNumbers: issues });
+      await dispatchMissingCi(this.gh, this.config);
 
       // 13. CI after fix
       await this.runCiGate(issues);
@@ -206,7 +208,7 @@ class CarettaRunner {
       // The Test check from step 13 is attached to the prior SHA, so the new tip
       // has no Test check — auto-merge then sits waiting on a check that nothing
       // will dispatch. Fire one more dispatch so the queue can drain.
-      await dispatchMissingCi(this.gh, this.config, { issueNumbers: issues });
+      await dispatchMissingCi(this.gh, this.config);
     } else {
       core.info("All tracker-scoped PRs already have auto-merge enabled. Skipping automerge-queue.");
     }
@@ -248,7 +250,7 @@ class CarettaRunner {
       this.binaryPath,
       this.env,
       this.exec,
-      this.conflictResolverOptions,
+      this.deps.conflictResolverOptions ?? {},
     );
     const result = await resolver.resolveAll();
     if (result.unresolved.length > 0) {
@@ -290,21 +292,37 @@ class CarettaRunner {
         lastReview.body.trim().length > 0 &&
         lastReview.commitId === pr.headRefOid
       ) {
-        core.info(
-          `Skipping PR #${pr.number}: Already reviewed on commit ${pr.headRefOid}`,
-        );
-        continue;
+        // If CI is failing, we still want to run fix-pr even if it was already reviewed.
+        // However, we only do this if CI actually failed. If CI is success, we skip.
+        const checks = await this.gh.listCheckRuns(pr.headRefOid);
+        const testChecks = checks.filter((c) => c.name === this.config.testCheckName);
+        const latestCheck = testChecks.sort((a, b) => {
+          const aTime = new Date(a.createdAt || a.startedAt || 0).getTime();
+          const bTime = new Date(b.createdAt || b.startedAt || 0).getTime();
+          return bTime - aTime;
+        })[0];
+
+        if (latestCheck?.conclusion === "success") {
+          core.info(
+            `Skipping PR #${pr.number}: Already reviewed on commit ${pr.headRefOid} and CI is success.`,
+          );
+          continue;
+        }
       }
 
       const checks = await this.gh.listCheckRuns(pr.headRefOid);
-      const testCheck = checks.find(
-        (c) => c.name === this.config.testCheckName,
-      );
-      if (testCheck?.conclusion === "success") {
+      const testChecks = checks.filter((c) => c.name === this.config.testCheckName);
+      const latestCheck = testChecks.sort((a, b) => {
+        const aTime = new Date(a.createdAt || a.startedAt || 0).getTime();
+        const bTime = new Date(b.createdAt || b.startedAt || 0).getTime();
+        return bTime - aTime;
+      })[0];
+
+      if (latestCheck?.conclusion === "success" || latestCheck?.conclusion === "failure") {
         results.push(pr.number);
       } else {
         core.info(
-          `Skipping PR #${pr.number} because CI status is ${testCheck?.conclusion || "missing"}`,
+          `Skipping PR #${pr.number} because CI status is ${latestCheck?.conclusion || "missing"}`,
         );
       }
     }
@@ -314,15 +332,17 @@ class CarettaRunner {
   private async runCiGate(issues: number[]): Promise<void> {
     core.info("Waiting for CI on tracker-scoped PRs...");
     const start = Date.now();
-    const timeout = 20 * 60 * 1000; // 20 minutes timeout for this gate
-    const interval = 30 * 1000; // 30 seconds interval
+    const timeout = this.deps.ciGateTimeoutMs ?? 20 * 60 * 1000; // 20 minutes timeout for this gate
+    const interval = this.deps.ciGateIntervalMs ?? 30 * 1000; // 30 seconds interval
 
     while (Date.now() - start < timeout) {
       const prs = await this.gh.listOpenPullRequests();
       const issueStrings = issues.map(String);
       const scopedPrs = prs.filter((pr) => {
         const match = pr.headRefName.match(/^agent\/issue-([0-9]+)$/);
-        return match && issueStrings.includes(match[1]);
+        // We wait for all agent-branch PRs related to this tracker.
+        // If auto-merge synced it, we should wait for it.
+        return !!match;
       });
 
       if (scopedPrs.length === 0) {
@@ -333,17 +353,29 @@ class CarettaRunner {
       let allDone = true;
       for (const pr of scopedPrs) {
         const checks = await this.gh.listCheckRuns(pr.headRefOid);
-        const testCheck = checks.find(
-          (c) => c.name === this.config.testCheckName,
-        );
-        if (
-          !testCheck ||
-          testCheck.status === "in_progress" ||
-          testCheck.status === "queued"
-        ) {
+        const testChecks = checks.filter((c) => c.name === this.config.testCheckName);
+        
+        if (testChecks.length === 0) {
+          core.info(`runCiGate: PR #${pr.number} (${pr.headRefName}) at SHA ${pr.headRefOid} has no "${this.config.testCheckName}" check run yet.`);
           allDone = false;
           break;
         }
+
+        const anyActive = testChecks.some(
+          (c) => c.status === "in_progress" || c.status === "queued"
+        );
+        if (anyActive) {
+          core.info(`runCiGate: PR #${pr.number} (${pr.headRefName}) at SHA ${pr.headRefOid} has active "${this.config.testCheckName}" checks.`);
+          allDone = false;
+          break;
+        }
+
+        const latestCheck = testChecks.sort((a, b) => {
+          const aTime = new Date(a.createdAt || a.startedAt || 0).getTime();
+          const bTime = new Date(b.createdAt || b.startedAt || 0).getTime();
+          return bTime - aTime;
+        })[0];
+        core.info(`runCiGate: PR #${pr.number} (${pr.headRefName}) at SHA ${pr.headRefOid} check "${this.config.testCheckName}" is ${latestCheck.status} (${latestCheck.conclusion}).`);
       }
 
       if (allDone) {

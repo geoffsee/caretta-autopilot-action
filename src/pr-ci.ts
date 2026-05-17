@@ -1,3 +1,4 @@
+import * as core from "@actions/core";
 import type { GitHubClient } from "./github.js";
 import type {
   AutopilotConfig,
@@ -70,8 +71,16 @@ export async function processAgentPRs(
     try {
       await gh.dispatchWorkflow(config.ciWorkflow, pr.headRefName);
       dispatched.push(entry);
-    } catch {
+      core.info(
+        `processAgentPRs: dispatched ${config.ciWorkflow} for PR #${pr.number} (${pr.headRefName})`,
+      );
+    } catch (err) {
       failed.push(entry);
+      core.warning(
+        `processAgentPRs: dispatch failed for PR #${pr.number}: ${
+          (err as Error).message
+        }`,
+      );
     }
   }
 

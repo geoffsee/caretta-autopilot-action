@@ -25,6 +25,7 @@ export async function dispatchMissingCi(
   options: DispatchMissingCiOptions = {},
 ): Promise<DispatchMissingCiResult> {
   if (config.dryRun || !config.enableDispatch) {
+    core.info(`dispatchMissingCi: skipping (dryRun=${config.dryRun}, enableDispatch=${config.enableDispatch})`);
     return { dispatched: [], skipped: [], failed: [] };
   }
 
@@ -33,21 +34,39 @@ export async function dispatchMissingCi(
     : undefined;
 
   const prs = await gh.listOpenPullRequests();
+  core.info(`dispatchMissingCi: found ${prs.length} total open PRs`);
+
   const eligible = prs.filter((pr) => {
     if (pr.isDraft) return false;
     if (!config.agentBranchPattern.test(pr.headRefName)) return false;
-    if (!scope) return true;
-    const m = pr.headRefName.match(/^agent\/issue-([0-9]+)$/);
-    return !!m && scope.has(m[1]);
+    return true;
   });
+  core.info(`dispatchMissingCi: ${eligible.length} PRs match agent branch pattern`);
 
   const dispatched: number[] = [];
   const skipped: number[] = [];
   const failed: number[] = [];
 
   for (const pr of eligible) {
+    const m = pr.headRefName.match(/^agent\/issue-([0-9]+)$/);
+    const issueNum = m ? m[1] : undefined;
+
+    if (scope && (!issueNum || !scope.has(issueNum))) {
+      core.info(`dispatchMissingCi: skipping PR #${pr.number} (${pr.headRefName}) - not in current issue scope`);
+      continue;
+    }
+
     const checks = await gh.listCheckRuns(pr.headRefOid);
-    if (checks.some((c) => c.name === config.testCheckName)) {
+    const testChecks = checks.filter((c) => c.name === config.testCheckName);
+    
+    if (testChecks.length > 0) {
+      const latestCheck = testChecks.sort((a, b) => {
+        const aTime = new Date(a.createdAt || a.startedAt || 0).getTime();
+        const bTime = new Date(b.createdAt || b.startedAt || 0).getTime();
+        return bTime - aTime;
+      })[0];
+      
+      core.info(`dispatchMissingCi: PR #${pr.number} already has ${testChecks.length} check(s) named "${config.testCheckName}". Latest status: ${latestCheck.status}, conclusion: ${latestCheck.conclusion}`);
       skipped.push(pr.number);
       continue;
     }
@@ -56,20 +75,21 @@ export async function dispatchMissingCi(
       gh.listWorkflowRuns(config.ciWorkflow, "queued", pr.headRefName),
       gh.listWorkflowRuns(config.ciWorkflow, "in_progress", pr.headRefName),
     ]);
-    const activeForSha =
-      queued.filter((r) => r.headSha === pr.headRefOid).length +
-      inProgress.filter((r) => r.headSha === pr.headRefOid).length;
-    if (activeForSha > 0) {
+    const activeForSha = [
+      ...queued.filter((r) => r.headSha === pr.headRefOid),
+      ...inProgress.filter((r) => r.headSha === pr.headRefOid),
+    ];
+
+    if (activeForSha.length > 0) {
+      core.info(`dispatchMissingCi: PR #${pr.number} has ${activeForSha.length} active workflow run(s) for SHA ${pr.headRefOid}`);
       skipped.push(pr.number);
       continue;
     }
 
     try {
+      core.info(`dispatchMissingCi: dispatching ${config.ciWorkflow} for PR #${pr.number} (${pr.headRefName}) at SHA ${pr.headRefOid}`);
       await gh.dispatchWorkflow(config.ciWorkflow, pr.headRefName);
       dispatched.push(pr.number);
-      core.info(
-        `dispatchMissingCi: dispatched ${config.ciWorkflow} for PR #${pr.number} (${pr.headRefName})`,
-      );
     } catch (err) {
       failed.push(pr.number);
       core.warning(

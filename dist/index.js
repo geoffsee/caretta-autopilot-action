@@ -63571,28 +63571,41 @@ function evaluate(issues, prs) {
  */
 async function dispatchMissingCi(gh, config, options = {}) {
     if (config.dryRun || !config.enableDispatch) {
+        lib_core.info(`dispatchMissingCi: skipping (dryRun=${config.dryRun}, enableDispatch=${config.enableDispatch})`);
         return { dispatched: [], skipped: [], failed: [] };
     }
     const scope = options.issueNumbers
         ? new Set(options.issueNumbers.map(String))
         : undefined;
     const prs = await gh.listOpenPullRequests();
+    lib_core.info(`dispatchMissingCi: found ${prs.length} total open PRs`);
     const eligible = prs.filter((pr) => {
         if (pr.isDraft)
             return false;
         if (!config.agentBranchPattern.test(pr.headRefName))
             return false;
-        if (!scope)
-            return true;
-        const m = pr.headRefName.match(/^agent\/issue-([0-9]+)$/);
-        return !!m && scope.has(m[1]);
+        return true;
     });
+    lib_core.info(`dispatchMissingCi: ${eligible.length} PRs match agent branch pattern`);
     const dispatched = [];
     const skipped = [];
     const failed = [];
     for (const pr of eligible) {
+        const m = pr.headRefName.match(/^agent\/issue-([0-9]+)$/);
+        const issueNum = m ? m[1] : undefined;
+        if (scope && (!issueNum || !scope.has(issueNum))) {
+            lib_core.info(`dispatchMissingCi: skipping PR #${pr.number} (${pr.headRefName}) - not in current issue scope`);
+            continue;
+        }
         const checks = await gh.listCheckRuns(pr.headRefOid);
-        if (checks.some((c) => c.name === config.testCheckName)) {
+        const testChecks = checks.filter((c) => c.name === config.testCheckName);
+        if (testChecks.length > 0) {
+            const latestCheck = testChecks.sort((a, b) => {
+                const aTime = new Date(a.createdAt || a.startedAt || 0).getTime();
+                const bTime = new Date(b.createdAt || b.startedAt || 0).getTime();
+                return bTime - aTime;
+            })[0];
+            lib_core.info(`dispatchMissingCi: PR #${pr.number} already has ${testChecks.length} check(s) named "${config.testCheckName}". Latest status: ${latestCheck.status}, conclusion: ${latestCheck.conclusion}`);
             skipped.push(pr.number);
             continue;
         }
@@ -63600,16 +63613,19 @@ async function dispatchMissingCi(gh, config, options = {}) {
             gh.listWorkflowRuns(config.ciWorkflow, "queued", pr.headRefName),
             gh.listWorkflowRuns(config.ciWorkflow, "in_progress", pr.headRefName),
         ]);
-        const activeForSha = queued.filter((r) => r.headSha === pr.headRefOid).length +
-            inProgress.filter((r) => r.headSha === pr.headRefOid).length;
-        if (activeForSha > 0) {
+        const activeForSha = [
+            ...queued.filter((r) => r.headSha === pr.headRefOid),
+            ...inProgress.filter((r) => r.headSha === pr.headRefOid),
+        ];
+        if (activeForSha.length > 0) {
+            lib_core.info(`dispatchMissingCi: PR #${pr.number} has ${activeForSha.length} active workflow run(s) for SHA ${pr.headRefOid}`);
             skipped.push(pr.number);
             continue;
         }
         try {
+            lib_core.info(`dispatchMissingCi: dispatching ${config.ciWorkflow} for PR #${pr.number} (${pr.headRefName}) at SHA ${pr.headRefOid}`);
             await gh.dispatchWorkflow(config.ciWorkflow, pr.headRefName);
             dispatched.push(pr.number);
-            lib_core.info(`dispatchMissingCi: dispatched ${config.ciWorkflow} for PR #${pr.number} (${pr.headRefName})`);
         }
         catch (err) {
             failed.push(pr.number);
@@ -66548,7 +66564,7 @@ async function executeAutopilot(gh, exec, config, evaluation, deps = defaultExec
     }
     warnIfBotCredsIncomplete(env);
     await deps.configureGitIdentity(config.gitUserName, config.gitUserEmail);
-    const runner = new CarettaRunner(binaryPath, env, exec, gh, config, deps.conflictResolverOptions);
+    const runner = new CarettaRunner(binaryPath, env, exec, gh, config, deps);
     switch (evaluation.route) {
         case "work":
             await runner.runWorkDispatch(evaluation.tracker);
@@ -66578,14 +66594,14 @@ class CarettaRunner {
     exec;
     gh;
     config;
-    conflictResolverOptions;
-    constructor(binaryPath, env, exec, gh, config, conflictResolverOptions = {}) {
+    deps;
+    constructor(binaryPath, env, exec, gh, config, deps) {
         this.binaryPath = binaryPath;
         this.env = env;
         this.exec = exec;
         this.gh = gh;
         this.config = config;
-        this.conflictResolverOptions = conflictResolverOptions;
+        this.deps = deps;
     }
     /** Headless CI runs need `--auto`: two-phase workflows synthesize feedback and run finalize. */
     carettaBaseArgs() {
@@ -66614,7 +66630,7 @@ class CarettaRunner {
         ]);
         // 4 & 5. fix-conflicts
         await this.fixConflicts();
-        await dispatchMissingCi(this.gh, this.config, { issueNumbers: issues });
+        await dispatchMissingCi(this.gh, this.config);
         // 6. CI before review
         await this.runCiGate(issues);
         // 7, 8 & 9. Code Review and Fix PR
@@ -66632,7 +66648,7 @@ class CarettaRunner {
             ]);
             // 11 & 12. fix-conflicts (after fix)
             await this.fixConflicts();
-            await dispatchMissingCi(this.gh, this.config, { issueNumbers: issues });
+            await dispatchMissingCi(this.gh, this.config);
             // 13. CI after fix
             await this.runCiGate(issues);
         }
@@ -66656,7 +66672,7 @@ class CarettaRunner {
             // The Test check from step 13 is attached to the prior SHA, so the new tip
             // has no Test check — auto-merge then sits waiting on a check that nothing
             // will dispatch. Fire one more dispatch so the queue can drain.
-            await dispatchMissingCi(this.gh, this.config, { issueNumbers: issues });
+            await dispatchMissingCi(this.gh, this.config);
         }
         else {
             lib_core.info("All tracker-scoped PRs already have auto-merge enabled. Skipping automerge-queue.");
@@ -66683,7 +66699,7 @@ class CarettaRunner {
         await this.runCaretta("run", ["sprint-planning"]);
     }
     async fixConflicts() {
-        const resolver = ConflictResolver.withCaretta(this.gh, this.config, this.binaryPath, this.env, this.exec, this.conflictResolverOptions);
+        const resolver = ConflictResolver.withCaretta(this.gh, this.config, this.binaryPath, this.env, this.exec, this.deps.conflictResolverOptions ?? {});
         const result = await resolver.resolveAll();
         if (result.unresolved.length > 0) {
             lib_core.warning(`ConflictResolver left ${result.unresolved.length} PR(s) DIRTY after retries: ${result.unresolved.join(", ")}${result.timedOut ? " (timed out)" : ""}`);
@@ -66713,16 +66729,32 @@ class CarettaRunner {
                 lastReview.state !== "DISMISSED" &&
                 lastReview.body.trim().length > 0 &&
                 lastReview.commitId === pr.headRefOid) {
-                lib_core.info(`Skipping PR #${pr.number}: Already reviewed on commit ${pr.headRefOid}`);
-                continue;
+                // If CI is failing, we still want to run fix-pr even if it was already reviewed.
+                // However, we only do this if CI actually failed. If CI is success, we skip.
+                const checks = await this.gh.listCheckRuns(pr.headRefOid);
+                const testChecks = checks.filter((c) => c.name === this.config.testCheckName);
+                const latestCheck = testChecks.sort((a, b) => {
+                    const aTime = new Date(a.createdAt || a.startedAt || 0).getTime();
+                    const bTime = new Date(b.createdAt || b.startedAt || 0).getTime();
+                    return bTime - aTime;
+                })[0];
+                if (latestCheck?.conclusion === "success") {
+                    lib_core.info(`Skipping PR #${pr.number}: Already reviewed on commit ${pr.headRefOid} and CI is success.`);
+                    continue;
+                }
             }
             const checks = await this.gh.listCheckRuns(pr.headRefOid);
-            const testCheck = checks.find((c) => c.name === this.config.testCheckName);
-            if (testCheck?.conclusion === "success") {
+            const testChecks = checks.filter((c) => c.name === this.config.testCheckName);
+            const latestCheck = testChecks.sort((a, b) => {
+                const aTime = new Date(a.createdAt || a.startedAt || 0).getTime();
+                const bTime = new Date(b.createdAt || b.startedAt || 0).getTime();
+                return bTime - aTime;
+            })[0];
+            if (latestCheck?.conclusion === "success" || latestCheck?.conclusion === "failure") {
                 results.push(pr.number);
             }
             else {
-                lib_core.info(`Skipping PR #${pr.number} because CI status is ${testCheck?.conclusion || "missing"}`);
+                lib_core.info(`Skipping PR #${pr.number} because CI status is ${latestCheck?.conclusion || "missing"}`);
             }
         }
         return results;
@@ -66730,14 +66762,16 @@ class CarettaRunner {
     async runCiGate(issues) {
         lib_core.info("Waiting for CI on tracker-scoped PRs...");
         const start = Date.now();
-        const timeout = 20 * 60 * 1000; // 20 minutes timeout for this gate
-        const interval = 30 * 1000; // 30 seconds interval
+        const timeout = this.deps.ciGateTimeoutMs ?? 20 * 60 * 1000; // 20 minutes timeout for this gate
+        const interval = this.deps.ciGateIntervalMs ?? 30 * 1000; // 30 seconds interval
         while (Date.now() - start < timeout) {
             const prs = await this.gh.listOpenPullRequests();
             const issueStrings = issues.map(String);
             const scopedPrs = prs.filter((pr) => {
                 const match = pr.headRefName.match(/^agent\/issue-([0-9]+)$/);
-                return match && issueStrings.includes(match[1]);
+                // We wait for all agent-branch PRs related to this tracker.
+                // If auto-merge synced it, we should wait for it.
+                return !!match;
             });
             if (scopedPrs.length === 0) {
                 lib_core.info("No tracker-scoped PRs to wait on; skipping CI gate.");
@@ -66746,13 +66780,24 @@ class CarettaRunner {
             let allDone = true;
             for (const pr of scopedPrs) {
                 const checks = await this.gh.listCheckRuns(pr.headRefOid);
-                const testCheck = checks.find((c) => c.name === this.config.testCheckName);
-                if (!testCheck ||
-                    testCheck.status === "in_progress" ||
-                    testCheck.status === "queued") {
+                const testChecks = checks.filter((c) => c.name === this.config.testCheckName);
+                if (testChecks.length === 0) {
+                    lib_core.info(`runCiGate: PR #${pr.number} (${pr.headRefName}) at SHA ${pr.headRefOid} has no "${this.config.testCheckName}" check run yet.`);
                     allDone = false;
                     break;
                 }
+                const anyActive = testChecks.some((c) => c.status === "in_progress" || c.status === "queued");
+                if (anyActive) {
+                    lib_core.info(`runCiGate: PR #${pr.number} (${pr.headRefName}) at SHA ${pr.headRefOid} has active "${this.config.testCheckName}" checks.`);
+                    allDone = false;
+                    break;
+                }
+                const latestCheck = testChecks.sort((a, b) => {
+                    const aTime = new Date(a.createdAt || a.startedAt || 0).getTime();
+                    const bTime = new Date(b.createdAt || b.startedAt || 0).getTime();
+                    return bTime - aTime;
+                })[0];
+                lib_core.info(`runCiGate: PR #${pr.number} (${pr.headRefName}) at SHA ${pr.headRefOid} check "${this.config.testCheckName}" is ${latestCheck.status} (${latestCheck.conclusion}).`);
             }
             if (allDone) {
                 lib_core.info("All CI runs completed.");
@@ -66766,6 +66811,7 @@ class CarettaRunner {
 }
 
 ;// CONCATENATED MODULE: ./src/pr-ci.ts
+
 function filterAgentPRs(prs, pattern) {
     return prs.filter((p) => !p.isDraft &&
         p.mergeStateStatus !== "DIRTY" &&
@@ -66811,9 +66857,11 @@ async function processAgentPRs(gh, prs, config) {
         try {
             await gh.dispatchWorkflow(config.ciWorkflow, pr.headRefName);
             dispatched.push(entry);
+            lib_core.info(`processAgentPRs: dispatched ${config.ciWorkflow} for PR #${pr.number} (${pr.headRefName})`);
         }
-        catch {
+        catch (err) {
             failed.push(entry);
+            lib_core.warning(`processAgentPRs: dispatch failed for PR #${pr.number}: ${err.message}`);
         }
     }
     return {

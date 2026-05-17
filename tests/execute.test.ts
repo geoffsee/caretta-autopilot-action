@@ -186,7 +186,7 @@ describe("executeAutopilot", () => {
     expect(exec.calls.some((c) => c.args.includes("fix-pr"))).toBe(false);
   });
 
-  test("work dispatch skips code-review/fix-pr when CI is not successful", async () => {
+  test("work dispatch includes code-review/fix-pr even if CI failed", async () => {
     const gh = new FakeGitHub({
       prs: [makePR({ number: 301, headRefName: "agent/issue-301" })],
       checksBySha: {
@@ -205,8 +205,82 @@ describe("executeAutopilot", () => {
 
     await executeAutopilot(gh, exec, makeConfig(), workEval, fakeInstallDeps);
 
+    expect(exec.calls.some((c) => c.args.includes("code-review"))).toBe(true);
+    expect(exec.calls.some((c) => c.args.includes("fix-pr"))).toBe(true);
+  });
+
+  test("work dispatch does not skip code-review/fix-pr if CI failed, even if a valid review exists", async () => {
+    const gh = new FakeGitHub({
+      prs: [makePR({ number: 302, headRefName: "agent/issue-302", headRefOid: "sha-302" })],
+      checksBySha: {
+        "sha-302": [
+          {
+            name: "Test",
+            status: "completed",
+            conclusion: "failure",
+            startedAt: "2026-01-01T00:00:00Z",
+            createdAt: null,
+          },
+        ],
+      },
+      reviewsByPr: {
+        302: [
+          {
+            state: "COMMENTED",
+            body: "Looks good but failing CI",
+            commitId: "sha-302",
+            user: "caretta-autopilot[bot]",
+          },
+        ],
+      },
+    });
+    exec.stdout = JSON.stringify([302]);
+
+    await executeAutopilot(gh, exec, makeConfig(), workEval, fakeInstallDeps);
+
+    expect(exec.calls.some((c) => c.args.includes("code-review"))).toBe(true);
+    expect(exec.calls.some((c) => c.args.includes("fix-pr"))).toBe(true);
+  });
+
+  test("runCiGate waits if ANY check is active, even if a completed one exists", async () => {
+    const gh = new FakeGitHub({
+      prs: [makePR({ number: 304, headRefName: "agent/issue-304", headRefOid: "sha-304" })],
+      checksBySha: {
+        "sha-304": [
+          {
+            name: "Test",
+            status: "completed",
+            conclusion: "failure",
+            startedAt: "2026-01-01T00:00:00Z",
+            createdAt: "2026-01-01T00:00:00Z",
+          },
+          {
+            name: "Test",
+            status: "in_progress",
+            conclusion: null,
+            startedAt: "2026-01-01T00:01:00Z",
+            createdAt: "2026-01-01T00:01:00Z",
+          },
+        ],
+      },
+    });
+    exec.stdout = JSON.stringify([304]);
+
+    const start = Date.now();
+    // Configure CI gate to timeout quickly for the test
+    const depsWithShortTimeout: ExecuteDeps = {
+      ...fakeInstallDeps,
+      ciGateTimeoutMs: 100,
+      ciGateIntervalMs: 10,
+    };
+
+    await executeAutopilot(gh, exec, makeConfig(), workEval, depsWithShortTimeout);
+    const duration = Date.now() - start;
+
+    expect(duration).toBeGreaterThanOrEqual(100);
+    // Since it timed out, it should have logged a warning and continued.
+    // We can verify that it didn't run code-review/fix-pr because latestCheck is null (still in_progress)
     expect(exec.calls.some((c) => c.args.includes("code-review"))).toBe(false);
-    expect(exec.calls.some((c) => c.args.includes("fix-pr"))).toBe(false);
   });
 
   test("work dispatch skips code-review/fix-pr if a valid review exists for the current SHA", async () => {
