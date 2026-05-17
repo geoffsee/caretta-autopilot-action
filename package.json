@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit",
     "lint": "biome check",
     "format": "biome check --write",
-    "test": "bun test tests/*.test.ts",
+    "test": "bun test tests ./behavior-suite/",
+    "test:behavior": "bun test ./behavior-suite/",
     "postinstall": ".dev/scripts/postinstall.sh"
   },
   "dependencies": {
