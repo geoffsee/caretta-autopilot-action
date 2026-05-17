@@ -20,6 +20,7 @@ export interface PullRequest {
   headRefName: string;
   headRefOid: string;
   mergeStateStatus: string;
+  isAutoMergeEnabled: boolean;
 }
 
 export interface PullRequestReview {

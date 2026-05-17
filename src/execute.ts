@@ -167,34 +167,49 @@ class CarettaRunner {
       await this.runCaretta("fix-pr", [String(pr)]);
     }
 
-    // 10. sync-branches (after fix)
-    await this.runCaretta("auto-merge", [
-      "--tracker",
-      tracker,
-      "--sync-branches",
-    ]);
+    if (prsForReview.length > 0) {
+      // 10. sync-branches (after fix)
+      await this.runCaretta("auto-merge", [
+        "--tracker",
+        tracker,
+        "--sync-branches",
+      ]);
 
-    // 11 & 12. fix-conflicts (after fix)
-    await this.fixConflicts();
-    await dispatchMissingCi(this.gh, this.config, { issueNumbers: issues });
+      // 11 & 12. fix-conflicts (after fix)
+      await this.fixConflicts();
+      await dispatchMissingCi(this.gh, this.config, { issueNumbers: issues });
 
-    // 13. CI after fix
-    await this.runCiGate(issues);
+      // 13. CI after fix
+      await this.runCiGate(issues);
+    }
 
-    // 14. prepare-automerge
-    await this.runCaretta("auto-merge", [
-      "--tracker",
-      tracker,
-      "--automerge-queue",
-    ]);
+    const prsAfterFix = await this.gh.listOpenPullRequests();
+    const issueStringsAfterFix = issues.map(String);
+    const queuedPrs = prsAfterFix.filter((pr) => {
+      const match = pr.headRefName.match(/^agent\/issue-([0-9]+)$/);
+      return match && issueStringsAfterFix.includes(match[1]);
+    });
 
-    // 15. dispatch CI on tips that automerge-queue advanced.
-    // `auto-merge --automerge-queue` calls `gh pr update-branch` for each PR,
-    // which fast-forwards the branch tip to a new SHA when main has moved.
-    // The Test check from step 13 is attached to the prior SHA, so the new tip
-    // has no Test check — auto-merge then sits waiting on a check that nothing
-    // will dispatch. Fire one more dispatch so the queue can drain.
-    await dispatchMissingCi(this.gh, this.config, { issueNumbers: issues });
+    const needsAutomerge = queuedPrs.some(pr => !pr.isAutoMergeEnabled);
+
+    if (needsAutomerge) {
+      // 14. prepare-automerge
+      await this.runCaretta("auto-merge", [
+        "--tracker",
+        tracker,
+        "--automerge-queue",
+      ]);
+
+      // 15. dispatch CI on tips that automerge-queue advanced.
+      // `auto-merge --automerge-queue` calls `gh pr update-branch` for each PR,
+      // which fast-forwards the branch tip to a new SHA when main has moved.
+      // The Test check from step 13 is attached to the prior SHA, so the new tip
+      // has no Test check — auto-merge then sits waiting on a check that nothing
+      // will dispatch. Fire one more dispatch so the queue can drain.
+      await dispatchMissingCi(this.gh, this.config, { issueNumbers: issues });
+    } else {
+      core.info("All tracker-scoped PRs already have auto-merge enabled. Skipping automerge-queue.");
+    }
   }
 
   async runFactoryCycle(): Promise<void> {

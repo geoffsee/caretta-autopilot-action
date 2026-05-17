@@ -175,6 +175,7 @@ export function makePR(
     headRefName: partial.headRefName ?? `agent/issue-${partial.number}`,
     headRefOid: partial.headRefOid ?? `sha-${partial.number}`,
     mergeStateStatus: partial.mergeStateStatus ?? "CLEAN",
+    isAutoMergeEnabled: partial.isAutoMergeEnabled ?? false,
   };
 }
 

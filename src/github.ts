@@ -86,12 +86,13 @@ class OctokitClient implements GitHubClient {
           pullRequest: {
             reviewDecision: string | null;
             mergeStateStatus: string;
+            autoMergeRequest: { enabledAt: string } | null;
           };
         };
       }>(
         `query($owner:String!,$repo:String!,$number:Int!){
           repository(owner:$owner,name:$repo){
-            pullRequest(number:$number){ reviewDecision mergeStateStatus }
+            pullRequest(number:$number){ reviewDecision mergeStateStatus autoMergeRequest { enabledAt } }
           }
         }`,
         { owner: this.owner, repo: this.repo, number: pr.number },
@@ -106,6 +107,7 @@ class OctokitClient implements GitHubClient {
         headRefName: pr.head.ref,
         headRefOid: pr.head.sha,
         mergeStateStatus: detail.repository.pullRequest.mergeStateStatus,
+        isAutoMergeEnabled: !!detail.repository.pullRequest.autoMergeRequest,
       });
     }
     return enriched;

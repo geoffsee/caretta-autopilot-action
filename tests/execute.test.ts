@@ -240,6 +240,9 @@ describe("executeAutopilot", () => {
 
     expect(exec.calls.some((c) => c.args.includes("code-review"))).toBe(false);
     expect(exec.calls.some((c) => c.args.includes("fix-pr"))).toBe(false);
+
+    const syncCalls = exec.calls.filter((c) => c.args.includes("--sync-branches"));
+    expect(syncCalls.length).toBe(1); // Only the pre-review sync should run
   });
 
   test("work dispatch does not skip code-review/fix-pr if the existing review is DISMISSED", async () => {
@@ -322,6 +325,37 @@ describe("executeAutopilot", () => {
         c.args.includes("auto-merge") && c.args.includes("--automerge-queue"),
     );
     expect(automergeQueueIdx).toBeGreaterThanOrEqual(0);
+  });
+
+  test("work dispatch skips automerge-queue if all queued PRs have auto-merge already enabled", async () => {
+    const pr = makePR({
+      number: 601,
+      headRefName: "agent/issue-601",
+      isAutoMergeEnabled: true,
+    });
+    const gh = new FakeGitHub({
+      prs: [pr],
+      checksBySha: {
+        "sha-601": [
+          {
+            name: "Test",
+            status: "completed",
+            conclusion: "success",
+            startedAt: "2026-01-01T00:00:00Z",
+            createdAt: null,
+          },
+        ],
+      },
+    });
+    exec.stdout = JSON.stringify([601]);
+
+    await executeAutopilot(gh, exec, makeConfig(), workEval, fakeInstallDeps);
+
+    const automergeQueueIdx = exec.calls.findIndex(
+      (c) =>
+        c.args.includes("auto-merge") && c.args.includes("--automerge-queue"),
+    );
+    expect(automergeQueueIdx).toBe(-1); // Should not have been called
   });
 
   test("empty tracker-matrix: CI gate breaks early and resolveTrackerScopedPrs falls back to any agent-branch PR", async () => {
