@@ -6,6 +6,7 @@ import type {
   Issue,
   MergedPullRequest,
   PullRequest,
+  PullRequestReview,
   WorkflowRun,
 } from "../src/types.js";
 
@@ -55,6 +56,7 @@ export interface FakeData {
   defaultBranch: string;
   issueBodies: Record<number, string>;
   checksBySha: Record<string, readonly CheckRun[] | undefined>;
+  reviewsByPr: Record<number, readonly PullRequestReview[] | undefined>;
   runsByKey: Record<string, readonly WorkflowRun[] | undefined>;
   dispatchShouldFail: (workflow: string, ref: string) => boolean;
   closeIssueShouldFail: (issueNumber: number) => boolean;
@@ -132,6 +134,10 @@ export class FakeGitHub implements GitHubClient {
 
   async listCheckRuns(sha: string): Promise<CheckRun[]> {
     return [...(this.data.checksBySha?.[sha] ?? [])];
+  }
+
+  async listReviews(pullNumber: number): Promise<PullRequestReview[]> {
+    return [...(this.data.reviewsByPr?.[pullNumber] ?? [])];
   }
 
   async dispatchWorkflow(

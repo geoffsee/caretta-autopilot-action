@@ -63350,6 +63350,20 @@ class OctokitClient {
             createdAt: c.created_at ?? null,
         }));
     }
+    async listReviews(pullNumber) {
+        const res = await this.octokit.paginate(this.octokit.rest.pulls.listReviews, {
+            owner: this.owner,
+            repo: this.repo,
+            pull_number: pullNumber,
+            per_page: 100,
+        });
+        return res.map((r) => ({
+            state: r.state,
+            body: r.body ?? "",
+            commitId: r.commit_id ?? "",
+            user: r.user?.login ?? "",
+        }));
+    }
     async dispatchWorkflow(workflow, ref, inputs) {
         await this.octokit.rest.actions.createWorkflowDispatch({
             owner: this.owner,
@@ -66677,6 +66691,16 @@ class CarettaRunner {
         }
         const results = [];
         for (const pr of candidates) {
+            const reviews = await this.gh.listReviews(pr.number);
+            const lastReview = reviews.filter((r) => r.user.includes("[bot]")).pop();
+            if (lastReview &&
+                lastReview.state !== "PENDING" &&
+                lastReview.state !== "DISMISSED" &&
+                lastReview.body.trim().length > 0 &&
+                lastReview.commitId === pr.headRefOid) {
+                lib_core.info(`Skipping PR #${pr.number}: Already reviewed on commit ${pr.headRefOid}`);
+                continue;
+            }
             const checks = await this.gh.listCheckRuns(pr.headRefOid);
             const testCheck = checks.find((c) => c.name === this.config.testCheckName);
             if (testCheck?.conclusion === "success") {

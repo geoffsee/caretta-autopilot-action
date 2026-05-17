@@ -172,6 +172,9 @@ function makeHarness(
     async listCheckRuns() {
       return [];
     },
+    async listReviews() {
+      return [];
+    },
     async dispatchWorkflow() {},
   };
   const fakeExec: ExecClient = {

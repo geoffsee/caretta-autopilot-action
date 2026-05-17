@@ -21,6 +21,7 @@ export interface GitHubClient {
     branch?: string,
   ): Promise<WorkflowRun[]>;
   listCheckRuns(sha: string): Promise<CheckRun[]>;
+  listReviews(pullNumber: number): Promise<import("./types.js").PullRequestReview[]>;
   dispatchWorkflow(
     workflow: string,
     ref: string,
@@ -214,6 +215,21 @@ class OctokitClient implements GitHubClient {
       conclusion: c.conclusion,
       startedAt: c.started_at,
       createdAt: (c as { created_at?: string }).created_at ?? null,
+    }));
+  }
+
+  async listReviews(pullNumber: number): Promise<import("./types.js").PullRequestReview[]> {
+    const res = await this.octokit.paginate(this.octokit.rest.pulls.listReviews, {
+      owner: this.owner,
+      repo: this.repo,
+      pull_number: pullNumber,
+      per_page: 100,
+    });
+    return res.map((r) => ({
+      state: r.state,
+      body: r.body ?? "",
+      commitId: r.commit_id ?? "",
+      user: r.user?.login ?? "",
     }));
   }
 

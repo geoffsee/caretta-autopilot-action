@@ -22,6 +22,13 @@ export interface PullRequest {
   mergeStateStatus: string;
 }
 
+export interface PullRequestReview {
+  state: string;
+  body: string;
+  commitId: string;
+  user: string;
+}
+
 export interface MergedPullRequest {
   readonly number: number;
   readonly title: string;

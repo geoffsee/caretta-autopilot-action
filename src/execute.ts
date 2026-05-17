@@ -265,6 +265,22 @@ class CarettaRunner {
 
     const results: number[] = [];
     for (const pr of candidates) {
+      const reviews = await this.gh.listReviews(pr.number);
+      const lastReview = reviews.filter((r) => r.user.includes("[bot]")).pop();
+
+      if (
+        lastReview &&
+        lastReview.state !== "PENDING" &&
+        lastReview.state !== "DISMISSED" &&
+        lastReview.body.trim().length > 0 &&
+        lastReview.commitId === pr.headRefOid
+      ) {
+        core.info(
+          `Skipping PR #${pr.number}: Already reviewed on commit ${pr.headRefOid}`,
+        );
+        continue;
+      }
+
       const checks = await this.gh.listCheckRuns(pr.headRefOid);
       const testCheck = checks.find(
         (c) => c.name === this.config.testCheckName,

@@ -209,6 +209,72 @@ describe("executeAutopilot", () => {
     expect(exec.calls.some((c) => c.args.includes("fix-pr"))).toBe(false);
   });
 
+  test("work dispatch skips code-review/fix-pr if a valid review exists for the current SHA", async () => {
+    const gh = new FakeGitHub({
+      prs: [makePR({ number: 302, headRefName: "agent/issue-302", headRefOid: "sha-302" })],
+      checksBySha: {
+        "sha-302": [
+          {
+            name: "Test",
+            status: "completed",
+            conclusion: "success",
+            startedAt: "2026-01-01T00:00:00Z",
+            createdAt: null,
+          },
+        ],
+      },
+      reviewsByPr: {
+        302: [
+          {
+            state: "COMMENTED",
+            body: "Looks good but here's a nit",
+            commitId: "sha-302",
+            user: "caretta-autopilot[bot]", // Should match github config default or hardcoded string
+          },
+        ],
+      },
+    });
+    exec.stdout = JSON.stringify([302]);
+
+    await executeAutopilot(gh, exec, makeConfig(), workEval, fakeInstallDeps);
+
+    expect(exec.calls.some((c) => c.args.includes("code-review"))).toBe(false);
+    expect(exec.calls.some((c) => c.args.includes("fix-pr"))).toBe(false);
+  });
+
+  test("work dispatch does not skip code-review/fix-pr if the existing review is DISMISSED", async () => {
+    const gh = new FakeGitHub({
+      prs: [makePR({ number: 303, headRefName: "agent/issue-303", headRefOid: "sha-303" })],
+      checksBySha: {
+        "sha-303": [
+          {
+            name: "Test",
+            status: "completed",
+            conclusion: "success",
+            startedAt: "2026-01-01T00:00:00Z",
+            createdAt: null,
+          },
+        ],
+      },
+      reviewsByPr: {
+        303: [
+          {
+            state: "DISMISSED",
+            body: "Dismissed review",
+            commitId: "sha-303",
+            user: "caretta-autopilot[bot]",
+          },
+        ],
+      },
+    });
+    exec.stdout = JSON.stringify([303]);
+
+    await executeAutopilot(gh, exec, makeConfig(), workEval, fakeInstallDeps);
+
+    expect(exec.calls.some((c) => c.args.includes("code-review"))).toBe(true);
+    expect(exec.calls.some((c) => c.args.includes("fix-pr"))).toBe(true);
+  });
+
   test("work dispatch fires CI after automerge-queue advances the branch tip", async () => {
     const pr = makePR({
       number: 501,
