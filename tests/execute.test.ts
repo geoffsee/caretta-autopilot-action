@@ -1,9 +1,5 @@
 import { beforeEach, describe, expect, test } from "bun:test";
-import {
-  type AppCreds,
-  type ExecuteDeps,
-  executeAutopilot,
-} from "../src/execute.js";
+import { type ExecuteDeps, executeAutopilot } from "../src/execute.js";
 import type { EvaluationResult } from "../src/types.js";
 import {
   FakeExec,
@@ -300,29 +296,30 @@ describe("executeAutopilot", () => {
     ).toBe(true);
   });
 
-  test("mints an App token from DEV_BOT App credentials and uses it as GH_TOKEN/GITHUB_TOKEN for the caretta subprocess", async () => {
-    // Root cause of the BLOCKED-merge bug observed in production: when caretta
-    // pushes agent branches and opens PRs using GITHUB_TOKEN, GitHub Actions
-    // suppresses the resulting push/pull_request events. No CI run is attached
-    // to the PR's required-check rollup. dispatchMissingCi works around it via
-    // workflow_dispatch, but the resulting check lives on a different
-    // check_suite that doesn't satisfy the rollup, so the PR sits BLOCKED on
-    // "Test — Expected — Waiting for status to be reported."
-    //
-    // The fix is to mint a GitHub App installation token from the DEV_BOT_*
-    // App credentials and use *that* as the subprocess auth, so pushes are
-    // credited to the App and trigger CI normally.
+  // The BLOCKED-on-self-approval bug observed in production was caused by
+  // 57d185e, which made the action mint a GitHub App installation token from
+  // DEV_BOT_* creds and use it as ambient GH_TOKEN/GITHUB_TOKEN. Caretta's
+  // review path independently mints from the same DEV_BOT_* creds, so both
+  // `gh pr create` and `gh pr review` ran under the same `caretta-ai[bot]`
+  // identity — GitHub does not count self-approvals.
+  //
+  // The 57d185e change was added on the theory that PRs created under
+  // GITHUB_TOKEN don't trigger CI events and therefore can't satisfy the
+  // required-check rollup. Empirically that theory is wrong for this repo:
+  // pre-57d185e merged PRs (#50, #51, #53, #54, #97) all show a Test check
+  // produced by `event: workflow_dispatch` (dispatchMissingCi in this action)
+  // that *did* satisfy the rollup. So the App-mint detour was unnecessary;
+  // reverting it restores two distinct identities (`github-actions[bot]`
+  // creates, `caretta-ai[bot]` reviews) and PRs merge again.
+  //
+  // This test pins down the post-revert invariant: regardless of whether
+  // DEV_BOT_* App creds are in the env, the caretta subprocess sees the
+  // workflow's GITHUB_TOKEN as its ambient GH_TOKEN — not a minted App token.
+  test("propagates the workflow GITHUB_TOKEN to the caretta subprocess, ignoring DEV_BOT_* App creds for ambient auth", async () => {
     const previousEnv = { ...process.env };
     process.env.DEV_BOT_APP_ID = "12345";
     process.env.DEV_BOT_PRIVATE_KEY = "/tmp/dev-bot.pem";
     process.env.DEV_BOT_INSTALLATION_ID = "99999";
-    process.env.GITHUB_TOKEN = "ghs_workflow_default";
-
-    const mintCalls: AppCreds[] = [];
-    const fakeMint = async (creds: AppCreds) => {
-      mintCalls.push(creds);
-      return "ghs_minted_app_token";
-    };
 
     try {
       const gh = new FakeGitHub({
@@ -331,18 +328,10 @@ describe("executeAutopilot", () => {
       await executeAutopilot(
         gh,
         exec,
-        makeConfig({ githubToken: "" }),
+        makeConfig({ githubToken: "ghs_workflow_default" }),
         factoryEval,
-        { ...fakeInstallDeps, mintAppToken: fakeMint },
+        fakeInstallDeps,
       );
-
-      expect(mintCalls).toEqual([
-        {
-          appId: "12345",
-          privateKey: "/tmp/dev-bot.pem",
-          installationId: "99999",
-        },
-      ]);
 
       const carettaCalls = exec.calls.filter(
         (c) => c.command === "/mock/caretta",
@@ -350,8 +339,8 @@ describe("executeAutopilot", () => {
       expect(carettaCalls.length).toBeGreaterThan(0);
       for (const call of carettaCalls) {
         const callEnv = (call.options?.env ?? {}) as Record<string, string>;
-        expect(callEnv.GH_TOKEN).toBe("ghs_minted_app_token");
-        expect(callEnv.GITHUB_TOKEN).toBe("ghs_minted_app_token");
+        expect(callEnv.GH_TOKEN).toBe("ghs_workflow_default");
+        expect(callEnv.GITHUB_TOKEN).toBe("ghs_workflow_default");
       }
     } finally {
       process.env = previousEnv;

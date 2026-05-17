@@ -1,5 +1,4 @@
 import * as core from "@actions/core";
-import { defaultMintAppToken } from "./app-token.js";
 import { dispatchMissingCi } from "./ci-dispatcher.js";
 import {
   ConflictResolver,
@@ -15,18 +14,11 @@ import {
 } from "./install.js";
 import type { AutopilotConfig, EvaluationResult } from "./types.js";
 
-export interface AppCreds {
-  readonly appId: string;
-  readonly privateKey: string;
-  readonly installationId: string;
-}
-
 export interface ExecuteDeps {
   installCaretta: typeof installCaretta;
   installLinuxRuntimeDeps: typeof installLinuxRuntimeDeps;
   materializeBotPrivateKey: typeof materializeBotPrivateKey;
   configureGitIdentity: typeof configureGitIdentity;
-  mintAppToken?: (creds: AppCreds) => Promise<string>;
   conflictResolverOptions?: ConflictResolverOptions;
 }
 
@@ -35,7 +27,6 @@ export const defaultExecuteDeps: ExecuteDeps = {
   installLinuxRuntimeDeps,
   materializeBotPrivateKey,
   configureGitIdentity,
-  mintAppToken: defaultMintAppToken,
 };
 
 export async function executeAutopilot(
@@ -57,23 +48,17 @@ export async function executeAutopilot(
     string,
     string
   >;
-  deps.materializeBotPrivateKey(env);
-  const appCreds = readAppCreds(env);
-  let authToken = "";
-  if (appCreds && deps.mintAppToken) {
-    authToken = await deps.mintAppToken(appCreds);
-  } else {
-    authToken =
-      config.githubToken?.trim() ||
-      env.GH_TOKEN?.trim() ||
-      env.GITHUB_TOKEN?.trim() ||
-      process.env.GITHUB_TOKEN?.trim() ||
-      "";
-  }
+  const authToken =
+    config.githubToken?.trim() ||
+    env.GH_TOKEN?.trim() ||
+    env.GITHUB_TOKEN?.trim() ||
+    process.env.GITHUB_TOKEN?.trim() ||
+    "";
   if (authToken) {
     env.GH_TOKEN = authToken;
     env.GITHUB_TOKEN = authToken;
   }
+  deps.materializeBotPrivateKey(env);
   if (!env.RUST_LOG) env.RUST_LOG = "info";
   if (config.context) env.CARETTA_CONTEXT = config.context;
   if (config.gitUserName && config.gitUserEmail) {
@@ -104,14 +89,6 @@ export async function executeAutopilot(
     default:
       core.info(`No logic to execute for route '${evaluation.route}'`);
   }
-}
-
-function readAppCreds(env: Record<string, string>): AppCreds | null {
-  const appId = env.DEV_BOT_APP_ID?.trim();
-  const privateKey = env.DEV_BOT_PRIVATE_KEY?.trim();
-  const installationId = env.DEV_BOT_INSTALLATION_ID?.trim();
-  if (!appId || !privateKey || !installationId) return null;
-  return { appId, privateKey, installationId };
 }
 
 export function warnIfBotCredsIncomplete(env: Record<string, string>): void {
