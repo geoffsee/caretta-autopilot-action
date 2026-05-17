@@ -15,6 +15,15 @@ describe("dispatchMissingCi", () => {
     expect(gh.dispatched).toEqual([
       { workflow: "ci.yml", ref: "agent/issue-101", inputs: undefined },
     ]);
+    expect(gh.createdStatuses).toEqual([
+      {
+        sha: "sha-101",
+        state: "pending",
+        context: "Test",
+        description: "Autopilot dispatching CI...",
+        targetUrl: undefined,
+      },
+    ]);
   });
 
   test("skips PRs whose head SHA already has a Test check", async () => {
@@ -135,5 +144,15 @@ describe("dispatchMissingCi", () => {
 
     expect(result.dispatched).toEqual([]);
     expect(result.failed).toEqual([50]);
+    expect(gh.createdStatuses).toEqual([
+      {
+        sha: "sha-50",
+        state: "error",
+        context: "Test",
+        description:
+          "Autopilot CI dispatch failed: dispatch failed for ci.yml on agent/issue-50",
+        targetUrl: undefined,
+      },
+    ]);
   });
 });

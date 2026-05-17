@@ -107,4 +107,45 @@ describe("processAgentPRs", () => {
 
     expect(gh.dispatched).toHaveLength(expected.ghDispatched);
   });
+
+  test("creates pending status after successful dispatch", async () => {
+    const gh = new FakeGitHub();
+    const result = await processAgentPRs(
+      gh,
+      [makePR({ number: 7 })],
+      makeConfig(),
+    );
+
+    expect(result.dispatched).toHaveLength(1);
+    expect(gh.createdStatuses).toEqual([
+      {
+        sha: "sha-7",
+        state: "pending",
+        context: "Test",
+        description: "Autopilot dispatching CI...",
+        targetUrl: undefined,
+      },
+    ]);
+  });
+
+  test("does not create pending status when dispatch fails", async () => {
+    const gh = new FakeGitHub({ dispatchShouldFail: () => true });
+    const result = await processAgentPRs(
+      gh,
+      [makePR({ number: 8 })],
+      makeConfig(),
+    );
+
+    expect(result.failed).toHaveLength(1);
+    expect(gh.createdStatuses).toEqual([
+      {
+        sha: "sha-8",
+        state: "error",
+        context: "Test",
+        description:
+          "Autopilot CI dispatch failed: dispatch failed for ci.yml on agent/issue-8",
+        targetUrl: undefined,
+      },
+    ]);
+  });
 });

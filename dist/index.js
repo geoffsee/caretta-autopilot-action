@@ -44992,19 +44992,26 @@ async function dispatchMissingCi(gh, config, options = {}) {
     }
     const failedRun = latestFailedRun(shaRuns);
     try {
-      await gh.createCommitStatus(pr.headRefOid, "pending", config.testCheckName, failedRun ? "Autopilot rerunning failed CI..." : "Autopilot dispatching CI...");
       if (failedRun) {
         core5.info(`dispatchMissingCi: rerunning failed jobs for PR #${pr.number} (Run ID: ${failedRun.id}) at SHA ${pr.headRefOid}`);
         await gh.reRunWorkflowFailedJobs(failedRun.id);
+        await gh.createCommitStatus(pr.headRefOid, "pending", config.testCheckName, "Autopilot rerunning failed CI...");
         dispatched.push(pr.number);
       } else {
         core5.info(`dispatchMissingCi: dispatching ${config.ciWorkflow} for PR #${pr.number} (${pr.headRefName}) at SHA ${pr.headRefOid}`);
         await gh.dispatchWorkflow(config.ciWorkflow, pr.headRefName);
+        await gh.createCommitStatus(pr.headRefOid, "pending", config.testCheckName, "Autopilot dispatching CI...");
         dispatched.push(pr.number);
       }
     } catch (err) {
+      const message = err.message;
       failed.push(pr.number);
-      core5.warning(`dispatchMissingCi: operation failed for PR #${pr.number}: ${err.message}`);
+      try {
+        await gh.createCommitStatus(pr.headRefOid, "error", config.testCheckName, `Autopilot CI dispatch failed: ${message}`);
+      } catch (statusError) {
+        core5.warning(`dispatchMissingCi: failed to set error status for PR #${pr.number}: ${statusError.message}`);
+      }
+      core5.warning(`dispatchMissingCi: operation failed for PR #${pr.number}: ${message}`);
     }
   }
   return { dispatched, skipped, failed };
@@ -45392,19 +45399,26 @@ async function processAgentPRs(gh, prs, config) {
     }
     const failedRun = latestFailedRun(shaRuns);
     try {
-      await gh.createCommitStatus(pr.headRefOid, "pending", config.testCheckName, failedRun ? "Autopilot rerunning failed CI..." : "Autopilot dispatching CI...");
       if (failedRun) {
         core8.info(`processAgentPRs: rerunning failed jobs for PR #${pr.number} (Run ID: ${failedRun.id}) at SHA ${pr.headRefOid}`);
         await gh.reRunWorkflowFailedJobs(failedRun.id);
+        await gh.createCommitStatus(pr.headRefOid, "pending", config.testCheckName, "Autopilot rerunning failed CI...");
         dispatched.push(entry);
       } else {
         core8.info(`processAgentPRs: dispatched ${config.ciWorkflow} for PR #${pr.number} (${pr.headRefName}) at SHA ${pr.headRefOid}`);
         await gh.dispatchWorkflow(config.ciWorkflow, pr.headRefName);
+        await gh.createCommitStatus(pr.headRefOid, "pending", config.testCheckName, "Autopilot dispatching CI...");
         dispatched.push(entry);
       }
     } catch (err) {
+      const message = err.message;
       failed.push(entry);
-      core8.warning(`processAgentPRs: operation failed for PR #${pr.number}: ${err.message}`);
+      try {
+        await gh.createCommitStatus(pr.headRefOid, "error", config.testCheckName, `Autopilot CI dispatch failed: ${message}`);
+      } catch (statusError) {
+        core8.warning(`processAgentPRs: failed to set error status for PR #${pr.number}: ${statusError.message}`);
+      }
+      core8.warning(`processAgentPRs: operation failed for PR #${pr.number}: ${message}`);
     }
   }
   return {
@@ -45594,4 +45608,4 @@ main().catch((error) => {
   core9.setFailed(message);
 });
 
-//# debugId=114FDB0D7064D15464756E2164756E21
+//# debugId=43849459903816F764756E2164756E21
