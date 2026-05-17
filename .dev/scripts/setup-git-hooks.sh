@@ -45,7 +45,14 @@ bun x tsc --noEmit -p packages/factory-cycle-action/tsconfig.json
 echo "[pre-commit] test"
 bun run test
 
-if git diff --cached --quiet -- src/ package.json bun.lock tsconfig.json; then
+if git diff --cached --quiet -- \
+  src/ \
+  packages/action-common/src/ \
+  .dev/scripts/build-action.ts \
+  package.json \
+  bun.lock \
+  tsconfig.json
+then
   echo "[pre-commit] root build inputs unchanged, skipping root build"
 else
   echo "[pre-commit] build (root action)"
@@ -54,34 +61,32 @@ else
 fi
 
 if git diff --cached --quiet -- \
+  packages/action-common/src/ \
   packages/work-dispatch-action/src/ \
   packages/work-dispatch-action/package.json \
   packages/work-dispatch-action/tsconfig.json \
+  .dev/scripts/build-action.ts \
   bun.lock
 then
   echo "[pre-commit] work-dispatch-action build inputs unchanged, skipping build"
 else
   echo "[pre-commit] build (work-dispatch-action)"
-  (
-    cd packages/work-dispatch-action
-    bun x ncc build src/index.ts -o dist --source-map --license licenses.txt
-  )
+  (cd packages/work-dispatch-action && bun run build)
   stage_dist_if_changed packages/work-dispatch-action/dist/
 fi
 
 if git diff --cached --quiet -- \
+  packages/action-common/src/ \
   packages/factory-cycle-action/src/ \
   packages/factory-cycle-action/package.json \
   packages/factory-cycle-action/tsconfig.json \
+  .dev/scripts/build-action.ts \
   bun.lock
 then
   echo "[pre-commit] factory-cycle-action build inputs unchanged, skipping build"
 else
   echo "[pre-commit] build (factory-cycle-action)"
-  (
-    cd packages/factory-cycle-action
-    bun x ncc build src/index.ts -o dist --source-map --license licenses.txt
-  )
+  (cd packages/factory-cycle-action && bun run build)
   stage_dist_if_changed packages/factory-cycle-action/dist/
 fi
 HOOK
@@ -106,16 +111,10 @@ echo "[pre-push] build (root action)"
 bun run build
 
 echo "[pre-push] build (work-dispatch-action)"
-(
-  cd packages/work-dispatch-action
-  bun x ncc build src/index.ts -o dist --source-map --license licenses.txt
-)
+(cd packages/work-dispatch-action && bun run build)
 
 echo "[pre-push] build (factory-cycle-action)"
-(
-  cd packages/factory-cycle-action
-  bun x ncc build src/index.ts -o dist --source-map --license licenses.txt
-)
+(cd packages/factory-cycle-action && bun run build)
 
 DIRTY=0
 for DIST_DIR in \

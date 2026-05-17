@@ -6,7 +6,8 @@
   "type": "module",
   "main": "dist/index.js",
   "scripts": {
-    "build": "ncc build src/index.ts -o dist --source-map --license licenses.txt",
+    "build": "bun run .dev/scripts/build-action.ts src/index.ts dist",
+    "build:all": "bun run build && (cd packages/work-dispatch-action && bun run build) && (cd packages/factory-cycle-action && bun run build)",
     "typecheck": "tsc --noEmit",
     "lint": "biome check",
     "format": "biome check --write",
@@ -18,13 +19,13 @@
     "@actions/core": "^1.11.1",
     "@actions/exec": "^3.0.0",
     "@actions/github": "^6.0.0",
-    "@actions/tool-cache": "^4.0.0"
+    "@actions/tool-cache": "^4.0.0",
+    "di-framework": "2.0.4"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.15",
     "@types/bun": "^1.1.10",
     "@types/node": "^20.14.0",
-    "@vercel/ncc": "^0.38.3",
     "typescript": "^5.6.3"
   }
 }
