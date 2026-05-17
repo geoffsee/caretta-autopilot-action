@@ -63546,6 +63546,50 @@ function evaluate(issues, prs) {
     };
 }
 
+// EXTERNAL MODULE: external "node:crypto"
+var external_node_crypto_ = __nccwpck_require__(7598);
+;// CONCATENATED MODULE: external "node:fs"
+const external_node_fs_namespaceObject = __WEBPACK_EXTERNAL_createRequire(import.meta.url)("node:fs");
+;// CONCATENATED MODULE: ./src/app-token.ts
+
+
+function makeAppJwt(input) {
+    const pem = input.privateKey.includes("-----BEGIN")
+        ? input.privateKey
+        : (0,external_node_fs_namespaceObject.readFileSync)(input.privateKey, "utf8");
+    const iat = Math.floor(Date.now() / 1000) - 60;
+    const exp = iat + 600;
+    const header = b64url(JSON.stringify({ alg: "RS256", typ: "JWT" }));
+    const payload = b64url(JSON.stringify({ iat, exp, iss: input.appId }));
+    const sig = (0,external_node_crypto_.createSign)("RSA-SHA256")
+        .update(`${header}.${payload}`)
+        .sign(pem);
+    return `${header}.${payload}.${sig.toString("base64url")}`;
+}
+async function defaultMintAppToken(creds) {
+    const jwt = makeAppJwt(creds);
+    const url = `https://api.github.com/app/installations/${creds.installationId}/access_tokens`;
+    const res = await fetch(url, {
+        method: "POST",
+        headers: {
+            Accept: "application/vnd.github+json",
+            Authorization: `Bearer ${jwt}`,
+            "User-Agent": "caretta-autopilot-action",
+            "X-GitHub-Api-Version": "2022-11-28",
+        },
+    });
+    if (!res.ok) {
+        throw new Error(`Failed to mint App installation token (HTTP ${res.status}): ${await res.text()}`);
+    }
+    const body = (await res.json());
+    if (!body.token)
+        throw new Error("App token response missing token field");
+    return body.token;
+}
+function b64url(s) {
+    return Buffer.from(s, "utf8").toString("base64url");
+}
+
 ;// CONCATENATED MODULE: ./src/ci-dispatcher.ts
 
 /**
@@ -63702,8 +63746,6 @@ class ConflictResolver {
     }
 }
 
-;// CONCATENATED MODULE: external "node:fs"
-const external_node_fs_namespaceObject = __WEBPACK_EXTERNAL_createRequire(import.meta.url)("node:fs");
 ;// CONCATENATED MODULE: external "node:os"
 const external_node_os_namespaceObject = __WEBPACK_EXTERNAL_createRequire(import.meta.url)("node:os");
 ;// CONCATENATED MODULE: external "node:path"
@@ -66500,22 +66542,33 @@ function materializeBotPrivateKey(env) {
 
 
 
+
 const defaultExecuteDeps = {
     installCaretta: installCaretta,
     installLinuxRuntimeDeps: installLinuxRuntimeDeps,
     materializeBotPrivateKey: materializeBotPrivateKey,
     configureGitIdentity: configureGitIdentity,
+    mintAppToken: defaultMintAppToken,
 };
 async function executeAutopilot(gh, exec, config, evaluation, deps = defaultExecuteDeps) {
     const installToken = config.githubToken?.trim() || process.env.GITHUB_TOKEN || "";
     const { binaryPath } = await deps.installCaretta(config.carettaVersion, installToken);
     await deps.installLinuxRuntimeDeps();
     const env = { ...process.env };
-    const authToken = config.githubToken?.trim() ||
-        env.GH_TOKEN?.trim() ||
-        env.GITHUB_TOKEN?.trim() ||
-        process.env.GITHUB_TOKEN?.trim() ||
-        "";
+    deps.materializeBotPrivateKey(env);
+    const appCreds = readAppCreds(env);
+    let authToken = "";
+    if (appCreds && deps.mintAppToken) {
+        authToken = await deps.mintAppToken(appCreds);
+    }
+    else {
+        authToken =
+            config.githubToken?.trim() ||
+                env.GH_TOKEN?.trim() ||
+                env.GITHUB_TOKEN?.trim() ||
+                process.env.GITHUB_TOKEN?.trim() ||
+                "";
+    }
     if (authToken) {
         env.GH_TOKEN = authToken;
         env.GITHUB_TOKEN = authToken;
@@ -66530,7 +66583,6 @@ async function executeAutopilot(gh, exec, config, evaluation, deps = defaultExec
         env.GIT_COMMITTER_NAME = config.gitUserName;
         env.GIT_COMMITTER_EMAIL = config.gitUserEmail;
     }
-    deps.materializeBotPrivateKey(env);
     warnIfBotCredsIncomplete(env);
     await deps.configureGitIdentity(config.gitUserName, config.gitUserEmail);
     const runner = new CarettaRunner(binaryPath, env, exec, gh, config, deps.conflictResolverOptions);
@@ -66544,6 +66596,14 @@ async function executeAutopilot(gh, exec, config, evaluation, deps = defaultExec
         default:
             lib_core.info(`No logic to execute for route '${evaluation.route}'`);
     }
+}
+function readAppCreds(env) {
+    const appId = env.DEV_BOT_APP_ID?.trim();
+    const privateKey = env.DEV_BOT_PRIVATE_KEY?.trim();
+    const installationId = env.DEV_BOT_INSTALLATION_ID?.trim();
+    if (!appId || !privateKey || !installationId)
+        return null;
+    return { appId, privateKey, installationId };
 }
 function warnIfBotCredsIncomplete(env) {
     const hasTokenCreds = !!env.DEV_BOT_TOKEN?.trim() || !!env.DEV_BOT_TOKEN_PATH?.trim();

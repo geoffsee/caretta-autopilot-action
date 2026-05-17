@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, test } from "bun:test";
-import { type ExecuteDeps, executeAutopilot } from "../src/execute.js";
+import {
+  type AppCreds,
+  type ExecuteDeps,
+  executeAutopilot,
+} from "../src/execute.js";
 import type { EvaluationResult } from "../src/types.js";
 import {
   FakeExec,
@@ -294,5 +298,63 @@ describe("executeAutopilot", () => {
         (c) => c.args.includes("fix-pr") && c.args.includes("401"),
       ),
     ).toBe(true);
+  });
+
+  test("mints an App token from DEV_BOT App credentials and uses it as GH_TOKEN/GITHUB_TOKEN for the caretta subprocess", async () => {
+    // Root cause of the BLOCKED-merge bug observed in production: when caretta
+    // pushes agent branches and opens PRs using GITHUB_TOKEN, GitHub Actions
+    // suppresses the resulting push/pull_request events. No CI run is attached
+    // to the PR's required-check rollup. dispatchMissingCi works around it via
+    // workflow_dispatch, but the resulting check lives on a different
+    // check_suite that doesn't satisfy the rollup, so the PR sits BLOCKED on
+    // "Test — Expected — Waiting for status to be reported."
+    //
+    // The fix is to mint a GitHub App installation token from the DEV_BOT_*
+    // App credentials and use *that* as the subprocess auth, so pushes are
+    // credited to the App and trigger CI normally.
+    const previousEnv = { ...process.env };
+    process.env.DEV_BOT_APP_ID = "12345";
+    process.env.DEV_BOT_PRIVATE_KEY = "/tmp/dev-bot.pem";
+    process.env.DEV_BOT_INSTALLATION_ID = "99999";
+    process.env.GITHUB_TOKEN = "ghs_workflow_default";
+
+    const mintCalls: AppCreds[] = [];
+    const fakeMint = async (creds: AppCreds) => {
+      mintCalls.push(creds);
+      return "ghs_minted_app_token";
+    };
+
+    try {
+      const gh = new FakeGitHub({
+        issues: [makeIssue({ number: 9, labels: [{ name: "sprint" }] })],
+      });
+      await executeAutopilot(
+        gh,
+        exec,
+        makeConfig({ githubToken: "" }),
+        factoryEval,
+        { ...fakeInstallDeps, mintAppToken: fakeMint },
+      );
+
+      expect(mintCalls).toEqual([
+        {
+          appId: "12345",
+          privateKey: "/tmp/dev-bot.pem",
+          installationId: "99999",
+        },
+      ]);
+
+      const carettaCalls = exec.calls.filter(
+        (c) => c.command === "/mock/caretta",
+      );
+      expect(carettaCalls.length).toBeGreaterThan(0);
+      for (const call of carettaCalls) {
+        const callEnv = (call.options?.env ?? {}) as Record<string, string>;
+        expect(callEnv.GH_TOKEN).toBe("ghs_minted_app_token");
+        expect(callEnv.GITHUB_TOKEN).toBe("ghs_minted_app_token");
+      }
+    } finally {
+      process.env = previousEnv;
+    }
   });
 });
