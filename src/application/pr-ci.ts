@@ -1,9 +1,3 @@
-import * as core from "@actions/core";
-import {
-  activeRun,
-  latestFailedRun,
-  latestNamedCheck,
-} from "../../packages/action-common/src/check-runs.js";
 import type { GitHubClient } from "../../packages/action-common/src/github-client.js";
 import type {
   AutopilotConfig,
@@ -11,6 +5,7 @@ import type {
   PrEntry,
   PullRequest,
 } from "../../packages/action-common/src/types.js";
+import { dispatchOrRerunCi, getPrCiSnapshot } from "./ci-dispatch-core.js";
 
 export function filterAgentPRs(
   prs: readonly PullRequest[],
@@ -47,23 +42,14 @@ export async function processAgentPRs(
 
   for (const pr of eligible) {
     const entry = toEntry(pr);
-    const checks = await gh.listCheckRuns(pr.headRefOid);
-    const latestCheck = latestNamedCheck(checks, config.testCheckName);
+    const snapshot = await getPrCiSnapshot(gh, config, pr);
 
-    if (latestCheck?.conclusion === "success") {
+    if (snapshot.latestCheck?.conclusion === "success") {
       current.push(entry);
       continue;
     }
 
-    const allRuns = await gh.listWorkflowRuns(
-      config.ciWorkflow,
-      undefined,
-      pr.headRefName,
-    );
-    const shaRuns = allRuns.filter((r) => r.headSha === pr.headRefOid);
-
-    const runInProgress = activeRun(shaRuns);
-    if (runInProgress) {
+    if (snapshot.runInProgress) {
       pending.push(entry);
       active.push(entry);
       continue;
@@ -75,54 +61,17 @@ export async function processAgentPRs(
       continue;
     }
 
-    const failedRun = latestFailedRun(shaRuns);
-
-    try {
-      if (failedRun) {
-        core.info(
-          `processAgentPRs: rerunning failed jobs for PR #${pr.number} (Run ID: ${failedRun.id}) at SHA ${pr.headRefOid}`,
-        );
-        await gh.reRunWorkflowFailedJobs(failedRun.id);
-        await gh.createCommitStatus(
-          pr.headRefOid,
-          "pending",
-          config.testCheckName,
-          "Autopilot rerunning failed CI...",
-        );
-        dispatched.push(entry);
-      } else {
-        core.info(
-          `processAgentPRs: dispatched ${config.ciWorkflow} for PR #${pr.number} (${pr.headRefName}) at SHA ${pr.headRefOid}`,
-        );
-        await gh.dispatchWorkflow(config.ciWorkflow, pr.headRefName);
-        await gh.createCommitStatus(
-          pr.headRefOid,
-          "pending",
-          config.testCheckName,
-          "Autopilot dispatching CI...",
-        );
-        dispatched.push(entry);
-      }
-    } catch (err) {
-      const message = (err as Error).message;
+    const ok = await dispatchOrRerunCi(
+      gh,
+      config,
+      pr,
+      snapshot.failedRun,
+      "processAgentPRs",
+    );
+    if (ok) {
+      dispatched.push(entry);
+    } else {
       failed.push(entry);
-      try {
-        await gh.createCommitStatus(
-          pr.headRefOid,
-          "error",
-          config.testCheckName,
-          `Autopilot CI dispatch failed: ${message}`,
-        );
-      } catch (statusError) {
-        core.warning(
-          `processAgentPRs: failed to set error status for PR #${pr.number}: ${
-            (statusError as Error).message
-          }`,
-        );
-      }
-      core.warning(
-        `processAgentPRs: operation failed for PR #${pr.number}: ${message}`,
-      );
     }
   }
 

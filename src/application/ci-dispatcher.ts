@@ -1,11 +1,7 @@
 import * as core from "@actions/core";
-import {
-  activeRun,
-  latestFailedRun,
-  latestNamedCheck,
-} from "../../packages/action-common/src/check-runs.js";
 import type { GitHubClient } from "../../packages/action-common/src/github-client.js";
 import type { AutopilotConfig } from "../../packages/action-common/src/types.js";
+import { dispatchOrRerunCi, getPrCiSnapshot } from "./ci-dispatch-core.js";
 
 export interface DispatchMissingCiOptions {
   /** When set, restricts to PRs whose branch matches `agent/issue-<n>` for one of these issue numbers. */
@@ -67,10 +63,9 @@ export async function dispatchMissingCi(
       continue;
     }
 
-    const checks = await gh.listCheckRuns(pr.headRefOid);
-    const latestCheck = latestNamedCheck(checks, config.testCheckName);
+    const snapshot = await getPrCiSnapshot(gh, config, pr);
 
-    if (latestCheck?.conclusion === "success") {
+    if (snapshot.latestCheck?.conclusion === "success") {
       core.info(
         `dispatchMissingCi: PR #${pr.number} already has a successful "${config.testCheckName}" check.`,
       );
@@ -78,71 +73,25 @@ export async function dispatchMissingCi(
       continue;
     }
 
-    // Check for active or failed runs to decide between dispatch and rerun
-    const allRuns = await gh.listWorkflowRuns(
-      config.ciWorkflow,
-      undefined,
-      pr.headRefName,
-    );
-    const shaRuns = allRuns.filter((r) => r.headSha === pr.headRefOid);
-
-    const runInProgress = activeRun(shaRuns);
-    if (runInProgress) {
+    if (snapshot.runInProgress) {
       core.info(
-        `dispatchMissingCi: PR #${pr.number} has an active workflow run (ID: ${runInProgress.id}) for SHA ${pr.headRefOid}`,
+        `dispatchMissingCi: PR #${pr.number} has an active workflow run (ID: ${snapshot.runInProgress.id}) for SHA ${pr.headRefOid}`,
       );
       skipped.push(pr.number);
       continue;
     }
 
-    const failedRun = latestFailedRun(shaRuns);
-
-    try {
-      if (failedRun) {
-        core.info(
-          `dispatchMissingCi: rerunning failed jobs for PR #${pr.number} (Run ID: ${failedRun.id}) at SHA ${pr.headRefOid}`,
-        );
-        await gh.reRunWorkflowFailedJobs(failedRun.id);
-        await gh.createCommitStatus(
-          pr.headRefOid,
-          "pending",
-          config.testCheckName,
-          "Autopilot rerunning failed CI...",
-        );
-        dispatched.push(pr.number);
-      } else {
-        core.info(
-          `dispatchMissingCi: dispatching ${config.ciWorkflow} for PR #${pr.number} (${pr.headRefName}) at SHA ${pr.headRefOid}`,
-        );
-        await gh.dispatchWorkflow(config.ciWorkflow, pr.headRefName);
-        await gh.createCommitStatus(
-          pr.headRefOid,
-          "pending",
-          config.testCheckName,
-          "Autopilot dispatching CI...",
-        );
-        dispatched.push(pr.number);
-      }
-    } catch (err) {
-      const message = (err as Error).message;
+    const ok = await dispatchOrRerunCi(
+      gh,
+      config,
+      pr,
+      snapshot.failedRun,
+      "dispatchMissingCi",
+    );
+    if (ok) {
+      dispatched.push(pr.number);
+    } else {
       failed.push(pr.number);
-      try {
-        await gh.createCommitStatus(
-          pr.headRefOid,
-          "error",
-          config.testCheckName,
-          `Autopilot CI dispatch failed: ${message}`,
-        );
-      } catch (statusError) {
-        core.warning(
-          `dispatchMissingCi: failed to set error status for PR #${pr.number}: ${
-            (statusError as Error).message
-          }`,
-        );
-      }
-      core.warning(
-        `dispatchMissingCi: operation failed for PR #${pr.number}: ${message}`,
-      );
     }
   }
 

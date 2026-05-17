@@ -44948,15 +44948,55 @@ function checkTime(check) {
   return new Date(check.createdAt || check.startedAt || 0).getTime();
 }
 
+// src/application/ci-dispatch-core.ts
+async function getPrCiSnapshot(gh, config, pr) {
+  const checks = await gh.listCheckRuns(pr.headRefOid);
+  const latestCheck = latestNamedCheck(checks, config.testCheckName);
+  const allRuns = await gh.listWorkflowRuns(config.ciWorkflow, undefined, pr.headRefName);
+  const shaRuns = allRuns.filter((run) => run.headSha === pr.headRefOid);
+  return {
+    latestCheck,
+    runInProgress: activeRun(shaRuns),
+    failedRun: latestFailedRun(shaRuns)
+  };
+}
+async function dispatchOrRerunCi(gh, config, pr, failedRun, logPrefix) {
+  try {
+    if (failedRun) {
+      core5.info(`${logPrefix}: rerunning failed jobs for PR #${pr.number} (Run ID: ${failedRun.id}) at SHA ${pr.headRefOid}`);
+      await gh.reRunWorkflowFailedJobs(failedRun.id);
+      await gh.createCommitStatus(pr.headRefOid, "pending", config.testCheckName, "Autopilot rerunning failed CI...");
+      return true;
+    }
+    core5.info(`${logPrefix}: dispatching ${config.ciWorkflow} for PR #${pr.number} (${pr.headRefName}) at SHA ${pr.headRefOid}`);
+    await gh.dispatchWorkflow(config.ciWorkflow, pr.headRefName);
+    await gh.createCommitStatus(pr.headRefOid, "pending", config.testCheckName, "Autopilot dispatching CI...");
+    return true;
+  } catch (err) {
+    const message = err.message;
+    try {
+      await gh.createCommitStatus(pr.headRefOid, "error", config.testCheckName, `Autopilot CI dispatch failed: ${message}`);
+    } catch (statusError) {
+      core5.warning(`${logPrefix}: failed to set error status for PR #${pr.number}: ${statusError.message}`);
+    }
+    core5.warning(`${logPrefix}: operation failed for PR #${pr.number}: ${message}`);
+    return false;
+  }
+}
+var core5;
+var init_ci_dispatch_core = __esm(() => {
+  core5 = __toESM(require_core(), 1);
+});
+
 // src/application/ci-dispatcher.ts
 async function dispatchMissingCi(gh, config, options = {}) {
   if (config.dryRun || !config.enableDispatch) {
-    core5.info(`dispatchMissingCi: skipping (dryRun=${config.dryRun}, enableDispatch=${config.enableDispatch})`);
+    core6.info(`dispatchMissingCi: skipping (dryRun=${config.dryRun}, enableDispatch=${config.enableDispatch})`);
     return { dispatched: [], skipped: [], failed: [] };
   }
   const scope = options.issueNumbers ? new Set(options.issueNumbers.map(String)) : undefined;
   const prs = await gh.listOpenPullRequests();
-  core5.info(`dispatchMissingCi: found ${prs.length} total open PRs`);
+  core6.info(`dispatchMissingCi: found ${prs.length} total open PRs`);
   const eligible = prs.filter((pr) => {
     if (pr.isDraft)
       return false;
@@ -44964,7 +45004,7 @@ async function dispatchMissingCi(gh, config, options = {}) {
       return false;
     return true;
   });
-  core5.info(`dispatchMissingCi: ${eligible.length} PRs match agent branch pattern`);
+  core6.info(`dispatchMissingCi: ${eligible.length} PRs match agent branch pattern`);
   const dispatched = [];
   const skipped = [];
   const failed = [];
@@ -44972,53 +45012,33 @@ async function dispatchMissingCi(gh, config, options = {}) {
     const m = pr.headRefName.match(/^agent\/issue-([0-9]+)$/);
     const issueNum = m ? m[1] : undefined;
     if (scope && (!issueNum || !scope.has(issueNum))) {
-      core5.info(`dispatchMissingCi: skipping PR #${pr.number} (${pr.headRefName}) - not in current issue scope`);
+      core6.info(`dispatchMissingCi: skipping PR #${pr.number} (${pr.headRefName}) - not in current issue scope`);
       continue;
     }
-    const checks = await gh.listCheckRuns(pr.headRefOid);
-    const latestCheck = latestNamedCheck(checks, config.testCheckName);
-    if (latestCheck?.conclusion === "success") {
-      core5.info(`dispatchMissingCi: PR #${pr.number} already has a successful "${config.testCheckName}" check.`);
+    const snapshot = await getPrCiSnapshot(gh, config, pr);
+    if (snapshot.latestCheck?.conclusion === "success") {
+      core6.info(`dispatchMissingCi: PR #${pr.number} already has a successful "${config.testCheckName}" check.`);
       skipped.push(pr.number);
       continue;
     }
-    const allRuns = await gh.listWorkflowRuns(config.ciWorkflow, undefined, pr.headRefName);
-    const shaRuns = allRuns.filter((r) => r.headSha === pr.headRefOid);
-    const runInProgress = activeRun(shaRuns);
-    if (runInProgress) {
-      core5.info(`dispatchMissingCi: PR #${pr.number} has an active workflow run (ID: ${runInProgress.id}) for SHA ${pr.headRefOid}`);
+    if (snapshot.runInProgress) {
+      core6.info(`dispatchMissingCi: PR #${pr.number} has an active workflow run (ID: ${snapshot.runInProgress.id}) for SHA ${pr.headRefOid}`);
       skipped.push(pr.number);
       continue;
     }
-    const failedRun = latestFailedRun(shaRuns);
-    try {
-      if (failedRun) {
-        core5.info(`dispatchMissingCi: rerunning failed jobs for PR #${pr.number} (Run ID: ${failedRun.id}) at SHA ${pr.headRefOid}`);
-        await gh.reRunWorkflowFailedJobs(failedRun.id);
-        await gh.createCommitStatus(pr.headRefOid, "pending", config.testCheckName, "Autopilot rerunning failed CI...");
-        dispatched.push(pr.number);
-      } else {
-        core5.info(`dispatchMissingCi: dispatching ${config.ciWorkflow} for PR #${pr.number} (${pr.headRefName}) at SHA ${pr.headRefOid}`);
-        await gh.dispatchWorkflow(config.ciWorkflow, pr.headRefName);
-        await gh.createCommitStatus(pr.headRefOid, "pending", config.testCheckName, "Autopilot dispatching CI...");
-        dispatched.push(pr.number);
-      }
-    } catch (err) {
-      const message = err.message;
+    const ok3 = await dispatchOrRerunCi(gh, config, pr, snapshot.failedRun, "dispatchMissingCi");
+    if (ok3) {
+      dispatched.push(pr.number);
+    } else {
       failed.push(pr.number);
-      try {
-        await gh.createCommitStatus(pr.headRefOid, "error", config.testCheckName, `Autopilot CI dispatch failed: ${message}`);
-      } catch (statusError) {
-        core5.warning(`dispatchMissingCi: failed to set error status for PR #${pr.number}: ${statusError.message}`);
-      }
-      core5.warning(`dispatchMissingCi: operation failed for PR #${pr.number}: ${message}`);
     }
   }
   return { dispatched, skipped, failed };
 }
-var core5;
+var core6;
 var init_ci_dispatcher = __esm(() => {
-  core5 = __toESM(require_core(), 1);
+  init_ci_dispatch_core();
+  core6 = __toESM(require_core(), 1);
 });
 
 // src/application/conflict-resolver.ts
@@ -45071,12 +45091,12 @@ class ConflictResolver {
       for (const pr of actionable) {
         const prior = this.attempts.get(pr.number) ?? 0;
         this.attempts.set(pr.number, prior + 1);
-        core6.info(`ConflictResolver: fix-conflicts on PR #${pr.number} (attempt ${prior + 1})`);
+        core7.info(`ConflictResolver: fix-conflicts on PR #${pr.number} (attempt ${prior + 1})`);
         try {
           await this.deps.fixConflicts(pr.number);
           fixed.add(pr.number);
         } catch (err) {
-          core6.warning(`ConflictResolver: fix-conflicts failed for PR #${pr.number}: ${err.message}`);
+          core7.warning(`ConflictResolver: fix-conflicts failed for PR #${pr.number}: ${err.message}`);
         }
       }
       if (this.deps.now() - start >= this.timeoutMs) {
@@ -45107,9 +45127,9 @@ class ConflictResolver {
     });
   }
 }
-var core6, DEFAULT_TIMEOUT_MS, DEFAULT_INTERVAL_MS, DEFAULT_MAX_ATTEMPTS = 2;
+var core7, DEFAULT_TIMEOUT_MS, DEFAULT_INTERVAL_MS, DEFAULT_MAX_ATTEMPTS = 2;
 var init_conflict_resolver = __esm(() => {
-  core6 = __toESM(require_core(), 1);
+  core7 = __toESM(require_core(), 1);
   DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
   DEFAULT_INTERVAL_MS = 30 * 1000;
 });
@@ -45147,7 +45167,7 @@ async function executeAutopilot(gh, exec2, config, evaluation, deps = defaultExe
       await runner.runFactoryCycle();
       break;
     default:
-      core7.info(`No logic to execute for route '${evaluation.route}'`);
+      core8.info(`No logic to execute for route '${evaluation.route}'`);
   }
 }
 function warnIfBotCredsIncomplete(env) {
@@ -45158,7 +45178,7 @@ function warnIfBotCredsIncomplete(env) {
   const hasPrivateKey = !!env.DEV_BOT_PRIVATE_KEY?.trim();
   const hasInstallationId = !!env.DEV_BOT_INSTALLATION_ID?.trim();
   if (hasAppId && hasPrivateKey && !hasInstallationId) {
-    core7.warning("DEV_BOT_APP_ID and DEV_BOT_PRIVATE_KEY are set but DEV_BOT_INSTALLATION_ID is missing. " + "caretta will fall back to GITHUB_TOKEN, which cannot post pull-request reviews (expect HTTP 403 on code-review).");
+    core8.warning("DEV_BOT_APP_ID and DEV_BOT_PRIVATE_KEY are set but DEV_BOT_INSTALLATION_ID is missing. " + "caretta will fall back to GITHUB_TOKEN, which cannot post pull-request reviews (expect HTTP 403 on code-review).");
   }
 }
 
@@ -45182,14 +45202,14 @@ class CarettaRunner {
   }
   async runCaretta(task, args = []) {
     const fullArgs = [...this.carettaBaseArgs(), task, ...args];
-    core7.info(`Running: ${this.binaryPath} ${fullArgs.join(" ")}`);
+    core8.info(`Running: ${this.binaryPath} ${fullArgs.join(" ")}`);
     return await this.exec.exec(this.binaryPath, fullArgs, { env: this.env });
   }
   async runWorkDispatch(tracker) {
-    core7.info(`Starting work dispatch for #${tracker}`);
+    core8.info(`Starting work dispatch for #${tracker}`);
     const matrixOutput = await this.exec.getExecOutput(this.binaryPath, [...this.carettaBaseArgs(), "tracker-matrix", tracker, "--json"], { env: this.env, silent: true });
     const issues = JSON.parse(matrixOutput.stdout.trim() || "[]");
-    core7.info(`Found ${issues.length} issues in tracker matrix.`);
+    core8.info(`Found ${issues.length} issues in tracker matrix.`);
     for (const issue2 of issues) {
       await this.runCaretta("issue", ["--tracker", tracker, String(issue2)]);
     }
@@ -45231,16 +45251,16 @@ class CarettaRunner {
       ]);
       await dispatchMissingCi(this.gh, this.config);
     } else {
-      core7.info("All tracker-scoped PRs already have auto-merge enabled. Skipping automerge-queue.");
+      core8.info("All tracker-scoped PRs already have auto-merge enabled. Skipping automerge-queue.");
     }
   }
   async runFactoryCycle() {
-    core7.info("Starting factory cycle");
+    core8.info("Starting factory cycle");
     await this.runCaretta("housekeeping");
     const openIssues = await this.gh.listOpenIssues();
     const hasOpenSprint = openIssues.some((i) => i.labels.some((l) => l.name === "sprint"));
     if (hasOpenSprint) {
-      core7.info("An open 'sprint' issue exists; skipping ideation cycle.");
+      core8.info("An open 'sprint' issue exists; skipping ideation cycle.");
       return;
     }
     await this.runCaretta("run", ["ideation"]);
@@ -45252,7 +45272,7 @@ class CarettaRunner {
     const resolver = ConflictResolver.withCaretta(this.gh, this.config, this.binaryPath, this.env, this.exec, this.deps.conflictResolverOptions ?? {});
     const result = await resolver.resolveAll();
     if (result.unresolved.length > 0) {
-      core7.warning(`ConflictResolver left ${result.unresolved.length} PR(s) DIRTY after retries: ${result.unresolved.join(", ")}${result.timedOut ? " (timed out)" : ""}`);
+      core8.warning(`ConflictResolver left ${result.unresolved.length} PR(s) DIRTY after retries: ${result.unresolved.join(", ")}${result.timedOut ? " (timed out)" : ""}`);
     }
   }
   async resolveTrackerScopedPrs(issues, requirePassingCi) {
@@ -45278,7 +45298,7 @@ class CarettaRunner {
         const checks2 = await this.gh.listCheckRuns(pr.headRefOid);
         const latestCheck2 = latestNamedCheck(checks2, this.config.testCheckName);
         if (latestCheck2?.conclusion === "success") {
-          core7.info(`Skipping PR #${pr.number}: Already reviewed on commit ${pr.headRefOid} and CI is success.`);
+          core8.info(`Skipping PR #${pr.number}: Already reviewed on commit ${pr.headRefOid} and CI is success.`);
           continue;
         }
       }
@@ -45287,13 +45307,13 @@ class CarettaRunner {
       if (latestCheck?.conclusion === "success" || latestCheck?.conclusion === "failure") {
         results.push(pr.number);
       } else {
-        core7.info(`Skipping PR #${pr.number} because CI status is ${latestCheck?.conclusion || "missing"}`);
+        core8.info(`Skipping PR #${pr.number} because CI status is ${latestCheck?.conclusion || "missing"}`);
       }
     }
     return results;
   }
   async runCiGate(_issues) {
-    core7.info("Waiting for CI on tracker-scoped PRs...");
+    core8.info("Waiting for CI on tracker-scoped PRs...");
     const start = Date.now();
     const timeout = this.deps.ciGateTimeoutMs ?? 20 * 60 * 1000;
     const interval = this.deps.ciGateIntervalMs ?? 30 * 1000;
@@ -45304,7 +45324,7 @@ class CarettaRunner {
         return !!match;
       });
       if (scopedPrs.length === 0) {
-        core7.info("No tracker-scoped PRs to wait on; skipping CI gate.");
+        core8.info("No tracker-scoped PRs to wait on; skipping CI gate.");
         return;
       }
       let allDone = true;
@@ -45316,40 +45336,40 @@ class CarettaRunner {
         if (latestShaRun && latestShaRun.status === "completed") {
           const conclusion = latestShaRun.conclusion === "success" ? "success" : "failure";
           if (!latestCheck || latestCheck.status !== "completed") {
-            core7.info(`runCiGate: Background run ${latestShaRun.id} is completed (${latestShaRun.conclusion}); updating PR status for PR #${pr.number}.`);
+            core8.info(`runCiGate: Background run ${latestShaRun.id} is completed (${latestShaRun.conclusion}); updating PR status for PR #${pr.number}.`);
             await this.gh.createCommitStatus(pr.headRefOid, conclusion, this.config.testCheckName, `Autopilot synchronized from run ${latestShaRun.id}`);
             allDone = false;
             continue;
           }
         }
         if (!latestCheck) {
-          core7.info(`runCiGate: PR #${pr.number} (${pr.headRefName}) at SHA ${pr.headRefOid} has no "${this.config.testCheckName}" check run yet.`);
+          core8.info(`runCiGate: PR #${pr.number} (${pr.headRefName}) at SHA ${pr.headRefOid} has no "${this.config.testCheckName}" check run yet.`);
           allDone = false;
           break;
         }
         if (latestCheck.status === "in_progress" || latestCheck.status === "queued") {
-          core7.info(`runCiGate: PR #${pr.number} (${pr.headRefName}) at SHA ${pr.headRefOid} latest "${this.config.testCheckName}" check is active (${latestCheck.status}).`);
+          core8.info(`runCiGate: PR #${pr.number} (${pr.headRefName}) at SHA ${pr.headRefOid} latest "${this.config.testCheckName}" check is active (${latestCheck.status}).`);
           allDone = false;
           break;
         }
-        core7.info(`runCiGate: PR #${pr.number} (${pr.headRefName}) at SHA ${pr.headRefOid} latest "${this.config.testCheckName}" check is ${latestCheck.status} (${latestCheck.conclusion}).`);
+        core8.info(`runCiGate: PR #${pr.number} (${pr.headRefName}) at SHA ${pr.headRefOid} latest "${this.config.testCheckName}" check is ${latestCheck.status} (${latestCheck.conclusion}).`);
       }
       if (allDone) {
-        core7.info("All CI runs completed.");
+        core8.info("All CI runs completed.");
         return;
       }
-      core7.info("Waiting for CI to complete...");
+      core8.info("Waiting for CI to complete...");
       await new Promise((resolve2) => setTimeout(resolve2, interval));
     }
-    core7.warning("Timed out waiting for CI completion.");
+    core8.warning("Timed out waiting for CI completion.");
   }
 }
-var core7, defaultExecuteDeps;
+var core8, defaultExecuteDeps;
 var init_execute_autopilot = __esm(() => {
   init_caretta_install();
   init_ci_dispatcher();
   init_conflict_resolver();
-  core7 = __toESM(require_core(), 1);
+  core8 = __toESM(require_core(), 1);
   defaultExecuteDeps = {
     installCaretta,
     installLinuxRuntimeDeps,
@@ -45379,16 +45399,12 @@ async function processAgentPRs(gh, prs, config) {
   const failed = [];
   for (const pr of eligible) {
     const entry = toEntry(pr);
-    const checks = await gh.listCheckRuns(pr.headRefOid);
-    const latestCheck = latestNamedCheck(checks, config.testCheckName);
-    if (latestCheck?.conclusion === "success") {
+    const snapshot = await getPrCiSnapshot(gh, config, pr);
+    if (snapshot.latestCheck?.conclusion === "success") {
       current.push(entry);
       continue;
     }
-    const allRuns = await gh.listWorkflowRuns(config.ciWorkflow, undefined, pr.headRefName);
-    const shaRuns = allRuns.filter((r) => r.headSha === pr.headRefOid);
-    const runInProgress = activeRun(shaRuns);
-    if (runInProgress) {
+    if (snapshot.runInProgress) {
       pending.push(entry);
       active.push(entry);
       continue;
@@ -45397,28 +45413,11 @@ async function processAgentPRs(gh, prs, config) {
     if (config.dryRun || !config.enableDispatch) {
       continue;
     }
-    const failedRun = latestFailedRun(shaRuns);
-    try {
-      if (failedRun) {
-        core8.info(`processAgentPRs: rerunning failed jobs for PR #${pr.number} (Run ID: ${failedRun.id}) at SHA ${pr.headRefOid}`);
-        await gh.reRunWorkflowFailedJobs(failedRun.id);
-        await gh.createCommitStatus(pr.headRefOid, "pending", config.testCheckName, "Autopilot rerunning failed CI...");
-        dispatched.push(entry);
-      } else {
-        core8.info(`processAgentPRs: dispatched ${config.ciWorkflow} for PR #${pr.number} (${pr.headRefName}) at SHA ${pr.headRefOid}`);
-        await gh.dispatchWorkflow(config.ciWorkflow, pr.headRefName);
-        await gh.createCommitStatus(pr.headRefOid, "pending", config.testCheckName, "Autopilot dispatching CI...");
-        dispatched.push(entry);
-      }
-    } catch (err) {
-      const message = err.message;
+    const ok3 = await dispatchOrRerunCi(gh, config, pr, snapshot.failedRun, "processAgentPRs");
+    if (ok3) {
+      dispatched.push(entry);
+    } else {
       failed.push(entry);
-      try {
-        await gh.createCommitStatus(pr.headRefOid, "error", config.testCheckName, `Autopilot CI dispatch failed: ${message}`);
-      } catch (statusError) {
-        core8.warning(`processAgentPRs: failed to set error status for PR #${pr.number}: ${statusError.message}`);
-      }
-      core8.warning(`processAgentPRs: operation failed for PR #${pr.number}: ${message}`);
     }
   }
   return {
@@ -45429,9 +45428,8 @@ async function processAgentPRs(gh, prs, config) {
     failed
   };
 }
-var core8;
 var init_pr_ci = __esm(() => {
-  core8 = __toESM(require_core(), 1);
+  init_ci_dispatch_core();
 });
 
 // src/application/run-autopilot.ts
@@ -45608,4 +45606,4 @@ main().catch((error) => {
   core9.setFailed(message);
 });
 
-//# debugId=43849459903816F764756E2164756E21
+//# debugId=8D1C317D0BC48CE364756E2164756E21
