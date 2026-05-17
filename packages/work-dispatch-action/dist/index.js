@@ -19164,8 +19164,8 @@ function createActionComposition(defaults, options = {}) {
   composition.registerFactory(ACTION_COMPONENTS.mainDependencies, () => options.dependencies ?? defaults.dependencies, { singleton: true });
   return composition;
 }
-async function runComposedAction(composition, controller) {
-  const resolved = composition.resolve(controller);
+async function runComposedAction(composition, workflow) {
+  const resolved = composition.resolve(workflow);
   await resolved.run();
 }
 var ACTION_COMPONENTS;
@@ -44708,10 +44708,13 @@ __export(exports_root, {
   createWorkDispatchComposition: () => createWorkDispatchComposition
 });
 function createWorkDispatchComposition(options = {}) {
-  return createActionComposition({ githubContext: github2.context, dependencies: defaultTrackerLoopMainDeps }, options);
+  return createActionComposition({
+    githubContext: github2.context,
+    dependencies: defaultTrackerLoopDependencies
+  }, options);
 }
 async function runWorkDispatchAction(options = {}) {
-  await runComposedAction(createWorkDispatchComposition(options), TrackerLoopActionController);
+  await runComposedAction(createWorkDispatchComposition(options), TrackerLoopWorkflow);
 }
 var github2;
 var init_root = __esm(() => {
@@ -44721,33 +44724,11 @@ var init_root = __esm(() => {
 });
 
 // src/presentation/github-action/controller.ts
-async function main(deps = defaultTrackerLoopMainDeps) {
+async function main(deps = defaultTrackerLoopDependencies) {
   const { runWorkDispatchAction: runWorkDispatchAction2 } = await Promise.resolve().then(() => (init_root(), exports_root));
   await runWorkDispatchAction2({ dependencies: deps });
 }
-async function runWithRuntime(runtime, ports, carettaRuntime) {
-  const carettaInputs = readCarettaRuntimeInputs(runtime);
-  const tracker = runtime.getInput("tracker", { required: true });
-  const agent = runtime.getInput("agent") || "claude";
-  const testCheckName = runtime.getInput("test-check-name") || DEFAULT_TEST_CHECK_NAME;
-  const agentBranchPatternInput = runtime.getInput("agent-branch-pattern") || DEFAULT_AGENT_BRANCH.source;
-  const agentBranchPattern = new RegExp(agentBranchPatternInput);
-  const ciTimeoutMinutes = parseTimeoutMinutes(runtime.getInput("ci-timeout-minutes") || String(DEFAULT_CI_TIMEOUT_MINUTES));
-  const { gh, exec: exec2, binaryPath, version, env } = await prepareCarettaAction(carettaInputs, ports, carettaRuntime);
-  const runner = new TrackerLoopRunner(binaryPath, env, exec2, gh, {
-    tracker,
-    agent,
-    testCheckName,
-    agentBranchPattern,
-    ciTimeoutMs: ciTimeoutMinutes * 60 * 1000
-  });
-  const result = await runner.runTrackerLoop();
-  runtime.setOutput("tracker", tracker);
-  runtime.setOutput("issue_count", String(result.issueCount));
-  runtime.setOutput("reviewed_pr_count", String(result.reviewedPrCount));
-  runtime.setOutput("caretta_version", version);
-}
-var defaultTrackerLoopMainDeps, TrackerLoopActionController;
+var defaultTrackerLoopDependencies, TrackerLoopWorkflow;
 var init_controller = __esm(() => {
   init_decorators();
   init_action_composition();
@@ -44756,14 +44737,14 @@ var init_controller = __esm(() => {
   init_exec_client();
   init_github_client();
   init_tracker_loop_runner();
-  defaultTrackerLoopMainDeps = {
+  defaultTrackerLoopDependencies = {
     createGitHubClient: createOctokitClient,
     createExecClient: () => new DefaultExecClient,
     installCaretta,
     installLinuxRuntimeDeps,
     materializeBotPrivateKey
   };
-  TrackerLoopActionController = class TrackerLoopActionController {
+  TrackerLoopWorkflow = class TrackerLoopWorkflow {
     runtime;
     ports;
     carettaRuntime;
@@ -44773,15 +44754,34 @@ var init_controller = __esm(() => {
       this.carettaRuntime = carettaRuntime;
     }
     async run() {
-      await runWithRuntime(this.runtime, this.ports, this.carettaRuntime);
+      const carettaInputs = readCarettaRuntimeInputs(this.runtime);
+      const tracker = this.runtime.getInput("tracker", { required: true });
+      const agent = this.runtime.getInput("agent") || "claude";
+      const testCheckName = this.runtime.getInput("test-check-name") || DEFAULT_TEST_CHECK_NAME;
+      const agentBranchPatternInput = this.runtime.getInput("agent-branch-pattern") || DEFAULT_AGENT_BRANCH.source;
+      const agentBranchPattern = new RegExp(agentBranchPatternInput);
+      const ciTimeoutMinutes = parseTimeoutMinutes(this.runtime.getInput("ci-timeout-minutes") || String(DEFAULT_CI_TIMEOUT_MINUTES));
+      const { gh, exec: exec2, binaryPath, version, env } = await prepareCarettaAction(carettaInputs, this.ports, this.carettaRuntime);
+      const runner = new TrackerLoopRunner(binaryPath, env, exec2, gh, {
+        tracker,
+        agent,
+        testCheckName,
+        agentBranchPattern,
+        ciTimeoutMs: ciTimeoutMinutes * 60 * 1000
+      });
+      const result = await runner.runTrackerLoop();
+      this.runtime.setOutput("tracker", tracker);
+      this.runtime.setOutput("issue_count", String(result.issueCount));
+      this.runtime.setOutput("reviewed_pr_count", String(result.reviewedPrCount));
+      this.runtime.setOutput("caretta_version", version);
     }
   };
-  TrackerLoopActionController = __legacyDecorateClassTS([
+  TrackerLoopWorkflow = __legacyDecorateClassTS([
     Container2({ singleton: false }),
     __legacyDecorateParamTS(0, Component(ACTION_COMPONENTS.actionRuntime)),
     __legacyDecorateParamTS(1, Component(GitHubActionPortFactory)),
     __legacyDecorateParamTS(2, Component(CarettaRuntimePreparer))
-  ], TrackerLoopActionController);
+  ], TrackerLoopWorkflow);
 });
 
 // src/index.ts
@@ -44792,4 +44792,4 @@ main().catch((error) => {
   core5.setFailed(message);
 });
 
-//# debugId=D562CF682AB503EB64756E2164756E21
+//# debugId=C3928805296918A664756E2164756E21

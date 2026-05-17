@@ -7,15 +7,15 @@ import {
 import type { ActionRuntime } from "../../../action-common/src/action-runtime.js";
 import type { GithubActionContext } from "../../../action-common/src/action-services.js";
 import {
-  defaultFactoryCycleMainDeps,
-  FactoryCycleActionController,
-  type FactoryCycleMainDeps,
+  defaultFactoryCycleDependencies,
+  type FactoryCycleDependencies,
+  FactoryCycleWorkflow,
 } from "../presentation/github-action/controller.js";
 
 export interface FactoryCycleCompositionOptions {
   readonly runtime?: ActionRuntime;
   readonly githubContext?: GithubActionContext;
-  readonly dependencies?: FactoryCycleMainDeps;
+  readonly dependencies?: FactoryCycleDependencies;
 }
 
 export function createFactoryCycleComposition(
@@ -24,7 +24,7 @@ export function createFactoryCycleComposition(
   return createActionComposition(
     {
       githubContext: github.context,
-      dependencies: defaultFactoryCycleMainDeps,
+      dependencies: defaultFactoryCycleDependencies,
     },
     options,
   );
@@ -35,6 +35,6 @@ export async function runFactoryCycleAction(
 ): Promise<void> {
   await runComposedAction(
     createFactoryCycleComposition(options),
-    FactoryCycleActionController,
+    FactoryCycleWorkflow,
   );
 }

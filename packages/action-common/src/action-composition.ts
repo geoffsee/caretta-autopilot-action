@@ -1,5 +1,5 @@
 import type { Container as FrameworkComposition } from "di-framework/container";
-import { useContainer } from "di-framework/container";
+import { useContainer as useActionComposition } from "di-framework/container";
 import { type ActionRuntime, GitHubActionsRuntime } from "./action-runtime.js";
 
 export type ActionComposition = FrameworkComposition;
@@ -21,21 +21,21 @@ export interface ActionCompositionDefaults<TContext, TDependencies> {
   readonly dependencies: TDependencies;
 }
 
-export interface RunnableActionController {
+export interface RunnableActionWorkflow {
   run(): Promise<void>;
 }
 
-export type ActionControllerConstructor<
-  TController extends RunnableActionController,
+export type ActionWorkflowConstructor<
+  TWorkflow extends RunnableActionWorkflow,
 > = new (
   ...args: never[]
-) => TController;
+) => TWorkflow;
 
 export function createActionComposition<TContext, TDependencies>(
   defaults: ActionCompositionDefaults<TContext, TDependencies>,
   options: ActionCompositionOptions<TContext, TDependencies> = {},
 ): ActionComposition {
-  const composition = useContainer().fork({ carrySingletons: false });
+  const composition = useActionComposition().fork({ carrySingletons: false });
   composition.registerFactory(
     ACTION_COMPONENTS.actionRuntime,
     () => options.runtime ?? new GitHubActionsRuntime(),
@@ -55,13 +55,13 @@ export function createActionComposition<TContext, TDependencies>(
 }
 
 export async function runComposedAction<
-  TController extends RunnableActionController,
+  TWorkflow extends RunnableActionWorkflow,
 >(
   composition: ActionComposition,
-  controller: ActionControllerConstructor<TController>,
+  workflow: ActionWorkflowConstructor<TWorkflow>,
 ): Promise<void> {
   const resolved = composition.resolve(
-    controller as Parameters<FrameworkComposition["resolve"]>[0],
-  ) as TController;
+    workflow as Parameters<FrameworkComposition["resolve"]>[0],
+  ) as TWorkflow;
   await resolved.run();
 }

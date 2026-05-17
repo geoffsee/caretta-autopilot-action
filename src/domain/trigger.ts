@@ -1,3 +1,5 @@
+import { Container as InjectableDomainPolicy } from "di-framework/decorators";
+
 export interface TriggerDecision {
   readonly run: boolean;
   readonly reason: string;
@@ -10,6 +12,13 @@ export interface TriggerInputs {
 }
 
 const DEFAULT_AGENT_BRANCH_PREFIX = "agent/issue-";
+
+@InjectableDomainPolicy({ singleton: false })
+export class TriggerPolicy {
+  decide(inputs: TriggerInputs): TriggerDecision {
+    return decideTrigger(inputs);
+  }
+}
 
 export function decideTrigger(inputs: TriggerInputs): TriggerDecision {
   const { eventName, payload } = inputs;

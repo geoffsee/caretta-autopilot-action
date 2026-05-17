@@ -1,9 +1,22 @@
+import { Container as InjectableDomainPolicy } from "di-framework/decorators";
 import type {
   AutopilotConfig,
   AutopilotDecision,
   EvaluationResult,
   PrCiResult,
 } from "../../packages/action-common/src/types.js";
+
+@InjectableDomainPolicy({ singleton: false })
+export class SummaryPolicy {
+  build(
+    evaluation: EvaluationResult,
+    prCi: PrCiResult,
+    decision: AutopilotDecision,
+    config: AutopilotConfig,
+  ): string {
+    return buildSummary(evaluation, prCi, decision, config);
+  }
+}
 
 export function buildSummary(
   evaluation: EvaluationResult,

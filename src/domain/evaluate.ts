@@ -1,8 +1,27 @@
+import { Container as InjectableDomainPolicy } from "di-framework/decorators";
 import type {
   EvaluationResult,
   Issue,
   PullRequest,
 } from "../../packages/action-common/src/types.js";
+
+@InjectableDomainPolicy({ singleton: false })
+export class EvaluationPolicy {
+  findActiveSprint(issues: readonly Issue[]): number | null {
+    return findActiveSprint(issues);
+  }
+
+  countStalePRs(prs: readonly PullRequest[]): number {
+    return countStalePRs(prs);
+  }
+
+  evaluate(
+    issues: readonly Issue[],
+    prs: readonly PullRequest[],
+  ): EvaluationResult {
+    return evaluate(issues, prs);
+  }
+}
 
 export function findActiveSprint(issues: readonly Issue[]): number | null {
   const sprints = [...issues].filter((i) =>

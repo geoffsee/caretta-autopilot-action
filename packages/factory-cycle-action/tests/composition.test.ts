@@ -7,8 +7,8 @@ import type { ExecClient } from "../../action-common/src/exec-client.js";
 import type { GitHubClient } from "../../action-common/src/github-client.js";
 import { createFactoryCycleComposition } from "../src/composition/root.js";
 import {
-  FactoryCycleActionController,
-  type FactoryCycleMainDeps,
+  type FactoryCycleDependencies,
+  FactoryCycleWorkflow,
 } from "../src/presentation/github-action/controller.js";
 
 class FakeSummary implements SummaryWriter {
@@ -80,7 +80,7 @@ const fakeExec: ExecClient = {
   },
 };
 
-const deps: FactoryCycleMainDeps = {
+const deps: FactoryCycleDependencies = {
   createGitHubClient: () => fakeGh,
   createExecClient: () => fakeExec,
   installCaretta: async () => ({ binaryPath: "/tmp/caretta", version: "v1" }),
@@ -97,7 +97,7 @@ describe("factory-cycle composition", () => {
       dependencies: deps,
     });
 
-    await composition.resolve(FactoryCycleActionController).run();
+    await composition.resolve(FactoryCycleWorkflow).run();
 
     expect(runtime.outputs.skipped_due_to_open_sprint).toBe("false");
     expect(runtime.outputs.caretta_version).toBe("v1");
@@ -113,8 +113,8 @@ describe("factory-cycle composition", () => {
       dependencies: deps,
     });
 
-    expect(first.resolve(FactoryCycleActionController)).not.toBe(
-      second.resolve(FactoryCycleActionController),
+    expect(first.resolve(FactoryCycleWorkflow)).not.toBe(
+      second.resolve(FactoryCycleWorkflow),
     );
   });
 });

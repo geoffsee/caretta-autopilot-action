@@ -1,3 +1,7 @@
+import {
+  Component as Inject,
+  Container as InjectableUseCase,
+} from "di-framework/decorators";
 import type { ExecClient } from "../../packages/action-common/src/exec-client.js";
 import type { GitHubClient } from "../../packages/action-common/src/github-client.js";
 import type {
@@ -7,9 +11,11 @@ import type {
   IssueCloseResult,
   PrCiResult,
 } from "../../packages/action-common/src/types.js";
-import { decideExecution } from "../domain/decide.js";
-import { evaluate, findActiveSprint } from "../domain/evaluate.js";
-import { buildSummary } from "../domain/summary.js";
+import {
+  AutopilotDomainLogic,
+  type AutopilotDomainModel,
+  functionalAutopilotDomainModel,
+} from "../domain/autopilot-domain.js";
 import { closeIssuesForMergedPrs } from "./close-on-merge.js";
 import { type ExecuteDeps, executeAutopilot } from "./execute-autopilot.js";
 import { processAgentPRs } from "./pr-ci.js";
@@ -22,15 +28,41 @@ export interface AutopilotRunResult {
   summary: string;
 }
 
+export type RunAutopilotUseCase = (
+  gh: GitHubClient,
+  exec: ExecClient,
+  config: AutopilotConfig,
+  ref: string,
+) => Promise<AutopilotRunResult>;
+
+@InjectableUseCase({ singleton: false })
+export class AutopilotUseCase {
+  constructor(
+    @Inject(AutopilotDomainLogic)
+    private readonly domain: AutopilotDomainModel,
+  ) {}
+
+  async run(
+    gh: GitHubClient,
+    exec: ExecClient,
+    config: AutopilotConfig,
+    ref: string,
+    executeDeps?: ExecuteDeps,
+  ): Promise<AutopilotRunResult> {
+    return runAutopilot(gh, exec, config, ref, executeDeps, this.domain);
+  }
+}
+
 export async function runAutopilot(
   gh: GitHubClient,
   exec: ExecClient,
   config: AutopilotConfig,
   _ref: string,
   executeDeps?: ExecuteDeps,
+  domain: AutopilotDomainModel = functionalAutopilotDomainModel,
 ): Promise<AutopilotRunResult> {
   const initialIssues = await gh.listOpenIssues();
-  const trackerNumber = findActiveSprint(initialIssues);
+  const trackerNumber = domain.findActiveSprint(initialIssues);
   const closeOnMerge = await closeIssuesForMergedPrs(
     gh,
     new Set(initialIssues.map((i) => i.number)),
@@ -44,14 +76,14 @@ export async function runAutopilot(
       : Promise.resolve(initialIssues.filter((i) => !closedSet.has(i.number))),
     gh.listOpenPullRequests(),
   ]);
-  const evaluation = evaluate(issues, prs);
+  const evaluation = domain.evaluate(issues, prs);
   const prCi = await processAgentPRs(gh, prs, config);
-  const decision = decideExecution(prCi, config);
+  const decision = domain.decideExecution(prCi, config);
 
   if (decision.targetDispatched === "executed") {
     await executeAutopilot(gh, exec, config, evaluation, executeDeps);
   }
 
-  const summary = buildSummary(evaluation, prCi, decision, config);
+  const summary = domain.buildSummary(evaluation, prCi, decision, config);
   return { evaluation, prCi, decision, closeOnMerge, summary };
 }

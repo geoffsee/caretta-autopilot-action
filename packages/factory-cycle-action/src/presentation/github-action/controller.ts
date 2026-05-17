@@ -1,4 +1,7 @@
-import { Component, Container } from "di-framework/decorators";
+import {
+  Component as Inject,
+  Container as InjectableWorkflow,
+} from "di-framework/decorators";
 import { ACTION_COMPONENTS } from "../../../../action-common/src/action-composition.js";
 import type { ActionRuntime } from "../../../../action-common/src/action-runtime.js";
 import {
@@ -14,63 +17,58 @@ import {
   installLinuxRuntimeDeps,
   materializeBotPrivateKey,
 } from "../../../../action-common/src/caretta-install.js";
-import { DefaultExecClient } from "../../../../action-common/src/exec-client.js";
-import { createOctokitClient } from "../../../../action-common/src/github-client.js";
+import { DefaultExecClient as ProductionExecClient } from "../../../../action-common/src/exec-client.js";
+import { createOctokitClient as createProductionGitHubClient } from "../../../../action-common/src/github-client.js";
 import { FactoryCycleRunner } from "../../application/factory-cycle-runner.js";
 
-export interface FactoryCycleMainDeps
+export interface FactoryCycleDependencies
   extends GitHubPortDependencies,
     CarettaInstallDependencies {}
 
-export const defaultFactoryCycleMainDeps: FactoryCycleMainDeps = {
-  createGitHubClient: createOctokitClient,
-  createExecClient: () => new DefaultExecClient(),
+export const defaultFactoryCycleDependencies: FactoryCycleDependencies = {
+  createGitHubClient: createProductionGitHubClient,
+  createExecClient: () => new ProductionExecClient(),
   installCaretta,
   installLinuxRuntimeDeps,
   materializeBotPrivateKey,
 };
 
-@Container({ singleton: false })
-export class FactoryCycleActionController {
+@InjectableWorkflow({ singleton: false })
+export class FactoryCycleWorkflow {
   constructor(
-    @Component(ACTION_COMPONENTS.actionRuntime)
+    @Inject(ACTION_COMPONENTS.actionRuntime)
     private readonly runtime: ActionRuntime,
-    @Component(GitHubActionPortFactory)
+    @Inject(GitHubActionPortFactory)
     private readonly ports: GitHubActionPortFactory,
-    @Component(CarettaRuntimePreparer)
+    @Inject(CarettaRuntimePreparer)
     private readonly carettaRuntime: CarettaRuntimePreparer,
   ) {}
 
   async run(): Promise<void> {
-    await runWithRuntime(this.runtime, this.ports, this.carettaRuntime);
+    const carettaInputs = readCarettaRuntimeInputs(this.runtime);
+    const agent = this.runtime.getInput("agent") || "claude";
+
+    const { gh, exec, binaryPath, version, env } = await prepareCarettaAction(
+      carettaInputs,
+      this.ports,
+      this.carettaRuntime,
+    );
+
+    const runner = new FactoryCycleRunner(binaryPath, env, exec, gh, agent);
+    const result = await runner.runFactoryCycle();
+
+    this.runtime.setOutput(
+      "skipped_due_to_open_sprint",
+      String(result.skipped),
+    );
+    this.runtime.setOutput("active_sprint", result.activeSprint);
+    this.runtime.setOutput("caretta_version", version);
   }
 }
 
 export async function main(
-  deps: FactoryCycleMainDeps = defaultFactoryCycleMainDeps,
+  deps: FactoryCycleDependencies = defaultFactoryCycleDependencies,
 ): Promise<void> {
   const { runFactoryCycleAction } = await import("../../composition/root.js");
   await runFactoryCycleAction({ dependencies: deps });
-}
-
-async function runWithRuntime(
-  runtime: ActionRuntime,
-  ports: GitHubActionPortFactory,
-  carettaRuntime: CarettaRuntimePreparer,
-): Promise<void> {
-  const carettaInputs = readCarettaRuntimeInputs(runtime);
-  const agent = runtime.getInput("agent") || "claude";
-
-  const { gh, exec, binaryPath, version, env } = await prepareCarettaAction(
-    carettaInputs,
-    ports,
-    carettaRuntime,
-  );
-
-  const runner = new FactoryCycleRunner(binaryPath, env, exec, gh, agent);
-  const result = await runner.runFactoryCycle();
-
-  runtime.setOutput("skipped_due_to_open_sprint", String(result.skipped));
-  runtime.setOutput("active_sprint", result.activeSprint);
-  runtime.setOutput("caretta_version", version);
 }

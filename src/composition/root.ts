@@ -6,23 +6,26 @@ import {
 } from "../../packages/action-common/src/action-composition.js";
 import type { ActionRuntime } from "../../packages/action-common/src/action-runtime.js";
 import {
-  AutopilotActionController,
+  type AutopilotDependencies,
   type AutopilotGithubActionContext,
-  defaultDependencies,
-  type MainDependencies,
+  AutopilotWorkflow,
+  defaultAutopilotDependencies,
 } from "../presentation/github-action/controller.js";
 
 export interface AutopilotCompositionOptions {
   readonly runtime?: ActionRuntime;
   readonly githubContext?: AutopilotGithubActionContext;
-  readonly dependencies?: MainDependencies;
+  readonly dependencies?: AutopilotDependencies;
 }
 
 export function createAutopilotComposition(
   options: AutopilotCompositionOptions = {},
 ): ActionComposition {
   return createActionComposition(
-    { githubContext: github.context, dependencies: defaultDependencies },
+    {
+      githubContext: github.context,
+      dependencies: defaultAutopilotDependencies,
+    },
     options,
   );
 }
@@ -32,6 +35,6 @@ export async function runAutopilotAction(
 ): Promise<void> {
   await runComposedAction(
     createAutopilotComposition(options),
-    AutopilotActionController,
+    AutopilotWorkflow,
   );
 }

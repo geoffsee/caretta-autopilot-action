@@ -6,9 +6,10 @@ import type {
 import type { ExecClient } from "../packages/action-common/src/exec-client.js";
 import type { GitHubClient } from "../packages/action-common/src/github-client.js";
 import { createAutopilotComposition } from "../src/composition/root.js";
+import { AutopilotDomainLogic } from "../src/domain/autopilot-domain.js";
 import {
-  AutopilotActionController,
-  type MainDependencies,
+  type AutopilotDependencies,
+  AutopilotWorkflow,
 } from "../src/presentation/github-action/controller.js";
 
 class FakeSummary implements SummaryWriter {
@@ -90,11 +91,11 @@ const fakeExec: ExecClient = {
   },
 };
 
-function makeDeps(mark: string): MainDependencies {
+function makeDeps(mark: string): AutopilotDependencies {
   return {
     createGitHubClient: () => fakeGh,
     createExecClient: () => fakeExec,
-    runAutopilot: async () => ({
+    runAutopilotUseCase: async () => ({
       evaluation: {
         route: "factory",
         sprint: null,
@@ -141,11 +142,27 @@ describe("autopilot composition", () => {
       dependencies: makeDeps("first"),
     });
 
-    const controller = composition.resolve(AutopilotActionController);
+    const controller = composition.resolve(AutopilotWorkflow);
     await controller.run();
 
     expect(runtime.outputs.reason).toBe("first");
     expect(runtime.summary.raw).toEqual(["first"]);
+  });
+
+  test("resolves the domain model with di-framework policies", () => {
+    const composition = createAutopilotComposition({
+      runtime: new FakeRuntime(makeInputs()),
+      dependencies: makeDeps("domain"),
+    });
+
+    const domain = composition.resolve(AutopilotDomainLogic);
+
+    expect(
+      domain.decideTrigger({ eventName: "workflow_dispatch", payload: {} }),
+    ).toEqual({
+      run: true,
+      reason: "manual dispatch",
+    });
   });
 
   test("uses a fresh fork per composition root", () => {
@@ -158,8 +175,8 @@ describe("autopilot composition", () => {
       dependencies: makeDeps("second"),
     });
 
-    expect(first.resolve(AutopilotActionController)).not.toBe(
-      second.resolve(AutopilotActionController),
+    expect(first.resolve(AutopilotWorkflow)).not.toBe(
+      second.resolve(AutopilotWorkflow),
     );
   });
 });

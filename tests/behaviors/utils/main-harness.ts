@@ -7,7 +7,7 @@ import type {
   PrCiResult,
 } from "../../../packages/action-common/src/types.js";
 import type { AutopilotRunResult } from "../../../src/application/run-autopilot.js";
-import type { MainDependencies } from "../../../src/presentation/github-action/controller.js";
+import type { AutopilotDependencies } from "../../../src/presentation/github-action/controller.js";
 
 export function makeEvaluation(
   overrides: Partial<EvaluationResult> = {},
@@ -66,7 +66,7 @@ export interface RunCall {
 
 export interface MainHarness {
   runCalls: RunCall[];
-  deps: MainDependencies;
+  deps: AutopilotDependencies;
 }
 
 export function makeMainHarness(
@@ -117,7 +117,7 @@ export function makeMainHarness(
     deps: {
       createGitHubClient: () => fakeGh,
       createExecClient: () => fakeExec,
-      runAutopilot: async (_gh, _exec, config, ref) => {
+      runAutopilotUseCase: async (_gh, _exec, config, ref) => {
         runCalls.push({ config, ref });
         if (options.throwError) throw options.throwError;
         return options.result ?? makeRunResult();

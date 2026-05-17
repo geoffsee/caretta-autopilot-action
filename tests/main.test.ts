@@ -13,10 +13,7 @@ import type {
   EvaluationResult,
   PrCiResult,
 } from "../packages/action-common/src/types.js";
-import {
-  type AutopilotRunResult,
-  runAutopilot,
-} from "../src/application/run-autopilot.js";
+import type { AutopilotRunResult } from "../src/application/run-autopilot.js";
 
 interface CoreState {
   inputs: Record<string, string>;
@@ -89,7 +86,7 @@ mock.module("@actions/github", () => ({
   context: mockContext,
 }));
 
-const { main, defaultDependencies } = await import(
+const { main, defaultAutopilotDependencies } = await import(
   "../src/presentation/github-action/controller.js"
 );
 
@@ -209,7 +206,7 @@ function makeHarness(
         return fakeGh;
       },
       createExecClient: () => fakeExec,
-      runAutopilot: async (_gh, _exec, config, ref) => {
+      runAutopilotUseCase: async (_gh, _exec, config, ref) => {
         runCalls.push({ config, ref });
         if (options.throwError) throw options.throwError;
         return options.result ?? makeRunResult();
@@ -554,18 +551,20 @@ describe("main: error propagation", () => {
   });
 });
 
-describe("defaultDependencies", () => {
+describe("defaultAutopilotDependencies", () => {
   test("createGitHubClient delegates to createOctokitClient", () => {
-    expect(defaultDependencies.createGitHubClient).toBe(createOctokitClient);
+    expect(defaultAutopilotDependencies.createGitHubClient).toBe(
+      createOctokitClient,
+    );
   });
 
   test("createExecClient returns a DefaultExecClient", () => {
-    expect(defaultDependencies.createExecClient()).toBeInstanceOf(
+    expect(defaultAutopilotDependencies.createExecClient()).toBeInstanceOf(
       DefaultExecClient,
     );
   });
 
-  test("runAutopilot is the real implementation", () => {
-    expect(defaultDependencies.runAutopilot).toBe(runAutopilot);
+  test("runAutopilotUseCase is composed by di-framework by default", () => {
+    expect(defaultAutopilotDependencies.runAutopilotUseCase).toBeUndefined();
   });
 });

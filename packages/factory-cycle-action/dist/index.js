@@ -19164,8 +19164,8 @@ function createActionComposition(defaults, options = {}) {
   composition.registerFactory(ACTION_COMPONENTS.mainDependencies, () => options.dependencies ?? defaults.dependencies, { singleton: true });
   return composition;
 }
-async function runComposedAction(composition, controller) {
-  const resolved = composition.resolve(controller);
+async function runComposedAction(composition, workflow) {
+  const resolved = composition.resolve(workflow);
   await resolved.run();
 }
 var ACTION_COMPONENTS;
@@ -44589,11 +44589,11 @@ __export(exports_root, {
 function createFactoryCycleComposition(options = {}) {
   return createActionComposition({
     githubContext: github2.context,
-    dependencies: defaultFactoryCycleMainDeps
+    dependencies: defaultFactoryCycleDependencies
   }, options);
 }
 async function runFactoryCycleAction(options = {}) {
-  await runComposedAction(createFactoryCycleComposition(options), FactoryCycleActionController);
+  await runComposedAction(createFactoryCycleComposition(options), FactoryCycleWorkflow);
 }
 var github2;
 var init_root = __esm(() => {
@@ -44603,21 +44603,11 @@ var init_root = __esm(() => {
 });
 
 // src/presentation/github-action/controller.ts
-async function main(deps = defaultFactoryCycleMainDeps) {
+async function main(deps = defaultFactoryCycleDependencies) {
   const { runFactoryCycleAction: runFactoryCycleAction2 } = await Promise.resolve().then(() => (init_root(), exports_root));
   await runFactoryCycleAction2({ dependencies: deps });
 }
-async function runWithRuntime(runtime, ports, carettaRuntime) {
-  const carettaInputs = readCarettaRuntimeInputs(runtime);
-  const agent = runtime.getInput("agent") || "claude";
-  const { gh, exec: exec2, binaryPath, version, env } = await prepareCarettaAction(carettaInputs, ports, carettaRuntime);
-  const runner = new FactoryCycleRunner(binaryPath, env, exec2, gh, agent);
-  const result = await runner.runFactoryCycle();
-  runtime.setOutput("skipped_due_to_open_sprint", String(result.skipped));
-  runtime.setOutput("active_sprint", result.activeSprint);
-  runtime.setOutput("caretta_version", version);
-}
-var defaultFactoryCycleMainDeps, FactoryCycleActionController;
+var defaultFactoryCycleDependencies, FactoryCycleWorkflow;
 var init_controller = __esm(() => {
   init_decorators();
   init_action_composition();
@@ -44626,14 +44616,14 @@ var init_controller = __esm(() => {
   init_exec_client();
   init_github_client();
   init_factory_cycle_runner();
-  defaultFactoryCycleMainDeps = {
+  defaultFactoryCycleDependencies = {
     createGitHubClient: createOctokitClient,
     createExecClient: () => new DefaultExecClient,
     installCaretta,
     installLinuxRuntimeDeps,
     materializeBotPrivateKey
   };
-  FactoryCycleActionController = class FactoryCycleActionController {
+  FactoryCycleWorkflow = class FactoryCycleWorkflow {
     runtime;
     ports;
     carettaRuntime;
@@ -44643,15 +44633,22 @@ var init_controller = __esm(() => {
       this.carettaRuntime = carettaRuntime;
     }
     async run() {
-      await runWithRuntime(this.runtime, this.ports, this.carettaRuntime);
+      const carettaInputs = readCarettaRuntimeInputs(this.runtime);
+      const agent = this.runtime.getInput("agent") || "claude";
+      const { gh, exec: exec2, binaryPath, version, env } = await prepareCarettaAction(carettaInputs, this.ports, this.carettaRuntime);
+      const runner = new FactoryCycleRunner(binaryPath, env, exec2, gh, agent);
+      const result = await runner.runFactoryCycle();
+      this.runtime.setOutput("skipped_due_to_open_sprint", String(result.skipped));
+      this.runtime.setOutput("active_sprint", result.activeSprint);
+      this.runtime.setOutput("caretta_version", version);
     }
   };
-  FactoryCycleActionController = __legacyDecorateClassTS([
+  FactoryCycleWorkflow = __legacyDecorateClassTS([
     Container2({ singleton: false }),
     __legacyDecorateParamTS(0, Component(ACTION_COMPONENTS.actionRuntime)),
     __legacyDecorateParamTS(1, Component(GitHubActionPortFactory)),
     __legacyDecorateParamTS(2, Component(CarettaRuntimePreparer))
-  ], FactoryCycleActionController);
+  ], FactoryCycleWorkflow);
 });
 
 // src/index.ts
@@ -44662,4 +44659,4 @@ main().catch((error) => {
   core5.setFailed(message);
 });
 
-//# debugId=F8790FC40B60B6D764756E2164756E21
+//# debugId=22AA097ADC8D431664756E2164756E21

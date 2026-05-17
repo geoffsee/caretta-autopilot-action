@@ -7,8 +7,8 @@ import type { ExecClient } from "../../action-common/src/exec-client.js";
 import type { GitHubClient } from "../../action-common/src/github-client.js";
 import { createWorkDispatchComposition } from "../src/composition/root.js";
 import {
-  TrackerLoopActionController,
-  type TrackerLoopMainDeps,
+  type TrackerLoopDependencies,
+  TrackerLoopWorkflow,
 } from "../src/presentation/github-action/controller.js";
 
 class FakeSummary implements SummaryWriter {
@@ -86,7 +86,7 @@ const fakeExec: ExecClient = {
   },
 };
 
-const deps: TrackerLoopMainDeps = {
+const deps: TrackerLoopDependencies = {
   createGitHubClient: () => fakeGh,
   createExecClient: () => fakeExec,
   installCaretta: async () => ({ binaryPath: "/tmp/caretta", version: "v1" }),
@@ -103,7 +103,7 @@ describe("work-dispatch composition", () => {
       dependencies: deps,
     });
 
-    await composition.resolve(TrackerLoopActionController).run();
+    await composition.resolve(TrackerLoopWorkflow).run();
 
     expect(runtime.outputs.tracker).toBe("7");
     expect(runtime.outputs.caretta_version).toBe("v1");
@@ -119,8 +119,8 @@ describe("work-dispatch composition", () => {
       dependencies: deps,
     });
 
-    expect(first.resolve(TrackerLoopActionController)).not.toBe(
-      second.resolve(TrackerLoopActionController),
+    expect(first.resolve(TrackerLoopWorkflow)).not.toBe(
+      second.resolve(TrackerLoopWorkflow),
     );
   });
 });

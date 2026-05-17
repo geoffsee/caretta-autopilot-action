@@ -7,22 +7,25 @@ import {
 import type { ActionRuntime } from "../../../action-common/src/action-runtime.js";
 import type { GithubActionContext } from "../../../action-common/src/action-services.js";
 import {
-  defaultTrackerLoopMainDeps,
-  TrackerLoopActionController,
-  type TrackerLoopMainDeps,
+  defaultTrackerLoopDependencies,
+  type TrackerLoopDependencies,
+  TrackerLoopWorkflow,
 } from "../presentation/github-action/controller.js";
 
 export interface WorkDispatchCompositionOptions {
   readonly runtime?: ActionRuntime;
   readonly githubContext?: GithubActionContext;
-  readonly dependencies?: TrackerLoopMainDeps;
+  readonly dependencies?: TrackerLoopDependencies;
 }
 
 export function createWorkDispatchComposition(
   options: WorkDispatchCompositionOptions = {},
 ): ActionComposition {
   return createActionComposition(
-    { githubContext: github.context, dependencies: defaultTrackerLoopMainDeps },
+    {
+      githubContext: github.context,
+      dependencies: defaultTrackerLoopDependencies,
+    },
     options,
   );
 }
@@ -32,6 +35,6 @@ export async function runWorkDispatchAction(
 ): Promise<void> {
   await runComposedAction(
     createWorkDispatchComposition(options),
-    TrackerLoopActionController,
+    TrackerLoopWorkflow,
   );
 }

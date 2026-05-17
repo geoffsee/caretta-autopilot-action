@@ -1,4 +1,7 @@
-import { Component, Container } from "di-framework/decorators";
+import {
+  Component as Inject,
+  Container as InjectableService,
+} from "di-framework/decorators";
 import { ACTION_COMPONENTS } from "./action-composition.js";
 import type { ActionRuntime } from "./action-runtime.js";
 import type { ExecClient } from "./exec-client.js";
@@ -22,12 +25,12 @@ export interface GitHubActionPorts {
   readonly exec: ExecClient;
 }
 
-@Container({ singleton: false })
+@InjectableService({ singleton: false })
 export class GitHubActionPortFactory {
   constructor(
-    @Component(ACTION_COMPONENTS.githubContext)
+    @Inject(ACTION_COMPONENTS.githubContext)
     private readonly githubContext: GithubActionContext,
-    @Component(ACTION_COMPONENTS.mainDependencies)
+    @Inject(ACTION_COMPONENTS.mainDependencies)
     private readonly deps: GitHubPortDependencies,
   ) {}
 
@@ -68,10 +71,10 @@ export interface PreparedCarettaAction extends PreparedCarettaRuntime {
   readonly exec: ExecClient;
 }
 
-@Container({ singleton: false })
+@InjectableService({ singleton: false })
 export class CarettaRuntimePreparer {
   constructor(
-    @Component(ACTION_COMPONENTS.mainDependencies)
+    @Inject(ACTION_COMPONENTS.mainDependencies)
     private readonly deps: CarettaInstallDependencies,
   ) {}
 

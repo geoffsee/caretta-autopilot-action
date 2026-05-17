@@ -19164,8 +19164,8 @@ function createActionComposition(defaults, options = {}) {
   composition.registerFactory(ACTION_COMPONENTS.mainDependencies, () => options.dependencies ?? defaults.dependencies, { singleton: true });
   return composition;
 }
-async function runComposedAction(composition, controller) {
-  const resolved = composition.resolve(controller);
+async function runComposedAction(composition, workflow) {
+  const resolved = composition.resolve(workflow);
   await resolved.run();
 }
 var ACTION_COMPONENTS;
@@ -24268,6 +24268,21 @@ function decideExecution(prCi, config) {
   }
   return { holdTarget, targetDispatched: "executed" };
 }
+var ExecutionDecisionPolicy;
+var init_decide = __esm(() => {
+  init_decorators();
+  ExecutionDecisionPolicy = class ExecutionDecisionPolicy {
+    computeHoldTarget(prCi, dryRun) {
+      return computeHoldTarget(prCi, dryRun);
+    }
+    decide(prCi, config) {
+      return decideExecution(prCi, config);
+    }
+  };
+  ExecutionDecisionPolicy = __legacyDecorateClassTS([
+    Container2({ singleton: false })
+  ], ExecutionDecisionPolicy);
+});
 
 // src/domain/evaluate.ts
 function findActiveSprint(issues) {
@@ -24310,6 +24325,24 @@ function evaluate(issues, prs) {
     activeSprint: "none"
   };
 }
+var EvaluationPolicy;
+var init_evaluate = __esm(() => {
+  init_decorators();
+  EvaluationPolicy = class EvaluationPolicy {
+    findActiveSprint(issues) {
+      return findActiveSprint(issues);
+    }
+    countStalePRs(prs) {
+      return countStalePRs(prs);
+    }
+    evaluate(issues, prs) {
+      return evaluate(issues, prs);
+    }
+  };
+  EvaluationPolicy = __legacyDecorateClassTS([
+    Container2({ singleton: false })
+  ], EvaluationPolicy);
+});
 
 // src/domain/summary.ts
 function buildSummary(evaluation, prCi, decision, config) {
@@ -24345,6 +24378,179 @@ function buildSummary(evaluation, prCi, decision, config) {
   return lines.join(`
 `);
 }
+var SummaryPolicy;
+var init_summary = __esm(() => {
+  init_decorators();
+  SummaryPolicy = class SummaryPolicy {
+    build(evaluation, prCi, decision, config) {
+      return buildSummary(evaluation, prCi, decision, config);
+    }
+  };
+  SummaryPolicy = __legacyDecorateClassTS([
+    Container2({ singleton: false })
+  ], SummaryPolicy);
+});
+
+// src/domain/trigger.ts
+function decideTrigger(inputs) {
+  const { eventName, payload } = inputs;
+  const agentPrefix = inputs.agentBranchPrefix ?? DEFAULT_AGENT_BRANCH_PREFIX;
+  switch (eventName) {
+    case "schedule":
+      return { run: true, reason: "scheduled heartbeat" };
+    case "workflow_dispatch":
+      return { run: true, reason: "manual dispatch" };
+    case "issues": {
+      const action = stringField(payload, "action");
+      if (action === "closed") {
+        return { run: true, reason: "issue closed" };
+      }
+      const labels = issueLabels(payload);
+      if (labels.includes("sprint")) {
+        return { run: true, reason: `sprint issue ${action ?? "event"}` };
+      }
+      return {
+        run: false,
+        reason: `issue ${action ?? "event"} without sprint label`
+      };
+    }
+    case "pull_request": {
+      const headRef = prHeadRef(payload);
+      if (headRef?.startsWith(agentPrefix)) {
+        const action = stringField(payload, "action");
+        if (action === "closed" && prMerged(payload) === false) {
+          return { run: false, reason: "agent PR closed without merge" };
+        }
+        return { run: true, reason: `agent PR ${action ?? "event"}` };
+      }
+      return { run: false, reason: "non-agent pull request" };
+    }
+    case "workflow_run": {
+      const run = recordField(payload, "workflow_run");
+      const headBranch = run ? stringField(run, "head_branch") : undefined;
+      if (headBranch?.startsWith(agentPrefix)) {
+        const conclusion = run ? stringField(run, "conclusion") : undefined;
+        return {
+          run: true,
+          reason: `agent CI ${conclusion ?? "completed"}`
+        };
+      }
+      return { run: false, reason: "non-agent workflow_run" };
+    }
+    default:
+      return { run: false, reason: `unhandled event: ${eventName}` };
+  }
+}
+function stringField(source, key) {
+  const v = source[key];
+  return typeof v === "string" ? v : undefined;
+}
+function recordField(source, key) {
+  const v = source[key];
+  return v && typeof v === "object" ? v : undefined;
+}
+function issueLabels(payload) {
+  const issue = recordField(payload, "issue");
+  if (!issue)
+    return [];
+  const labels = issue.labels;
+  if (!Array.isArray(labels))
+    return [];
+  const out = [];
+  for (const l of labels) {
+    if (typeof l === "string") {
+      out.push(l);
+    } else if (l && typeof l === "object") {
+      const name = l.name;
+      if (typeof name === "string")
+        out.push(name);
+    }
+  }
+  return out;
+}
+function prHeadRef(payload) {
+  const pr = recordField(payload, "pull_request");
+  if (!pr)
+    return;
+  const head = recordField(pr, "head");
+  if (!head)
+    return;
+  return stringField(head, "ref");
+}
+function prMerged(payload) {
+  const pr = recordField(payload, "pull_request");
+  if (!pr)
+    return;
+  const v = pr.merged;
+  return typeof v === "boolean" ? v : undefined;
+}
+var DEFAULT_AGENT_BRANCH_PREFIX = "agent/issue-", TriggerPolicy;
+var init_trigger = __esm(() => {
+  init_decorators();
+  TriggerPolicy = class TriggerPolicy {
+    decide(inputs) {
+      return decideTrigger(inputs);
+    }
+  };
+  TriggerPolicy = __legacyDecorateClassTS([
+    Container2({ singleton: false })
+  ], TriggerPolicy);
+});
+
+// src/domain/autopilot-domain.ts
+var AutopilotDomainLogic, functionalAutopilotDomainModel;
+var init_autopilot_domain = __esm(() => {
+  init_decorators();
+  init_decide();
+  init_evaluate();
+  init_summary();
+  init_trigger();
+  AutopilotDomainLogic = class AutopilotDomainLogic {
+    triggers;
+    evaluation;
+    decisions;
+    summaries;
+    constructor(triggers, evaluation, decisions, summaries) {
+      this.triggers = triggers;
+      this.evaluation = evaluation;
+      this.decisions = decisions;
+      this.summaries = summaries;
+    }
+    decideTrigger(inputs) {
+      return this.triggers.decide(inputs);
+    }
+    findActiveSprint(issues) {
+      return this.evaluation.findActiveSprint(issues);
+    }
+    evaluate(issues, prs) {
+      return this.evaluation.evaluate(issues, prs);
+    }
+    computeHoldTarget(prCi, dryRun) {
+      return this.decisions.computeHoldTarget(prCi, dryRun);
+    }
+    decideExecution(prCi, config) {
+      return this.decisions.decide(prCi, config);
+    }
+    buildSummary(evaluation, prCi, decision, config) {
+      return this.summaries.build(evaluation, prCi, decision, config);
+    }
+  };
+  AutopilotDomainLogic = __legacyDecorateClassTS([
+    Container2({ singleton: false }),
+    __legacyDecorateParamTS(0, Component(TriggerPolicy)),
+    __legacyDecorateParamTS(1, Component(EvaluationPolicy)),
+    __legacyDecorateParamTS(2, Component(ExecutionDecisionPolicy)),
+    __legacyDecorateParamTS(3, Component(SummaryPolicy))
+  ], AutopilotDomainLogic);
+  functionalAutopilotDomainModel = {
+    decideTrigger,
+    findActiveSprint,
+    evaluate,
+    computeHoldTarget,
+    decideExecution,
+    buildSummary
+  };
+});
 
 // src/application/close-on-merge.ts
 function parseClosingIssueNumbers(body) {
@@ -42314,7 +42520,7 @@ var __awaiter6 = function(thisArg, _arguments, P, generator) {
     step((generator = generator.apply(thisArg, _arguments || [])).next());
   });
 }, access, appendFile, writeFile, SUMMARY_ENV_VAR = "GITHUB_STEP_SUMMARY", _summary;
-var init_summary = __esm(() => {
+var init_summary2 = __esm(() => {
   ({ access, appendFile, writeFile } = promises2);
   _summary = new Summary;
 });
@@ -42347,8 +42553,8 @@ var init_core = __esm(() => {
   init_command();
   init_file_command();
   init_oidc_utils();
-  init_summary();
-  init_summary();
+  init_summary2();
+  init_summary2();
   init_path_utils();
   init_platform();
   (function(ExitCode2) {
@@ -45209,124 +45415,45 @@ var init_pr_ci = __esm(() => {
 });
 
 // src/application/run-autopilot.ts
-async function runAutopilot(gh, exec2, config, _ref, executeDeps) {
+async function runAutopilot(gh, exec2, config, _ref, executeDeps, domain = functionalAutopilotDomainModel) {
   const initialIssues = await gh.listOpenIssues();
-  const trackerNumber = findActiveSprint(initialIssues);
+  const trackerNumber = domain.findActiveSprint(initialIssues);
   const closeOnMerge = await closeIssuesForMergedPrs(gh, new Set(initialIssues.map((i) => i.number)), trackerNumber);
   const closedSet = new Set(closeOnMerge.closed);
   const [issues, prs] = await Promise.all([
     closedSet.size === 0 ? Promise.resolve(initialIssues) : Promise.resolve(initialIssues.filter((i) => !closedSet.has(i.number))),
     gh.listOpenPullRequests()
   ]);
-  const evaluation = evaluate(issues, prs);
+  const evaluation = domain.evaluate(issues, prs);
   const prCi = await processAgentPRs(gh, prs, config);
-  const decision = decideExecution(prCi, config);
+  const decision = domain.decideExecution(prCi, config);
   if (decision.targetDispatched === "executed") {
     await executeAutopilot(gh, exec2, config, evaluation, executeDeps);
   }
-  const summary3 = buildSummary(evaluation, prCi, decision, config);
+  const summary3 = domain.buildSummary(evaluation, prCi, decision, config);
   return { evaluation, prCi, decision, closeOnMerge, summary: summary3 };
 }
+var AutopilotUseCase;
 var init_run_autopilot = __esm(() => {
+  init_decorators();
+  init_autopilot_domain();
   init_close_on_merge();
   init_execute_autopilot();
   init_pr_ci();
+  AutopilotUseCase = class AutopilotUseCase {
+    domain;
+    constructor(domain) {
+      this.domain = domain;
+    }
+    async run(gh, exec2, config, ref, executeDeps) {
+      return runAutopilot(gh, exec2, config, ref, executeDeps, this.domain);
+    }
+  };
+  AutopilotUseCase = __legacyDecorateClassTS([
+    Container2({ singleton: false }),
+    __legacyDecorateParamTS(0, Component(AutopilotDomainLogic))
+  ], AutopilotUseCase);
 });
-
-// src/domain/trigger.ts
-function decideTrigger(inputs) {
-  const { eventName, payload } = inputs;
-  const agentPrefix = inputs.agentBranchPrefix ?? DEFAULT_AGENT_BRANCH_PREFIX;
-  switch (eventName) {
-    case "schedule":
-      return { run: true, reason: "scheduled heartbeat" };
-    case "workflow_dispatch":
-      return { run: true, reason: "manual dispatch" };
-    case "issues": {
-      const action = stringField(payload, "action");
-      if (action === "closed") {
-        return { run: true, reason: "issue closed" };
-      }
-      const labels = issueLabels(payload);
-      if (labels.includes("sprint")) {
-        return { run: true, reason: `sprint issue ${action ?? "event"}` };
-      }
-      return {
-        run: false,
-        reason: `issue ${action ?? "event"} without sprint label`
-      };
-    }
-    case "pull_request": {
-      const headRef = prHeadRef(payload);
-      if (headRef?.startsWith(agentPrefix)) {
-        const action = stringField(payload, "action");
-        if (action === "closed" && prMerged(payload) === false) {
-          return { run: false, reason: "agent PR closed without merge" };
-        }
-        return { run: true, reason: `agent PR ${action ?? "event"}` };
-      }
-      return { run: false, reason: "non-agent pull request" };
-    }
-    case "workflow_run": {
-      const run = recordField(payload, "workflow_run");
-      const headBranch = run ? stringField(run, "head_branch") : undefined;
-      if (headBranch?.startsWith(agentPrefix)) {
-        const conclusion = run ? stringField(run, "conclusion") : undefined;
-        return {
-          run: true,
-          reason: `agent CI ${conclusion ?? "completed"}`
-        };
-      }
-      return { run: false, reason: "non-agent workflow_run" };
-    }
-    default:
-      return { run: false, reason: `unhandled event: ${eventName}` };
-  }
-}
-function stringField(source, key) {
-  const v = source[key];
-  return typeof v === "string" ? v : undefined;
-}
-function recordField(source, key) {
-  const v = source[key];
-  return v && typeof v === "object" ? v : undefined;
-}
-function issueLabels(payload) {
-  const issue2 = recordField(payload, "issue");
-  if (!issue2)
-    return [];
-  const labels = issue2.labels;
-  if (!Array.isArray(labels))
-    return [];
-  const out = [];
-  for (const l of labels) {
-    if (typeof l === "string") {
-      out.push(l);
-    } else if (l && typeof l === "object") {
-      const name = l.name;
-      if (typeof name === "string")
-        out.push(name);
-    }
-  }
-  return out;
-}
-function prHeadRef(payload) {
-  const pr = recordField(payload, "pull_request");
-  if (!pr)
-    return;
-  const head = recordField(pr, "head");
-  if (!head)
-    return;
-  return stringField(head, "ref");
-}
-function prMerged(payload) {
-  const pr = recordField(payload, "pull_request");
-  if (!pr)
-    return;
-  const v = pr.merged;
-  return typeof v === "boolean" ? v : undefined;
-}
-var DEFAULT_AGENT_BRANCH_PREFIX = "agent/issue-";
 
 // src/composition/root.ts
 var exports_root = {};
@@ -45335,10 +45462,13 @@ __export(exports_root, {
   createAutopilotComposition: () => createAutopilotComposition
 });
 function createAutopilotComposition(options = {}) {
-  return createActionComposition({ githubContext: github2.context, dependencies: defaultDependencies }, options);
+  return createActionComposition({
+    githubContext: github2.context,
+    dependencies: defaultAutopilotDependencies
+  }, options);
 }
 async function runAutopilotAction(options = {}) {
-  await runComposedAction(createAutopilotComposition(options), AutopilotActionController);
+  await runComposedAction(createAutopilotComposition(options), AutopilotWorkflow);
 }
 var github2;
 var init_root = __esm(() => {
@@ -45348,67 +45478,11 @@ var init_root = __esm(() => {
 });
 
 // src/presentation/github-action/controller.ts
-async function main(deps = defaultDependencies) {
+async function main(deps = defaultAutopilotDependencies) {
   const { runAutopilotAction: runAutopilotAction2 } = await Promise.resolve().then(() => (init_root(), exports_root));
   await runAutopilotAction2({ dependencies: deps });
 }
-async function runWithRuntime(runtime, ctx, deps, ports) {
-  const token = runtime.getInput("github-token", { required: true });
-  const carettaVersion = runtime.getInput("caretta-version") || "latest";
-  const agent = runtime.getInput("agent") || "claude";
-  const context2 = runtime.getInput("context") || "Autopilot scheduled evaluation of open issues and pull requests.";
-  const dryRun = runtime.getBooleanInput("dry-run");
-  const enableDispatch = runtime.getInput("enable-dispatch") === "" ? true : runtime.getBooleanInput("enable-dispatch");
-  const ciWorkflow = runtime.getInput("ci-workflow") || "ci.yml";
-  const gitUserName = runtime.getInput("git-user-name") || "caretta-autopilot[bot]";
-  const gitUserEmail = runtime.getInput("git-user-email") || "caretta-autopilot[bot]@users.noreply.github.com";
-  const ref = ctx.ref?.replace(/^refs\/heads\//, "") || "master";
-  const trigger = decideTrigger({
-    eventName: ctx.eventName ?? "",
-    payload: ctx.payload ?? {},
-    agentBranchPrefix: "agent/issue-"
-  });
-  if (!trigger.run) {
-    runtime.info(`autopilot: skipping (${trigger.reason})`);
-    await runtime.summary.addRaw(`### Autopilot skipped
-
-_${trigger.reason}_
-`).write();
-    return;
-  }
-  runtime.info(`autopilot: running (${trigger.reason})`);
-  const config = {
-    carettaVersion,
-    agent,
-    context: context2,
-    dryRun,
-    enableDispatch,
-    ciWorkflow,
-    agentBranchPattern: DEFAULT_AGENT_BRANCH,
-    testCheckName: DEFAULT_TEST_CHECK_NAME,
-    githubToken: token,
-    gitUserName,
-    gitUserEmail
-  };
-  const { gh, exec: exec2 } = ports.create(token);
-  const result = await deps.runAutopilot(gh, exec2, config, ref);
-  runtime.setOutput("route", result.evaluation.route);
-  runtime.setOutput("tracker", result.evaluation.tracker);
-  runtime.setOutput("sprint", result.evaluation.sprint?.toString() ?? "");
-  runtime.setOutput("open_issue_count", String(result.evaluation.openIssueCount));
-  runtime.setOutput("open_pr_count", String(result.evaluation.openPrCount));
-  runtime.setOutput("stale_pr_count", String(result.evaluation.stalePrCount));
-  runtime.setOutput("reason", result.evaluation.reason);
-  runtime.setOutput("pending_count", String(result.prCi.pending.length));
-  runtime.setOutput("dispatched_count", String(result.prCi.dispatched.length));
-  runtime.setOutput("active_count", String(result.prCi.active.length));
-  runtime.setOutput("current_count", String(result.prCi.current.length));
-  runtime.setOutput("failed_count", String(result.prCi.failed.length));
-  runtime.setOutput("hold_target", String(result.decision.holdTarget));
-  runtime.setOutput("target_dispatched", result.decision.targetDispatched);
-  await runtime.summary.addRaw(result.summary).write();
-}
-var defaultDependencies, AutopilotActionController;
+var defaultAutopilotDependencies, AutopilotWorkflow;
 var init_controller = __esm(() => {
   init_decorators();
   init_action_composition();
@@ -45417,33 +45491,93 @@ var init_controller = __esm(() => {
   init_github_client();
   init_types();
   init_run_autopilot();
-  defaultDependencies = {
+  init_autopilot_domain();
+  defaultAutopilotDependencies = {
     createGitHubClient: createOctokitClient,
-    createExecClient: () => new DefaultExecClient,
-    runAutopilot
+    createExecClient: () => new DefaultExecClient
   };
-  AutopilotActionController = class AutopilotActionController {
+  AutopilotWorkflow = class AutopilotWorkflow {
     runtime;
     githubContext;
     deps;
     ports;
-    constructor(runtime, githubContext, deps, ports) {
+    domain;
+    autopilotUseCase;
+    constructor(runtime, githubContext, deps, ports, domain, autopilotUseCase) {
       this.runtime = runtime;
       this.githubContext = githubContext;
       this.deps = deps;
       this.ports = ports;
+      this.domain = domain;
+      this.autopilotUseCase = autopilotUseCase;
     }
     async run() {
-      await runWithRuntime(this.runtime, this.githubContext, this.deps, this.ports);
+      const token = this.runtime.getInput("github-token", { required: true });
+      const carettaVersion = this.runtime.getInput("caretta-version") || "latest";
+      const agent = this.runtime.getInput("agent") || "claude";
+      const context2 = this.runtime.getInput("context") || "Autopilot scheduled evaluation of open issues and pull requests.";
+      const dryRun = this.runtime.getBooleanInput("dry-run");
+      const enableDispatch = this.runtime.getInput("enable-dispatch") === "" ? true : this.runtime.getBooleanInput("enable-dispatch");
+      const ciWorkflow = this.runtime.getInput("ci-workflow") || "ci.yml";
+      const gitUserName = this.runtime.getInput("git-user-name") || "caretta-autopilot[bot]";
+      const gitUserEmail = this.runtime.getInput("git-user-email") || "caretta-autopilot[bot]@users.noreply.github.com";
+      const ref = this.githubContext.ref?.replace(/^refs\/heads\//, "") || "master";
+      const trigger = this.domain.decideTrigger({
+        eventName: this.githubContext.eventName ?? "",
+        payload: this.githubContext.payload ?? {},
+        agentBranchPrefix: "agent/issue-"
+      });
+      if (!trigger.run) {
+        this.runtime.info(`autopilot: skipping (${trigger.reason})`);
+        await this.runtime.summary.addRaw(`### Autopilot skipped
+
+_${trigger.reason}_
+`).write();
+        return;
+      }
+      this.runtime.info(`autopilot: running (${trigger.reason})`);
+      const config = {
+        carettaVersion,
+        agent,
+        context: context2,
+        dryRun,
+        enableDispatch,
+        ciWorkflow,
+        agentBranchPattern: DEFAULT_AGENT_BRANCH,
+        testCheckName: DEFAULT_TEST_CHECK_NAME,
+        githubToken: token,
+        gitUserName,
+        gitUserEmail
+      };
+      const { gh, exec: exec2 } = this.ports.create(token);
+      const runAutopilotUseCase = this.deps.runAutopilotUseCase ?? ((gh2, exec3, config2, ref2) => this.autopilotUseCase.run(gh2, exec3, config2, ref2));
+      const result = await runAutopilotUseCase(gh, exec2, config, ref);
+      this.runtime.setOutput("route", result.evaluation.route);
+      this.runtime.setOutput("tracker", result.evaluation.tracker);
+      this.runtime.setOutput("sprint", result.evaluation.sprint?.toString() ?? "");
+      this.runtime.setOutput("open_issue_count", String(result.evaluation.openIssueCount));
+      this.runtime.setOutput("open_pr_count", String(result.evaluation.openPrCount));
+      this.runtime.setOutput("stale_pr_count", String(result.evaluation.stalePrCount));
+      this.runtime.setOutput("reason", result.evaluation.reason);
+      this.runtime.setOutput("pending_count", String(result.prCi.pending.length));
+      this.runtime.setOutput("dispatched_count", String(result.prCi.dispatched.length));
+      this.runtime.setOutput("active_count", String(result.prCi.active.length));
+      this.runtime.setOutput("current_count", String(result.prCi.current.length));
+      this.runtime.setOutput("failed_count", String(result.prCi.failed.length));
+      this.runtime.setOutput("hold_target", String(result.decision.holdTarget));
+      this.runtime.setOutput("target_dispatched", result.decision.targetDispatched);
+      await this.runtime.summary.addRaw(result.summary).write();
     }
   };
-  AutopilotActionController = __legacyDecorateClassTS([
+  AutopilotWorkflow = __legacyDecorateClassTS([
     Container2({ singleton: false }),
     __legacyDecorateParamTS(0, Component(ACTION_COMPONENTS.actionRuntime)),
     __legacyDecorateParamTS(1, Component(ACTION_COMPONENTS.githubContext)),
     __legacyDecorateParamTS(2, Component(ACTION_COMPONENTS.mainDependencies)),
-    __legacyDecorateParamTS(3, Component(GitHubActionPortFactory))
-  ], AutopilotActionController);
+    __legacyDecorateParamTS(3, Component(GitHubActionPortFactory)),
+    __legacyDecorateParamTS(4, Component(AutopilotDomainLogic)),
+    __legacyDecorateParamTS(5, Component(AutopilotUseCase))
+  ], AutopilotWorkflow);
 });
 
 // src/index.ts
@@ -45454,4 +45588,4 @@ main().catch((error) => {
   core9.setFailed(message);
 });
 
-//# debugId=0DF97E67DBEDC03B64756E2164756E21
+//# debugId=7D4289293D25715B64756E2164756E21
