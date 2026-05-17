@@ -35,7 +35,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       actions: write
-      checks: read
+      checks: write
       contents: write
       issues: write
       pull-requests: write
@@ -68,7 +68,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       actions: write
-      checks: read
+      checks: write
       contents: write
       issues: write
       pull-requests: write

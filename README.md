@@ -38,7 +38,8 @@ A complete example consumer repo lives at [`examples/autopilot-example-project/`
 ```yaml
 permissions:
   actions: write   # dispatch ci.yml per agent PR
-  checks: read     # read Test check on PR head SHA
+  checks: write    # read/update check state on PR head SHA
+  statuses: write  # create commit statuses (Test pending/error/sync)
   contents: write  # caretta commits during execution
   issues: write    # caretta opens/edits issues
   pull-requests: write
