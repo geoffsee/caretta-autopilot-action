@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { buildSummary } from "../src/summary.js";
-import type { EvaluationResult, PrCiResult } from "../src/types.js";
+import type {
+  EvaluationResult,
+  PrCiResult,
+} from "../packages/action-common/src/types.js";
+import { buildSummary } from "../src/domain/summary.js";
 import { makeConfig } from "./fakes.js";
 
 const workEval: EvaluationResult = {
@@ -59,7 +62,11 @@ describe("buildSummary", () => {
       decision: { holdTarget: false, targetDispatched: "skipped" as const },
       prCi: emptyPrCi,
       config: makeConfig({ dryRun: true }),
-      expectedContains: ["Dry run enabled", "would execute work route", "Tracker: #7"],
+      expectedContains: [
+        "Dry run enabled",
+        "would execute work route",
+        "Tracker: #7",
+      ],
     },
   ])("$name", ({ decision, prCi, config, expectedContains }) => {
     const out = buildSummary(workEval, prCi, decision, config);

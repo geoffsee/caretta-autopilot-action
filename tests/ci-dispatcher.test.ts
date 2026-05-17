@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { dispatchMissingCi } from "../src/ci-dispatcher.js";
+import { dispatchMissingCi } from "../src/application/ci-dispatcher.js";
 import { FakeGitHub, makeConfig, makePR } from "./fakes.js";
 
 describe("dispatchMissingCi", () => {

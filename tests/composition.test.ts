@@ -3,13 +3,13 @@ import type {
   ActionRuntime,
   SummaryWriter,
 } from "../packages/action-common/src/action-runtime.js";
-import { createAutopilotContainer } from "../src/composition/container.js";
-import type { ExecClient } from "../src/exec.js";
-import type { GitHubClient } from "../src/github.js";
+import type { ExecClient } from "../packages/action-common/src/exec-client.js";
+import type { GitHubClient } from "../packages/action-common/src/github-client.js";
+import { createAutopilotComposition } from "../src/composition/root.js";
 import {
   AutopilotActionController,
   type MainDependencies,
-} from "../src/main.js";
+} from "../src/presentation/github-action/controller.js";
 
 class FakeSummary implements SummaryWriter {
   raw: string[] = [];
@@ -130,7 +130,7 @@ function makeInputs(): Record<string, string> {
 describe("autopilot composition", () => {
   test("resolves the controller with fake runtime ports", async () => {
     const runtime = new FakeRuntime(makeInputs());
-    const container = createAutopilotContainer({
+    const composition = createAutopilotComposition({
       runtime,
       githubContext: {
         repo: { owner: "o", repo: "r" },
@@ -141,7 +141,7 @@ describe("autopilot composition", () => {
       dependencies: makeDeps("first"),
     });
 
-    const controller = container.resolve(AutopilotActionController);
+    const controller = composition.resolve(AutopilotActionController);
     await controller.run();
 
     expect(runtime.outputs.reason).toBe("first");
@@ -149,11 +149,11 @@ describe("autopilot composition", () => {
   });
 
   test("uses a fresh fork per composition root", () => {
-    const first = createAutopilotContainer({
+    const first = createAutopilotComposition({
       runtime: new FakeRuntime(makeInputs()),
       dependencies: makeDeps("first"),
     });
-    const second = createAutopilotContainer({
+    const second = createAutopilotComposition({
       runtime: new FakeRuntime(makeInputs()),
       dependencies: makeDeps("second"),
     });

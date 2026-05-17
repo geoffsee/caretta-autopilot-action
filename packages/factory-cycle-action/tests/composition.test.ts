@@ -3,13 +3,13 @@ import type {
   ActionRuntime,
   SummaryWriter,
 } from "../../action-common/src/action-runtime.js";
-import { createFactoryCycleContainer } from "../src/composition/container.js";
-import type { ExecClient } from "../src/exec.js";
-import type { GitHubClient } from "../src/github.js";
+import type { ExecClient } from "../../action-common/src/exec-client.js";
+import type { GitHubClient } from "../../action-common/src/github-client.js";
+import { createFactoryCycleComposition } from "../src/composition/root.js";
 import {
   FactoryCycleActionController,
   type FactoryCycleMainDeps,
-} from "../src/main.js";
+} from "../src/presentation/github-action/controller.js";
 
 class FakeSummary implements SummaryWriter {
   addRaw(): SummaryWriter {
@@ -91,24 +91,24 @@ const deps: FactoryCycleMainDeps = {
 describe("factory-cycle composition", () => {
   test("resolves the controller with fake ports", async () => {
     const runtime = new FakeRuntime();
-    const container = createFactoryCycleContainer({
+    const composition = createFactoryCycleComposition({
       runtime,
       githubContext: { repo: { owner: "o", repo: "r" } },
       dependencies: deps,
     });
 
-    await container.resolve(FactoryCycleActionController).run();
+    await composition.resolve(FactoryCycleActionController).run();
 
     expect(runtime.outputs.skipped_due_to_open_sprint).toBe("false");
     expect(runtime.outputs.caretta_version).toBe("v1");
   });
 
   test("does not carry controller singletons between forks", () => {
-    const first = createFactoryCycleContainer({
+    const first = createFactoryCycleComposition({
       runtime: new FakeRuntime(),
       dependencies: deps,
     });
-    const second = createFactoryCycleContainer({
+    const second = createFactoryCycleComposition({
       runtime: new FakeRuntime(),
       dependencies: deps,
     });

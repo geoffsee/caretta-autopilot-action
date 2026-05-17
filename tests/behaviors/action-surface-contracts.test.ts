@@ -17,7 +17,9 @@ import {
 
 installGithubActionsMocks();
 
-const { main } = await import("../../src/main.js");
+const { main } = await import(
+  "../../src/presentation/github-action/controller.js"
+);
 
 /** Stable output names workflows may depend on — keep in sync with action.yaml if present. */
 const REQUIRED_STEP_OUTPUTS = [

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { filterAgentPRs, processAgentPRs } from "../src/pr-ci.js";
-import { DEFAULT_AGENT_BRANCH } from "../src/types.js";
+import { DEFAULT_AGENT_BRANCH } from "../packages/action-common/src/types.js";
+import { filterAgentPRs, processAgentPRs } from "../src/application/pr-ci.js";
 import { FakeGitHub, makeConfig, makePR } from "./fakes.js";
 
 describe("filterAgentPRs", () => {
@@ -43,7 +43,12 @@ describe("processAgentPRs", () => {
       setup: {
         runsByKey: {
           "ci.yml|any|agent/issue-2": [
-            { id: 99, headSha: "sha-2", status: "in_progress", conclusion: null },
+            {
+              id: 99,
+              headSha: "sha-2",
+              status: "in_progress",
+              conclusion: null,
+            },
           ],
         },
       },

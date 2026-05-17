@@ -1,5 +1,6 @@
 import { Component, Container } from "di-framework/decorators";
-import { ACTION_TOKENS } from "./di-container.js";
+import { ACTION_COMPONENTS } from "./action-composition.js";
+import type { ActionRuntime } from "./action-runtime.js";
 import type { ExecClient } from "./exec-client.js";
 import type { GitHubClient } from "./github-client.js";
 
@@ -24,9 +25,9 @@ export interface GitHubActionPorts {
 @Container({ singleton: false })
 export class GitHubActionPortFactory {
   constructor(
-    @Component(ACTION_TOKENS.githubContext)
+    @Component(ACTION_COMPONENTS.githubContext)
     private readonly githubContext: GithubActionContext,
-    @Component(ACTION_TOKENS.mainDependencies)
+    @Component(ACTION_COMPONENTS.mainDependencies)
     private readonly deps: GitHubPortDependencies,
   ) {}
 
@@ -61,10 +62,16 @@ export interface PreparedCarettaRuntime {
   readonly env: Record<string, string>;
 }
 
+export interface PreparedCarettaAction extends PreparedCarettaRuntime {
+  readonly token: string;
+  readonly gh: GitHubClient;
+  readonly exec: ExecClient;
+}
+
 @Container({ singleton: false })
 export class CarettaRuntimePreparer {
   constructor(
-    @Component(ACTION_TOKENS.mainDependencies)
+    @Component(ACTION_COMPONENTS.mainDependencies)
     private readonly deps: CarettaInstallDependencies,
   ) {}
 
@@ -89,4 +96,26 @@ export class CarettaRuntimePreparer {
 
     return { binaryPath, version, env };
   }
+}
+
+export function readCarettaRuntimeInputs(
+  runtime: ActionRuntime,
+): CarettaRuntimeInputs {
+  return {
+    token: runtime.getInput("github-token", { required: true }),
+    context: runtime.getInput("context") || "",
+    model: runtime.getInput("model") || "",
+    carettaVersion: runtime.getInput("caretta-version") || "latest",
+  };
+}
+
+export async function prepareCarettaAction(
+  inputs: CarettaRuntimeInputs,
+  ports: GitHubActionPortFactory,
+  carettaRuntime: CarettaRuntimePreparer,
+): Promise<PreparedCarettaAction> {
+  const { gh, exec } = ports.create(inputs.token);
+  const prepared = await carettaRuntime.prepare(inputs);
+
+  return { token: inputs.token, gh, exec, ...prepared };
 }

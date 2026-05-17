@@ -19156,19 +19156,23 @@ var init_action_runtime = __esm(() => {
   core = __toESM(require_core(), 1);
 });
 
-// ../action-common/src/di-container.ts
-function createActionContainer(tokens, defaults, options = {}) {
-  const container2 = useContainer().fork({ carrySingletons: false });
-  container2.registerFactory(tokens.actionRuntime, () => options.runtime ?? new GitHubActionsRuntime, { singleton: true });
-  container2.registerFactory(tokens.githubContext, () => options.githubContext ?? defaults.githubContext, { singleton: true });
-  container2.registerFactory(tokens.mainDependencies, () => options.dependencies ?? defaults.dependencies, { singleton: true });
-  return container2;
+// ../action-common/src/action-composition.ts
+function createActionComposition(defaults, options = {}) {
+  const composition = useContainer().fork({ carrySingletons: false });
+  composition.registerFactory(ACTION_COMPONENTS.actionRuntime, () => options.runtime ?? new GitHubActionsRuntime, { singleton: true });
+  composition.registerFactory(ACTION_COMPONENTS.githubContext, () => options.githubContext ?? defaults.githubContext, { singleton: true });
+  composition.registerFactory(ACTION_COMPONENTS.mainDependencies, () => options.dependencies ?? defaults.dependencies, { singleton: true });
+  return composition;
 }
-var ACTION_TOKENS;
-var init_di_container = __esm(() => {
+async function runComposedAction(composition, controller) {
+  const resolved = composition.resolve(controller);
+  await resolved.run();
+}
+var ACTION_COMPONENTS;
+var init_action_composition = __esm(() => {
   init_container();
   init_action_runtime();
-  ACTION_TOKENS = {
+  ACTION_COMPONENTS = {
     actionRuntime: "githubAction.actionRuntime",
     githubContext: "githubAction.githubContext",
     mainDependencies: "githubAction.mainDependencies"
@@ -19176,10 +19180,23 @@ var init_di_container = __esm(() => {
 });
 
 // ../action-common/src/action-services.ts
+function readCarettaRuntimeInputs(runtime) {
+  return {
+    token: runtime.getInput("github-token", { required: true }),
+    context: runtime.getInput("context") || "",
+    model: runtime.getInput("model") || "",
+    carettaVersion: runtime.getInput("caretta-version") || "latest"
+  };
+}
+async function prepareCarettaAction(inputs, ports, carettaRuntime) {
+  const { gh, exec } = ports.create(inputs.token);
+  const prepared = await carettaRuntime.prepare(inputs);
+  return { token: inputs.token, gh, exec, ...prepared };
+}
 var GitHubActionPortFactory, CarettaRuntimePreparer;
 var init_action_services = __esm(() => {
   init_decorators();
-  init_di_container();
+  init_action_composition();
   GitHubActionPortFactory = class GitHubActionPortFactory {
     githubContext;
     deps;
@@ -19197,8 +19214,8 @@ var init_action_services = __esm(() => {
   };
   GitHubActionPortFactory = __legacyDecorateClassTS([
     Container2({ singleton: false }),
-    __legacyDecorateParamTS(0, Component(ACTION_TOKENS.githubContext)),
-    __legacyDecorateParamTS(1, Component(ACTION_TOKENS.mainDependencies))
+    __legacyDecorateParamTS(0, Component(ACTION_COMPONENTS.githubContext)),
+    __legacyDecorateParamTS(1, Component(ACTION_COMPONENTS.mainDependencies))
   ], GitHubActionPortFactory);
   CarettaRuntimePreparer = class CarettaRuntimePreparer {
     deps;
@@ -19224,7 +19241,7 @@ var init_action_services = __esm(() => {
   };
   CarettaRuntimePreparer = __legacyDecorateClassTS([
     Container2({ singleton: false }),
-    __legacyDecorateParamTS(0, Component(ACTION_TOKENS.mainDependencies))
+    __legacyDecorateParamTS(0, Component(ACTION_COMPONENTS.mainDependencies))
   ], CarettaRuntimePreparer);
 });
 
@@ -44684,52 +44701,39 @@ var init_tracker_loop_runner = __esm(() => {
   DEFAULT_AGENT_BRANCH = /^agent\/issue-[0-9]+$/;
 });
 
-// src/composition/container.ts
-var exports_container = {};
-__export(exports_container, {
+// src/composition/root.ts
+var exports_root = {};
+__export(exports_root, {
   runWorkDispatchAction: () => runWorkDispatchAction,
-  createWorkDispatchContainer: () => createWorkDispatchContainer
+  createWorkDispatchComposition: () => createWorkDispatchComposition
 });
-function createWorkDispatchContainer(options = {}) {
-  return createActionContainer(ACTION_TOKENS, {
-    githubContext: github2.context,
-    dependencies: defaultTrackerLoopMainDeps
-  }, options);
+function createWorkDispatchComposition(options = {}) {
+  return createActionComposition({ githubContext: github2.context, dependencies: defaultTrackerLoopMainDeps }, options);
 }
 async function runWorkDispatchAction(options = {}) {
-  const container2 = createWorkDispatchContainer(options);
-  await container2.resolve(TrackerLoopActionController).run();
+  await runComposedAction(createWorkDispatchComposition(options), TrackerLoopActionController);
 }
 var github2;
-var init_container2 = __esm(() => {
-  init_di_container();
+var init_root = __esm(() => {
+  init_action_composition();
   init_controller();
   github2 = __toESM(require_github(), 1);
 });
 
 // src/presentation/github-action/controller.ts
 async function main(deps = defaultTrackerLoopMainDeps) {
-  const { runWorkDispatchAction: runWorkDispatchAction2 } = await Promise.resolve().then(() => (init_container2(), exports_container));
+  const { runWorkDispatchAction: runWorkDispatchAction2 } = await Promise.resolve().then(() => (init_root(), exports_root));
   await runWorkDispatchAction2({ dependencies: deps });
 }
 async function runWithRuntime(runtime, ports, carettaRuntime) {
-  const token = runtime.getInput("github-token", { required: true });
+  const carettaInputs = readCarettaRuntimeInputs(runtime);
   const tracker = runtime.getInput("tracker", { required: true });
-  const context2 = runtime.getInput("context") || "";
-  const model = runtime.getInput("model") || "";
-  const carettaVersion = runtime.getInput("caretta-version") || "latest";
   const agent = runtime.getInput("agent") || "claude";
   const testCheckName = runtime.getInput("test-check-name") || DEFAULT_TEST_CHECK_NAME;
   const agentBranchPatternInput = runtime.getInput("agent-branch-pattern") || DEFAULT_AGENT_BRANCH.source;
   const agentBranchPattern = new RegExp(agentBranchPatternInput);
   const ciTimeoutMinutes = parseTimeoutMinutes(runtime.getInput("ci-timeout-minutes") || String(DEFAULT_CI_TIMEOUT_MINUTES));
-  const { gh, exec: exec2 } = ports.create(token);
-  const { binaryPath, version, env } = await carettaRuntime.prepare({
-    token,
-    carettaVersion,
-    context: context2,
-    model
-  });
+  const { gh, exec: exec2, binaryPath, version, env } = await prepareCarettaAction(carettaInputs, ports, carettaRuntime);
   const runner = new TrackerLoopRunner(binaryPath, env, exec2, gh, {
     tracker,
     agent,
@@ -44746,9 +44750,9 @@ async function runWithRuntime(runtime, ports, carettaRuntime) {
 var defaultTrackerLoopMainDeps, TrackerLoopActionController;
 var init_controller = __esm(() => {
   init_decorators();
+  init_action_composition();
   init_action_services();
   init_caretta_install();
-  init_di_container();
   init_exec_client();
   init_github_client();
   init_tracker_loop_runner();
@@ -44774,22 +44778,18 @@ var init_controller = __esm(() => {
   };
   TrackerLoopActionController = __legacyDecorateClassTS([
     Container2({ singleton: false }),
-    __legacyDecorateParamTS(0, Component(ACTION_TOKENS.actionRuntime)),
+    __legacyDecorateParamTS(0, Component(ACTION_COMPONENTS.actionRuntime)),
     __legacyDecorateParamTS(1, Component(GitHubActionPortFactory)),
     __legacyDecorateParamTS(2, Component(CarettaRuntimePreparer))
   ], TrackerLoopActionController);
 });
 
 // src/index.ts
-var core5 = __toESM(require_core(), 1);
-
-// src/main.ts
 init_controller();
-
-// src/index.ts
+var core5 = __toESM(require_core(), 1);
 main().catch((error) => {
   const message = error instanceof Error ? error.message : String(error);
   core5.setFailed(message);
 });
 
-//# debugId=F1DA8A7E93A6951664756E2164756E21
+//# debugId=D562CF682AB503EB64756E2164756E21

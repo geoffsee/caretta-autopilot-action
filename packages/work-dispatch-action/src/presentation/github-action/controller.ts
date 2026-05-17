@@ -1,17 +1,19 @@
 import { Component, Container } from "di-framework/decorators";
+import { ACTION_COMPONENTS } from "../../../../action-common/src/action-composition.js";
 import type { ActionRuntime } from "../../../../action-common/src/action-runtime.js";
 import {
   type CarettaInstallDependencies,
   CarettaRuntimePreparer,
   GitHubActionPortFactory,
   type GitHubPortDependencies,
+  prepareCarettaAction,
+  readCarettaRuntimeInputs,
 } from "../../../../action-common/src/action-services.js";
 import {
   installCaretta,
   installLinuxRuntimeDeps,
   materializeBotPrivateKey,
 } from "../../../../action-common/src/caretta-install.js";
-import { ACTION_TOKENS } from "../../../../action-common/src/di-container.js";
 import { DefaultExecClient } from "../../../../action-common/src/exec-client.js";
 import { createOctokitClient } from "../../../../action-common/src/github-client.js";
 import {
@@ -37,7 +39,7 @@ export const defaultTrackerLoopMainDeps: TrackerLoopMainDeps = {
 @Container({ singleton: false })
 export class TrackerLoopActionController {
   constructor(
-    @Component(ACTION_TOKENS.actionRuntime)
+    @Component(ACTION_COMPONENTS.actionRuntime)
     private readonly runtime: ActionRuntime,
     @Component(GitHubActionPortFactory)
     private readonly ports: GitHubActionPortFactory,
@@ -53,9 +55,7 @@ export class TrackerLoopActionController {
 export async function main(
   deps: TrackerLoopMainDeps = defaultTrackerLoopMainDeps,
 ): Promise<void> {
-  const { runWorkDispatchAction } = await import(
-    "../../composition/container.js"
-  );
+  const { runWorkDispatchAction } = await import("../../composition/root.js");
   await runWorkDispatchAction({ dependencies: deps });
 }
 
@@ -64,11 +64,8 @@ async function runWithRuntime(
   ports: GitHubActionPortFactory,
   carettaRuntime: CarettaRuntimePreparer,
 ): Promise<void> {
-  const token = runtime.getInput("github-token", { required: true });
+  const carettaInputs = readCarettaRuntimeInputs(runtime);
   const tracker = runtime.getInput("tracker", { required: true });
-  const context = runtime.getInput("context") || "";
-  const model = runtime.getInput("model") || "";
-  const carettaVersion = runtime.getInput("caretta-version") || "latest";
   const agent = runtime.getInput("agent") || "claude";
   const testCheckName =
     runtime.getInput("test-check-name") || DEFAULT_TEST_CHECK_NAME;
@@ -82,13 +79,11 @@ async function runWithRuntime(
       String(DEFAULT_CI_TIMEOUT_MINUTES),
   );
 
-  const { gh, exec } = ports.create(token);
-  const { binaryPath, version, env } = await carettaRuntime.prepare({
-    token,
-    carettaVersion,
-    context,
-    model,
-  });
+  const { gh, exec, binaryPath, version, env } = await prepareCarettaAction(
+    carettaInputs,
+    ports,
+    carettaRuntime,
+  );
 
   const runner = new TrackerLoopRunner(binaryPath, env, exec, gh, {
     tracker,

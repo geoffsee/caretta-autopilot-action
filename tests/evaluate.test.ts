@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { countStalePRs, evaluate, findActiveSprint } from "../src/evaluate.js";
+import {
+  countStalePRs,
+  evaluate,
+  findActiveSprint,
+} from "../src/domain/evaluate.js";
 import { makeIssue, makePR } from "./fakes.js";
 
 describe("findActiveSprint", () => {

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { decideTrigger } from "../src/trigger.js";
+import { decideTrigger } from "../src/domain/trigger.js";
 
 describe("decideTrigger", () => {
   test("schedule always runs", () => {
@@ -156,9 +156,9 @@ describe("decideTrigger", () => {
   });
 
   test("malformed payloads are tolerated", () => {
-    expect(
-      decideTrigger({ eventName: "pull_request", payload: {} }).run,
-    ).toBe(false);
+    expect(decideTrigger({ eventName: "pull_request", payload: {} }).run).toBe(
+      false,
+    );
     expect(
       decideTrigger({
         eventName: "workflow_run",

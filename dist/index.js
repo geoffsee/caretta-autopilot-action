@@ -19156,19 +19156,23 @@ var init_action_runtime = __esm(() => {
   core = __toESM(require_core(), 1);
 });
 
-// packages/action-common/src/di-container.ts
-function createActionContainer(tokens, defaults, options = {}) {
-  const container2 = useContainer().fork({ carrySingletons: false });
-  container2.registerFactory(tokens.actionRuntime, () => options.runtime ?? new GitHubActionsRuntime, { singleton: true });
-  container2.registerFactory(tokens.githubContext, () => options.githubContext ?? defaults.githubContext, { singleton: true });
-  container2.registerFactory(tokens.mainDependencies, () => options.dependencies ?? defaults.dependencies, { singleton: true });
-  return container2;
+// packages/action-common/src/action-composition.ts
+function createActionComposition(defaults, options = {}) {
+  const composition = useContainer().fork({ carrySingletons: false });
+  composition.registerFactory(ACTION_COMPONENTS.actionRuntime, () => options.runtime ?? new GitHubActionsRuntime, { singleton: true });
+  composition.registerFactory(ACTION_COMPONENTS.githubContext, () => options.githubContext ?? defaults.githubContext, { singleton: true });
+  composition.registerFactory(ACTION_COMPONENTS.mainDependencies, () => options.dependencies ?? defaults.dependencies, { singleton: true });
+  return composition;
 }
-var ACTION_TOKENS;
-var init_di_container = __esm(() => {
+async function runComposedAction(composition, controller) {
+  const resolved = composition.resolve(controller);
+  await resolved.run();
+}
+var ACTION_COMPONENTS;
+var init_action_composition = __esm(() => {
   init_container();
   init_action_runtime();
-  ACTION_TOKENS = {
+  ACTION_COMPONENTS = {
     actionRuntime: "githubAction.actionRuntime",
     githubContext: "githubAction.githubContext",
     mainDependencies: "githubAction.mainDependencies"
@@ -19179,7 +19183,7 @@ var init_di_container = __esm(() => {
 var GitHubActionPortFactory, CarettaRuntimePreparer;
 var init_action_services = __esm(() => {
   init_decorators();
-  init_di_container();
+  init_action_composition();
   GitHubActionPortFactory = class GitHubActionPortFactory {
     githubContext;
     deps;
@@ -19197,8 +19201,8 @@ var init_action_services = __esm(() => {
   };
   GitHubActionPortFactory = __legacyDecorateClassTS([
     Container2({ singleton: false }),
-    __legacyDecorateParamTS(0, Component(ACTION_TOKENS.githubContext)),
-    __legacyDecorateParamTS(1, Component(ACTION_TOKENS.mainDependencies))
+    __legacyDecorateParamTS(0, Component(ACTION_COMPONENTS.githubContext)),
+    __legacyDecorateParamTS(1, Component(ACTION_COMPONENTS.mainDependencies))
   ], GitHubActionPortFactory);
   CarettaRuntimePreparer = class CarettaRuntimePreparer {
     deps;
@@ -19224,7 +19228,7 @@ var init_action_services = __esm(() => {
   };
   CarettaRuntimePreparer = __legacyDecorateClassTS([
     Container2({ singleton: false }),
-    __legacyDecorateParamTS(0, Component(ACTION_TOKENS.mainDependencies))
+    __legacyDecorateParamTS(0, Component(ACTION_COMPONENTS.mainDependencies))
   ], CarettaRuntimePreparer);
 });
 
@@ -45324,33 +45328,28 @@ function prMerged(payload) {
 }
 var DEFAULT_AGENT_BRANCH_PREFIX = "agent/issue-";
 
-// src/composition/container.ts
-var exports_container = {};
-__export(exports_container, {
+// src/composition/root.ts
+var exports_root = {};
+__export(exports_root, {
   runAutopilotAction: () => runAutopilotAction,
-  createAutopilotContainer: () => createAutopilotContainer
+  createAutopilotComposition: () => createAutopilotComposition
 });
-function createAutopilotContainer(options = {}) {
-  return createActionContainer(ACTION_TOKENS, {
-    githubContext: github2.context,
-    dependencies: defaultDependencies
-  }, options);
+function createAutopilotComposition(options = {}) {
+  return createActionComposition({ githubContext: github2.context, dependencies: defaultDependencies }, options);
 }
 async function runAutopilotAction(options = {}) {
-  const container2 = createAutopilotContainer(options);
-  const controller = container2.resolve(AutopilotActionController);
-  await controller.run();
+  await runComposedAction(createAutopilotComposition(options), AutopilotActionController);
 }
 var github2;
-var init_container2 = __esm(() => {
-  init_di_container();
+var init_root = __esm(() => {
+  init_action_composition();
   init_controller();
   github2 = __toESM(require_github(), 1);
 });
 
 // src/presentation/github-action/controller.ts
 async function main(deps = defaultDependencies) {
-  const { runAutopilotAction: runAutopilotAction2 } = await Promise.resolve().then(() => (init_container2(), exports_container));
+  const { runAutopilotAction: runAutopilotAction2 } = await Promise.resolve().then(() => (init_root(), exports_root));
   await runAutopilotAction2({ dependencies: deps });
 }
 async function runWithRuntime(runtime, ctx, deps, ports) {
@@ -45412,8 +45411,8 @@ _${trigger.reason}_
 var defaultDependencies, AutopilotActionController;
 var init_controller = __esm(() => {
   init_decorators();
+  init_action_composition();
   init_action_services();
-  init_di_container();
   init_exec_client();
   init_github_client();
   init_types();
@@ -45440,23 +45439,19 @@ var init_controller = __esm(() => {
   };
   AutopilotActionController = __legacyDecorateClassTS([
     Container2({ singleton: false }),
-    __legacyDecorateParamTS(0, Component(ACTION_TOKENS.actionRuntime)),
-    __legacyDecorateParamTS(1, Component(ACTION_TOKENS.githubContext)),
-    __legacyDecorateParamTS(2, Component(ACTION_TOKENS.mainDependencies)),
+    __legacyDecorateParamTS(0, Component(ACTION_COMPONENTS.actionRuntime)),
+    __legacyDecorateParamTS(1, Component(ACTION_COMPONENTS.githubContext)),
+    __legacyDecorateParamTS(2, Component(ACTION_COMPONENTS.mainDependencies)),
     __legacyDecorateParamTS(3, Component(GitHubActionPortFactory))
   ], AutopilotActionController);
 });
 
 // src/index.ts
-var core9 = __toESM(require_core(), 1);
-
-// src/main.ts
 init_controller();
-
-// src/index.ts
-main().catch((err) => {
-  const msg = err instanceof Error ? err.message : String(err);
-  core9.setFailed(msg);
+var core9 = __toESM(require_core(), 1);
+main().catch((error) => {
+  const message = error instanceof Error ? error.message : String(error);
+  core9.setFailed(message);
 });
 
-//# debugId=535B13364B695E5A64756E2164756E21
+//# debugId=0DF97E67DBEDC03B64756E2164756E21

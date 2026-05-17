@@ -4,7 +4,7 @@ import {
   parseClosingIssueNumbers,
   selectCloseCandidates,
   updateTrackerChecklist,
-} from "../src/close-on-merge.js";
+} from "../src/application/close-on-merge.js";
 import { FakeGitHub, makeMergedPR } from "./fakes.js";
 
 describe("parseClosingIssueNumbers", () => {

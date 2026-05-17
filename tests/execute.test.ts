@@ -1,6 +1,9 @@
 import { beforeEach, describe, expect, test } from "bun:test";
-import { type ExecuteDeps, executeAutopilot } from "../src/execute.js";
-import type { EvaluationResult } from "../src/types.js";
+import type { EvaluationResult } from "../packages/action-common/src/types.js";
+import {
+  type ExecuteDeps,
+  executeAutopilot,
+} from "../src/application/execute-autopilot.js";
 import {
   FakeExec,
   FakeGitHub,
@@ -203,7 +206,13 @@ describe("executeAutopilot", () => {
     });
     exec.stdout = JSON.stringify([301]);
 
-    await executeAutopilot(gh, exec, makeConfig({ enableDispatch: false }), workEval, fakeInstallDeps);
+    await executeAutopilot(
+      gh,
+      exec,
+      makeConfig({ enableDispatch: false }),
+      workEval,
+      fakeInstallDeps,
+    );
 
     expect(exec.calls.some((c) => c.args.includes("code-review"))).toBe(true);
     expect(exec.calls.some((c) => c.args.includes("fix-pr"))).toBe(true);
@@ -211,7 +220,13 @@ describe("executeAutopilot", () => {
 
   test("work dispatch does not skip code-review/fix-pr if CI failed, even if a valid review exists", async () => {
     const gh = new FakeGitHub({
-      prs: [makePR({ number: 302, headRefName: "agent/issue-302", headRefOid: "sha-302" })],
+      prs: [
+        makePR({
+          number: 302,
+          headRefName: "agent/issue-302",
+          headRefOid: "sha-302",
+        }),
+      ],
       checksBySha: {
         "sha-302": [
           {
@@ -236,7 +251,13 @@ describe("executeAutopilot", () => {
     });
     exec.stdout = JSON.stringify([302]);
 
-    await executeAutopilot(gh, exec, makeConfig({ enableDispatch: false }), workEval, fakeInstallDeps);
+    await executeAutopilot(
+      gh,
+      exec,
+      makeConfig({ enableDispatch: false }),
+      workEval,
+      fakeInstallDeps,
+    );
 
     expect(exec.calls.some((c) => c.args.includes("code-review"))).toBe(true);
     expect(exec.calls.some((c) => c.args.includes("fix-pr"))).toBe(true);
@@ -244,7 +265,13 @@ describe("executeAutopilot", () => {
 
   test("runCiGate waits if ANY check is active, even if a completed one exists", async () => {
     const gh = new FakeGitHub({
-      prs: [makePR({ number: 304, headRefName: "agent/issue-304", headRefOid: "sha-304" })],
+      prs: [
+        makePR({
+          number: 304,
+          headRefName: "agent/issue-304",
+          headRefOid: "sha-304",
+        }),
+      ],
       checksBySha: {
         "sha-304": [
           {
@@ -274,7 +301,13 @@ describe("executeAutopilot", () => {
       ciGateIntervalMs: 10,
     };
 
-    await executeAutopilot(gh, exec, makeConfig(), workEval, depsWithShortTimeout);
+    await executeAutopilot(
+      gh,
+      exec,
+      makeConfig(),
+      workEval,
+      depsWithShortTimeout,
+    );
     const duration = Date.now() - start;
 
     expect(duration).toBeGreaterThanOrEqual(100);
@@ -285,7 +318,13 @@ describe("executeAutopilot", () => {
 
   test("runCiGate synchronizes background workflow completion to PR status", async () => {
     const gh = new FakeGitHub({
-      prs: [makePR({ number: 305, headRefName: "agent/issue-305", headRefOid: "sha-305" })],
+      prs: [
+        makePR({
+          number: 305,
+          headRefName: "agent/issue-305",
+          headRefOid: "sha-305",
+        }),
+      ],
       checksBySha: {
         "sha-305": [
           {
@@ -299,7 +338,12 @@ describe("executeAutopilot", () => {
       },
       runsByKey: {
         "ci.yml|any|agent/issue-305": [
-          { id: 999, headSha: "sha-305", status: "completed", conclusion: "success" },
+          {
+            id: 999,
+            headSha: "sha-305",
+            status: "completed",
+            conclusion: "success",
+          },
         ],
       },
     });
@@ -317,17 +361,27 @@ describe("executeAutopilot", () => {
     // Verify that the autopilot called createCommitStatus exactly twice:
     // 1. Initial pending status from dispatchMissingCi
     // 2. Success status from synchronization in runCiGate loop
-    const shaStatuses = gh.createdStatuses.filter((s) => s.sha === "sha-305" && s.context === "Test");
+    const shaStatuses = gh.createdStatuses.filter(
+      (s) => s.sha === "sha-305" && s.context === "Test",
+    );
     expect(shaStatuses).toHaveLength(2);
-    
+
     expect(shaStatuses[0].state).toBe("pending");
     expect(shaStatuses[1].state).toBe("success");
-    expect(shaStatuses[1].description).toContain("Autopilot synchronized from run 999");
+    expect(shaStatuses[1].description).toContain(
+      "Autopilot synchronized from run 999",
+    );
   });
 
   test("work dispatch skips code-review/fix-pr if a valid review exists for the current SHA", async () => {
     const gh = new FakeGitHub({
-      prs: [makePR({ number: 302, headRefName: "agent/issue-302", headRefOid: "sha-302" })],
+      prs: [
+        makePR({
+          number: 302,
+          headRefName: "agent/issue-302",
+          headRefOid: "sha-302",
+        }),
+      ],
       checksBySha: {
         "sha-302": [
           {
@@ -357,13 +411,21 @@ describe("executeAutopilot", () => {
     expect(exec.calls.some((c) => c.args.includes("code-review"))).toBe(false);
     expect(exec.calls.some((c) => c.args.includes("fix-pr"))).toBe(false);
 
-    const syncCalls = exec.calls.filter((c) => c.args.includes("--sync-branches"));
+    const syncCalls = exec.calls.filter((c) =>
+      c.args.includes("--sync-branches"),
+    );
     expect(syncCalls.length).toBe(1); // Only the pre-review sync should run
   });
 
   test("work dispatch does not skip code-review/fix-pr if the existing review is DISMISSED", async () => {
     const gh = new FakeGitHub({
-      prs: [makePR({ number: 303, headRefName: "agent/issue-303", headRefOid: "sha-303" })],
+      prs: [
+        makePR({
+          number: 303,
+          headRefName: "agent/issue-303",
+          headRefOid: "sha-303",
+        }),
+      ],
       checksBySha: {
         "sha-303": [
           {

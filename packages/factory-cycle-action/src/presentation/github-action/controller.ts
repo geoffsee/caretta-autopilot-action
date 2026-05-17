@@ -1,17 +1,19 @@
 import { Component, Container } from "di-framework/decorators";
+import { ACTION_COMPONENTS } from "../../../../action-common/src/action-composition.js";
 import type { ActionRuntime } from "../../../../action-common/src/action-runtime.js";
 import {
   type CarettaInstallDependencies,
   CarettaRuntimePreparer,
   GitHubActionPortFactory,
   type GitHubPortDependencies,
+  prepareCarettaAction,
+  readCarettaRuntimeInputs,
 } from "../../../../action-common/src/action-services.js";
 import {
   installCaretta,
   installLinuxRuntimeDeps,
   materializeBotPrivateKey,
 } from "../../../../action-common/src/caretta-install.js";
-import { ACTION_TOKENS } from "../../../../action-common/src/di-container.js";
 import { DefaultExecClient } from "../../../../action-common/src/exec-client.js";
 import { createOctokitClient } from "../../../../action-common/src/github-client.js";
 import { FactoryCycleRunner } from "../../application/factory-cycle-runner.js";
@@ -31,7 +33,7 @@ export const defaultFactoryCycleMainDeps: FactoryCycleMainDeps = {
 @Container({ singleton: false })
 export class FactoryCycleActionController {
   constructor(
-    @Component(ACTION_TOKENS.actionRuntime)
+    @Component(ACTION_COMPONENTS.actionRuntime)
     private readonly runtime: ActionRuntime,
     @Component(GitHubActionPortFactory)
     private readonly ports: GitHubActionPortFactory,
@@ -47,9 +49,7 @@ export class FactoryCycleActionController {
 export async function main(
   deps: FactoryCycleMainDeps = defaultFactoryCycleMainDeps,
 ): Promise<void> {
-  const { runFactoryCycleAction } = await import(
-    "../../composition/container.js"
-  );
+  const { runFactoryCycleAction } = await import("../../composition/root.js");
   await runFactoryCycleAction({ dependencies: deps });
 }
 
@@ -58,19 +58,14 @@ async function runWithRuntime(
   ports: GitHubActionPortFactory,
   carettaRuntime: CarettaRuntimePreparer,
 ): Promise<void> {
-  const token = runtime.getInput("github-token", { required: true });
-  const context = runtime.getInput("context") || "";
-  const model = runtime.getInput("model") || "";
-  const carettaVersion = runtime.getInput("caretta-version") || "latest";
+  const carettaInputs = readCarettaRuntimeInputs(runtime);
   const agent = runtime.getInput("agent") || "claude";
 
-  const { gh, exec } = ports.create(token);
-  const { binaryPath, version, env } = await carettaRuntime.prepare({
-    token,
-    carettaVersion,
-    context,
-    model,
-  });
+  const { gh, exec, binaryPath, version, env } = await prepareCarettaAction(
+    carettaInputs,
+    ports,
+    carettaRuntime,
+  );
 
   const runner = new FactoryCycleRunner(binaryPath, env, exec, gh, agent);
   const result = await runner.runFactoryCycle();

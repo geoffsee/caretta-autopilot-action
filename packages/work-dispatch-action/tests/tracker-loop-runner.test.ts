@@ -1,18 +1,18 @@
 import { describe, expect, test } from "bun:test";
 import type * as actionsExec from "@actions/exec";
-import type { ExecClient } from "../src/exec.js";
-import type { GitHubClient } from "../src/github.js";
-import {
-  DEFAULT_CI_TIMEOUT_MINUTES,
-  parseTimeoutMinutes,
-  TrackerLoopRunner,
-} from "../src/tracker-loop-runner.js";
+import type { ExecClient } from "../../action-common/src/exec-client.js";
+import type { GitHubClient } from "../../action-common/src/github-client.js";
 import type {
   CheckRun,
   Issue,
   PullRequest,
   WorkflowRun,
-} from "../src/types.js";
+} from "../../action-common/src/types.js";
+import {
+  DEFAULT_CI_TIMEOUT_MINUTES,
+  parseTimeoutMinutes,
+  TrackerLoopRunner,
+} from "../src/application/tracker-loop-runner.js";
 
 interface ExecCall {
   readonly kind: "exec" | "getExecOutput";

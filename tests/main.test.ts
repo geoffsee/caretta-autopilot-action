@@ -1,13 +1,22 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
-import { DefaultExecClient, type ExecClient } from "../src/exec.js";
-import { createOctokitClient, type GitHubClient } from "../src/github.js";
-import { type AutopilotRunResult, runAutopilot } from "../src/run.js";
+import {
+  DefaultExecClient,
+  type ExecClient,
+} from "../packages/action-common/src/exec-client.js";
+import {
+  createOctokitClient,
+  type GitHubClient,
+} from "../packages/action-common/src/github-client.js";
 import type {
   AutopilotConfig,
   AutopilotDecision,
   EvaluationResult,
   PrCiResult,
-} from "../src/types.js";
+} from "../packages/action-common/src/types.js";
+import {
+  type AutopilotRunResult,
+  runAutopilot,
+} from "../src/application/run-autopilot.js";
 
 interface CoreState {
   inputs: Record<string, string>;
@@ -80,7 +89,9 @@ mock.module("@actions/github", () => ({
   context: mockContext,
 }));
 
-const { main, defaultDependencies } = await import("../src/main.js");
+const { main, defaultDependencies } = await import(
+  "../src/presentation/github-action/controller.js"
+);
 
 function makeEvaluation(
   overrides: Partial<EvaluationResult> = {},

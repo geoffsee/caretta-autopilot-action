@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, test } from "bun:test";
-import type { ExecuteDeps } from "../src/execute.js";
-import { runAutopilot } from "../src/run.js";
+import type { ExecuteDeps } from "../src/application/execute-autopilot.js";
+import { runAutopilot } from "../src/application/run-autopilot.js";
 import {
   FakeExec,
   FakeGitHub,

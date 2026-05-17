@@ -1,6 +1,6 @@
 import type * as exec from "@actions/exec";
-import type { ExecClient } from "../src/exec.js";
-import type { GitHubClient } from "../src/github.js";
+import type { ExecClient } from "../packages/action-common/src/exec-client.js";
+import type { GitHubClient } from "../packages/action-common/src/github-client.js";
 import type {
   CheckRun,
   Issue,
@@ -8,7 +8,7 @@ import type {
   PullRequest,
   PullRequestReview,
   WorkflowRun,
-} from "../src/types.js";
+} from "../packages/action-common/src/types.js";
 
 export interface ExecCall {
   command: string;
@@ -144,25 +144,32 @@ export class FakeGitHub implements GitHubClient {
 
   async listCheckRuns(sha: string): Promise<CheckRun[]> {
     const results = [...(this.data.checksBySha?.[sha] ?? [])];
-    
+
     // Add manually created statuses with increasing timestamps
     let offset = 0;
-    for (const s of this.createdStatuses.filter(st => st.sha === sha)) {
+    for (const s of this.createdStatuses.filter((st) => st.sha === sha)) {
       offset += 1000; // +1 second for each status
-      const time = new Date(new Date("2026-01-01T00:00:00Z").getTime() + offset).toISOString();
+      const time = new Date(
+        new Date("2026-01-01T00:00:00Z").getTime() + offset,
+      ).toISOString();
       results.push({
         name: s.context,
         status: s.state === "pending" ? "in_progress" : "completed",
-        conclusion: s.state === "pending" ? null : s.state as CheckRun["conclusion"],
+        conclusion:
+          s.state === "pending" ? null : (s.state as CheckRun["conclusion"]),
         startedAt: time,
         createdAt: time,
       });
     }
-    
+
     return results;
   }
 
-  async listReviews(pullNumber: number): Promise<import("../src/types.js").PullRequestReview[]> {
+  async listReviews(
+    pullNumber: number,
+  ): Promise<
+    import("../packages/action-common/src/types.js").PullRequestReview[]
+  > {
     return [...(this.data.reviewsByPr?.[pullNumber] ?? [])];
   }
 
@@ -234,8 +241,10 @@ export function makeMergedPR(
 }
 
 export function makeConfig(
-  overrides: Partial<import("../src/types.js").AutopilotConfig> = {},
-): import("../src/types.js").AutopilotConfig {
+  overrides: Partial<
+    import("../packages/action-common/src/types.js").AutopilotConfig
+  > = {},
+): import("../packages/action-common/src/types.js").AutopilotConfig {
   return {
     carettaVersion: "latest",
     agent: "claude",

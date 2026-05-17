@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { ConflictResolver } from "../src/conflict-resolver.js";
-import type { GitHubClient } from "../src/github.js";
-import type { PullRequest } from "../src/types.js";
+import type { GitHubClient } from "../packages/action-common/src/github-client.js";
+import type { PullRequest } from "../packages/action-common/src/types.js";
+import { ConflictResolver } from "../src/application/conflict-resolver.js";
 import { FakeExec, FakeGitHub, makeConfig, makePR } from "./fakes.js";
 
 interface Harness {

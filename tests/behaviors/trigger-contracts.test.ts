@@ -3,7 +3,7 @@
  * Contract IDs are defined in `contract-registry.ts`.
  */
 import { describe, expect, test } from "bun:test";
-import { decideTrigger } from "../../src/trigger.js";
+import { decideTrigger } from "../../src/domain/trigger.js";
 
 describe("trigger behavior contracts", () => {
   test("AP-TR-001: schedule always runs", () => {

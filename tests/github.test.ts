@@ -5,7 +5,7 @@ type AnyMock = Mock<(...args: any[]) => any>;
 
 import { describe, expect, it, mock } from "bun:test";
 import * as github from "@actions/github";
-import { createOctokitClient } from "../src/github.js";
+import { createOctokitClient } from "../packages/action-common/src/github-client.js";
 
 mock.module("@actions/github", () => ({
   getOctokit: mock(),
@@ -173,11 +173,13 @@ describe("OctokitClient", () => {
       ref: "sha-123",
       per_page: 100,
     });
-    expect(mockOctokit.rest.repos.getCombinedStatusForRef).toHaveBeenCalledWith({
-      owner,
-      repo,
-      ref: "sha-123",
-    });
+    expect(mockOctokit.rest.repos.getCombinedStatusForRef).toHaveBeenCalledWith(
+      {
+        owner,
+        repo,
+        ref: "sha-123",
+      },
+    );
   });
 
   it("dispatchWorkflow calls createWorkflowDispatch", async () => {

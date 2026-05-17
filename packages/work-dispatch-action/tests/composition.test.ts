@@ -3,13 +3,13 @@ import type {
   ActionRuntime,
   SummaryWriter,
 } from "../../action-common/src/action-runtime.js";
-import { createWorkDispatchContainer } from "../src/composition/container.js";
-import type { ExecClient } from "../src/exec.js";
-import type { GitHubClient } from "../src/github.js";
+import type { ExecClient } from "../../action-common/src/exec-client.js";
+import type { GitHubClient } from "../../action-common/src/github-client.js";
+import { createWorkDispatchComposition } from "../src/composition/root.js";
 import {
   TrackerLoopActionController,
   type TrackerLoopMainDeps,
-} from "../src/main.js";
+} from "../src/presentation/github-action/controller.js";
 
 class FakeSummary implements SummaryWriter {
   addRaw(): SummaryWriter {
@@ -97,24 +97,24 @@ const deps: TrackerLoopMainDeps = {
 describe("work-dispatch composition", () => {
   test("resolves the controller with fake ports", async () => {
     const runtime = new FakeRuntime();
-    const container = createWorkDispatchContainer({
+    const composition = createWorkDispatchComposition({
       runtime,
       githubContext: { repo: { owner: "o", repo: "r" } },
       dependencies: deps,
     });
 
-    await container.resolve(TrackerLoopActionController).run();
+    await composition.resolve(TrackerLoopActionController).run();
 
     expect(runtime.outputs.tracker).toBe("7");
     expect(runtime.outputs.caretta_version).toBe("v1");
   });
 
   test("does not carry controller singletons between forks", () => {
-    const first = createWorkDispatchContainer({
+    const first = createWorkDispatchComposition({
       runtime: new FakeRuntime(),
       dependencies: deps,
     });
-    const second = createWorkDispatchContainer({
+    const second = createWorkDispatchComposition({
       runtime: new FakeRuntime(),
       dependencies: deps,
     });

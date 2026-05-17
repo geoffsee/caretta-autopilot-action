@@ -1,17 +1,17 @@
 import { describe, expect, test } from "bun:test";
 import type * as actionsExec from "@actions/exec";
-import type { ExecClient } from "../src/exec.js";
-import {
-  FactoryCycleRunner,
-  findOpenSprint,
-} from "../src/factory-cycle-runner.js";
-import type { GitHubClient } from "../src/github.js";
+import type { ExecClient } from "../../action-common/src/exec-client.js";
+import type { GitHubClient } from "../../action-common/src/github-client.js";
 import type {
   CheckRun,
   Issue,
   PullRequest,
   WorkflowRun,
-} from "../src/types.js";
+} from "../../action-common/src/types.js";
+import {
+  FactoryCycleRunner,
+  findOpenSprint,
+} from "../src/application/factory-cycle-runner.js";
 
 interface ExecCall {
   readonly commandLine: string;

@@ -2,9 +2,9 @@
  * Behavior contract suite: evaluation routing and sprint selection.
  */
 import { describe, expect, test } from "bun:test";
-import { evaluate, findActiveSprint } from "../../src/evaluate.js";
-import type { Issue } from "../../src/types.js";
-import { DEFAULT_AGENT_BRANCH } from "../../src/types.js";
+import type { Issue } from "../../packages/action-common/src/types.js";
+import { DEFAULT_AGENT_BRANCH } from "../../packages/action-common/src/types.js";
+import { evaluate, findActiveSprint } from "../../src/domain/evaluate.js";
 
 function issue(n: number, labels: string[], updatedAt: string): Issue {
   return {

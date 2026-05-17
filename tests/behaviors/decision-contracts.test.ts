@@ -2,8 +2,8 @@
  * Behavior contract suite: execution gating (`decideExecution` / `computeHoldTarget`).
  */
 import { describe, expect, test } from "bun:test";
-import { computeHoldTarget, decideExecution } from "../../src/decide.js";
-import type { PrCiResult } from "../../src/types.js";
+import type { PrCiResult } from "../../packages/action-common/src/types.js";
+import { computeHoldTarget, decideExecution } from "../../src/domain/decide.js";
 import { makeConfig } from "../fakes.js";
 
 function prci(overrides: Partial<PrCiResult> = {}): PrCiResult {

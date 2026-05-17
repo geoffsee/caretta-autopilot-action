@@ -1,11 +1,11 @@
 import { Component, Container } from "di-framework/decorators";
+import { ACTION_COMPONENTS } from "../../../packages/action-common/src/action-composition.js";
 import type { ActionRuntime } from "../../../packages/action-common/src/action-runtime.js";
 import {
   GitHubActionPortFactory,
   type GitHubPortDependencies,
   type GithubActionContext,
 } from "../../../packages/action-common/src/action-services.js";
-import { ACTION_TOKENS } from "../../../packages/action-common/src/di-container.js";
 import type { ExecClient } from "../../../packages/action-common/src/exec-client.js";
 import { DefaultExecClient } from "../../../packages/action-common/src/exec-client.js";
 import type { GitHubClient } from "../../../packages/action-common/src/github-client.js";
@@ -43,11 +43,11 @@ export interface AutopilotGithubActionContext extends GithubActionContext {
 @Container({ singleton: false })
 export class AutopilotActionController {
   constructor(
-    @Component(ACTION_TOKENS.actionRuntime)
+    @Component(ACTION_COMPONENTS.actionRuntime)
     private readonly runtime: ActionRuntime,
-    @Component(ACTION_TOKENS.githubContext)
+    @Component(ACTION_COMPONENTS.githubContext)
     private readonly githubContext: AutopilotGithubActionContext,
-    @Component(ACTION_TOKENS.mainDependencies)
+    @Component(ACTION_COMPONENTS.mainDependencies)
     private readonly deps: MainDependencies,
     @Component(GitHubActionPortFactory)
     private readonly ports: GitHubActionPortFactory,
@@ -66,7 +66,7 @@ export class AutopilotActionController {
 export async function main(
   deps: MainDependencies = defaultDependencies,
 ): Promise<void> {
-  const { runAutopilotAction } = await import("../../composition/container.js");
+  const { runAutopilotAction } = await import("../../composition/root.js");
   await runAutopilotAction({ dependencies: deps });
 }
 

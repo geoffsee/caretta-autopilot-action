@@ -1,7 +1,7 @@
 import * as core from "@actions/core";
-import { main } from "./main.js";
+import { main } from "./presentation/github-action/controller.js";
 
-main().catch((err) => {
-  const msg = err instanceof Error ? err.message : String(err);
-  core.setFailed(msg);
+main().catch((error: unknown) => {
+  const message = error instanceof Error ? error.message : String(error);
+  core.setFailed(message);
 });
