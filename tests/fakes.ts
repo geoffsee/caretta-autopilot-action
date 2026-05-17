@@ -77,6 +77,7 @@ export class FakeGitHub implements GitHubClient {
   readonly dispatched: DispatchCall[] = [];
   readonly closedIssues: CloseIssueCall[] = [];
   readonly updatedIssueBodies: UpdateIssueBodyCall[] = [];
+  readonly reRunCalls: number[] = [];
   private readonly issueBodies: Record<number, string>;
 
   constructor(private readonly data: Partial<FakeData> = {}) {
@@ -125,10 +126,10 @@ export class FakeGitHub implements GitHubClient {
 
   async listWorkflowRuns(
     workflow: string,
-    status: string,
+    status?: string,
     branch?: string,
   ): Promise<WorkflowRun[]> {
-    const key = `${workflow}|${status}|${branch ?? ""}`;
+    const key = `${workflow}|${status ?? "any"}|${branch ?? ""}`;
     return [...(this.data.runsByKey?.[key] ?? [])];
   }
 
@@ -149,6 +150,10 @@ export class FakeGitHub implements GitHubClient {
       throw new Error(`dispatch failed for ${workflow} on ${ref}`);
     }
     this.dispatched.push({ workflow, ref, inputs });
+  }
+
+  async reRunWorkflowFailedJobs(runId: number): Promise<void> {
+    this.reRunCalls.push(runId);
   }
 }
 

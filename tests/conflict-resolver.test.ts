@@ -29,6 +29,7 @@ function harness(snapshots: PullRequest[][]): Harness {
     listCheckRuns: async () => [],
     listReviews: async () => [],
     dispatchWorkflow: async () => {},
+    reRunWorkflowFailedJobs: async () => {},
   };
   return {
     gh,

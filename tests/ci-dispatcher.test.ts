@@ -45,10 +45,9 @@ describe("dispatchMissingCi", () => {
       prs: [makePR({ number: 103, headRefName: "agent/issue-103" })],
       checksBySha: { "sha-103": [] },
       runsByKey: {
-        "ci.yml|queued|agent/issue-103": [
-          { id: 1, headSha: "sha-103", status: "queued" },
+        "ci.yml|any|agent/issue-103": [
+          { id: 1, headSha: "sha-103", status: "queued", conclusion: null },
         ],
-        "ci.yml|in_progress|agent/issue-103": [],
       },
     });
 

@@ -63,6 +63,7 @@ export interface WorkflowRun {
   id: number;
   headSha: string;
   status: string;
+  conclusion: string | null;
 }
 
 export interface PrEntry {

@@ -176,6 +176,7 @@ function makeHarness(
       return [];
     },
     async dispatchWorkflow() {},
+    async reRunWorkflowFailedJobs() {},
   };
   const fakeExec: ExecClient = {
     async exec() {

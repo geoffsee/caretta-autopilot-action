@@ -63199,6 +63199,7 @@ class DefaultExecClient {
 
 ;// CONCATENATED MODULE: ./src/github.ts
 
+
 function createOctokitClient(token, owner, repo) {
     const octokit = github.getOctokit(token);
     return new OctokitClient(octokit, owner, repo);
@@ -63334,22 +63335,60 @@ class OctokitClient {
             id: r.id,
             headSha: r.head_sha,
             status: r.status ?? "",
+            conclusion: r.conclusion ?? null,
         }));
     }
     async listCheckRuns(sha) {
-        const res = await this.octokit.rest.checks.listForRef({
-            owner: this.owner,
-            repo: this.repo,
-            ref: sha,
-            per_page: 100,
-        });
-        return res.data.check_runs.map((c) => ({
-            name: c.name,
-            status: c.status,
-            conclusion: c.conclusion,
-            startedAt: c.started_at,
-            createdAt: c.created_at ?? null,
-        }));
+        lib_core.info(`listCheckRuns: fetching checks for ref ${sha}`);
+        const [checks, statuses] = await Promise.all([
+            this.octokit.rest.checks.listForRef({
+                owner: this.owner,
+                repo: this.repo,
+                ref: sha,
+                per_page: 100,
+            }),
+            this.octokit.rest.repos.getCombinedStatusForRef({
+                owner: this.owner,
+                repo: this.repo,
+                ref: sha,
+            }),
+        ]);
+        const results = [];
+        for (const c of checks.data.check_runs) {
+            lib_core.info(`listCheckRuns: found check run "${c.name}" - status: ${c.status}, conclusion: ${c.conclusion}`);
+            results.push({
+                name: c.name,
+                status: c.status,
+                conclusion: c.conclusion,
+                startedAt: c.started_at,
+                createdAt: c.created_at ?? c.started_at,
+            });
+        }
+        for (const s of statuses.data.statuses) {
+            lib_core.info(`listCheckRuns: found commit status "${s.context}" - state: ${s.state}`);
+            let status = "completed";
+            let conclusion = null;
+            if (s.state === "pending") {
+                status = "in_progress";
+            }
+            else if (s.state === "success") {
+                conclusion = "success";
+            }
+            else if (s.state === "failure" || s.state === "error") {
+                conclusion = "failure";
+            }
+            results.push({
+                name: s.context,
+                status,
+                conclusion,
+                startedAt: s.created_at,
+                createdAt: s.updated_at,
+            });
+        }
+        if (results.length === 0) {
+            lib_core.info(`listCheckRuns: no checks or statuses found for ref ${sha}`);
+        }
+        return results;
     }
     async listReviews(pullNumber) {
         const res = await this.octokit.paginate(this.octokit.rest.pulls.listReviews, {
@@ -63372,6 +63411,13 @@ class OctokitClient {
             workflow_id: workflow,
             ref,
             inputs,
+        });
+    }
+    async reRunWorkflowFailedJobs(runId) {
+        await this.octokit.rest.actions.reRunWorkflowFailedJobs({
+            owner: this.owner,
+            repo: this.repo,
+            run_id: runId,
         });
     }
 }
@@ -63599,37 +63645,41 @@ async function dispatchMissingCi(gh, config, options = {}) {
         }
         const checks = await gh.listCheckRuns(pr.headRefOid);
         const testChecks = checks.filter((c) => c.name === config.testCheckName);
-        if (testChecks.length > 0) {
-            const latestCheck = testChecks.sort((a, b) => {
-                const aTime = new Date(a.createdAt || a.startedAt || 0).getTime();
-                const bTime = new Date(b.createdAt || b.startedAt || 0).getTime();
-                return bTime - aTime;
-            })[0];
-            lib_core.info(`dispatchMissingCi: PR #${pr.number} already has ${testChecks.length} check(s) named "${config.testCheckName}". Latest status: ${latestCheck.status}, conclusion: ${latestCheck.conclusion}`);
+        const latestCheck = testChecks.sort((a, b) => {
+            const aTime = new Date(a.createdAt || a.startedAt || 0).getTime();
+            const bTime = new Date(b.createdAt || b.startedAt || 0).getTime();
+            return bTime - aTime;
+        })[0];
+        if (latestCheck?.conclusion === "success") {
+            lib_core.info(`dispatchMissingCi: PR #${pr.number} already has a successful "${config.testCheckName}" check.`);
             skipped.push(pr.number);
             continue;
         }
-        const [queued, inProgress] = await Promise.all([
-            gh.listWorkflowRuns(config.ciWorkflow, "queued", pr.headRefName),
-            gh.listWorkflowRuns(config.ciWorkflow, "in_progress", pr.headRefName),
-        ]);
-        const activeForSha = [
-            ...queued.filter((r) => r.headSha === pr.headRefOid),
-            ...inProgress.filter((r) => r.headSha === pr.headRefOid),
-        ];
-        if (activeForSha.length > 0) {
-            lib_core.info(`dispatchMissingCi: PR #${pr.number} has ${activeForSha.length} active workflow run(s) for SHA ${pr.headRefOid}`);
+        // Check for active or failed runs to decide between dispatch and rerun
+        const allRuns = await gh.listWorkflowRuns(config.ciWorkflow, undefined, pr.headRefName);
+        const shaRuns = allRuns.filter((r) => r.headSha === pr.headRefOid);
+        const activeRun = shaRuns.find((r) => r.status === "queued" || r.status === "in_progress");
+        if (activeRun) {
+            lib_core.info(`dispatchMissingCi: PR #${pr.number} has an active workflow run (ID: ${activeRun.id}) for SHA ${pr.headRefOid}`);
             skipped.push(pr.number);
             continue;
         }
+        const failedRun = shaRuns.sort((a, b) => b.id - a.id).find((r) => r.conclusion === "failure" || r.conclusion === "cancelled" || r.conclusion === "timed_out");
         try {
-            lib_core.info(`dispatchMissingCi: dispatching ${config.ciWorkflow} for PR #${pr.number} (${pr.headRefName}) at SHA ${pr.headRefOid}`);
-            await gh.dispatchWorkflow(config.ciWorkflow, pr.headRefName);
-            dispatched.push(pr.number);
+            if (failedRun) {
+                lib_core.info(`dispatchMissingCi: rerunning failed jobs for PR #${pr.number} (Run ID: ${failedRun.id}) at SHA ${pr.headRefOid}`);
+                await gh.reRunWorkflowFailedJobs(failedRun.id);
+                dispatched.push(pr.number);
+            }
+            else {
+                lib_core.info(`dispatchMissingCi: dispatching ${config.ciWorkflow} for PR #${pr.number} (${pr.headRefName}) at SHA ${pr.headRefOid}`);
+                await gh.dispatchWorkflow(config.ciWorkflow, pr.headRefName);
+                dispatched.push(pr.number);
+            }
         }
         catch (err) {
             failed.push(pr.number);
-            lib_core.warning(`dispatchMissingCi: dispatch failed for PR #${pr.number}: ${err.message}`);
+            lib_core.warning(`dispatchMissingCi: operation failed for PR #${pr.number}: ${err.message}`);
         }
     }
     return { dispatched, skipped, failed };
@@ -66835,33 +66885,44 @@ async function processAgentPRs(gh, prs, config) {
     for (const pr of eligible) {
         const entry = toEntry(pr);
         const checks = await gh.listCheckRuns(pr.headRefOid);
-        const hasTest = checks.some((c) => c.name === config.testCheckName);
-        if (hasTest) {
+        const testChecks = checks.filter((c) => c.name === config.testCheckName);
+        const latestCheck = testChecks.sort((a, b) => {
+            const aTime = new Date(a.createdAt || a.startedAt || 0).getTime();
+            const bTime = new Date(b.createdAt || b.startedAt || 0).getTime();
+            return bTime - aTime;
+        })[0];
+        if (latestCheck?.conclusion === "success") {
             current.push(entry);
             continue;
         }
-        const [queued, inProgress] = await Promise.all([
-            gh.listWorkflowRuns(config.ciWorkflow, "queued", pr.headRefName),
-            gh.listWorkflowRuns(config.ciWorkflow, "in_progress", pr.headRefName),
-        ]);
-        const activeForSha = queued.filter((r) => r.headSha === pr.headRefOid).length +
-            inProgress.filter((r) => r.headSha === pr.headRefOid).length;
-        pending.push(entry);
-        if (activeForSha > 0) {
+        const allRuns = await gh.listWorkflowRuns(config.ciWorkflow, undefined, pr.headRefName);
+        const shaRuns = allRuns.filter((r) => r.headSha === pr.headRefOid);
+        const activeRun = shaRuns.find((r) => r.status === "queued" || r.status === "in_progress");
+        if (activeRun) {
+            pending.push(entry);
             active.push(entry);
             continue;
         }
+        pending.push(entry);
         if (config.dryRun || !config.enableDispatch) {
             continue;
         }
+        const failedRun = shaRuns.sort((a, b) => b.id - a.id).find((r) => r.conclusion === "failure" || r.conclusion === "cancelled" || r.conclusion === "timed_out");
         try {
-            await gh.dispatchWorkflow(config.ciWorkflow, pr.headRefName);
-            dispatched.push(entry);
-            lib_core.info(`processAgentPRs: dispatched ${config.ciWorkflow} for PR #${pr.number} (${pr.headRefName})`);
+            if (failedRun) {
+                lib_core.info(`processAgentPRs: rerunning failed jobs for PR #${pr.number} (Run ID: ${failedRun.id}) at SHA ${pr.headRefOid}`);
+                await gh.reRunWorkflowFailedJobs(failedRun.id);
+                dispatched.push(entry);
+            }
+            else {
+                lib_core.info(`processAgentPRs: dispatched ${config.ciWorkflow} for PR #${pr.number} (${pr.headRefName}) at SHA ${pr.headRefOid}`);
+                await gh.dispatchWorkflow(config.ciWorkflow, pr.headRefName);
+                dispatched.push(entry);
+            }
         }
         catch (err) {
             failed.push(entry);
-            lib_core.warning(`processAgentPRs: dispatch failed for PR #${pr.number}: ${err.message}`);
+            lib_core.warning(`processAgentPRs: operation failed for PR #${pr.number}: ${err.message}`);
         }
     }
     return {

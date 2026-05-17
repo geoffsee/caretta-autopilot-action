@@ -1,3 +1,4 @@
+import * as core from "@actions/core";
 import * as github from "@actions/github";
 import type {
   CheckRun,
@@ -17,7 +18,7 @@ export interface GitHubClient {
   closeIssueWithComment(issueNumber: number, comment: string): Promise<void>;
   listWorkflowRuns(
     workflow: string,
-    status: string,
+    status?: string,
     branch?: string,
   ): Promise<WorkflowRun[]>;
   listCheckRuns(sha: string): Promise<CheckRun[]>;
@@ -27,6 +28,7 @@ export interface GitHubClient {
     ref: string,
     inputs?: Record<string, string>,
   ): Promise<void>;
+  reRunWorkflowFailedJobs(runId: number): Promise<void>;
 }
 
 type Octokit = ReturnType<typeof github.getOctokit>;
@@ -186,14 +188,14 @@ class OctokitClient implements GitHubClient {
 
   async listWorkflowRuns(
     workflow: string,
-    status: string,
+    status?: string,
     branch?: string,
   ): Promise<WorkflowRun[]> {
     const res = await this.octokit.rest.actions.listWorkflowRuns({
       owner: this.owner,
       repo: this.repo,
       workflow_id: workflow,
-      status: status as "queued" | "in_progress",
+      status: status as "queued" | "in_progress" | "completed",
       branch,
       per_page: 50,
     });
@@ -201,23 +203,66 @@ class OctokitClient implements GitHubClient {
       id: r.id,
       headSha: r.head_sha,
       status: r.status ?? "",
+      conclusion: r.conclusion ?? null,
     }));
   }
 
   async listCheckRuns(sha: string): Promise<CheckRun[]> {
-    const res = await this.octokit.rest.checks.listForRef({
-      owner: this.owner,
-      repo: this.repo,
-      ref: sha,
-      per_page: 100,
-    });
-    return res.data.check_runs.map((c) => ({
-      name: c.name,
-      status: c.status,
-      conclusion: c.conclusion,
-      startedAt: c.started_at,
-      createdAt: (c as { created_at?: string }).created_at ?? null,
-    }));
+    core.info(`listCheckRuns: fetching checks for ref ${sha}`);
+    const [checks, statuses] = await Promise.all([
+      this.octokit.rest.checks.listForRef({
+        owner: this.owner,
+        repo: this.repo,
+        ref: sha,
+        per_page: 100,
+      }),
+      this.octokit.rest.repos.getCombinedStatusForRef({
+        owner: this.owner,
+        repo: this.repo,
+        ref: sha,
+      }),
+    ]);
+
+    const results: CheckRun[] = [];
+
+    for (const c of checks.data.check_runs) {
+      core.info(`listCheckRuns: found check run "${c.name}" - status: ${c.status}, conclusion: ${c.conclusion}`);
+      results.push({
+        name: c.name,
+        status: c.status as CheckRun["status"],
+        conclusion: c.conclusion as CheckRun["conclusion"],
+        startedAt: c.started_at,
+        createdAt: (c as { created_at?: string }).created_at ?? c.started_at,
+      });
+    }
+
+    for (const s of statuses.data.statuses) {
+      core.info(`listCheckRuns: found commit status "${s.context}" - state: ${s.state}`);
+      let status: CheckRun["status"] = "completed";
+      let conclusion: CheckRun["conclusion"] = null;
+
+      if (s.state === "pending") {
+        status = "in_progress";
+      } else if (s.state === "success") {
+        conclusion = "success";
+      } else if (s.state === "failure" || s.state === "error") {
+        conclusion = "failure";
+      }
+
+      results.push({
+        name: s.context,
+        status,
+        conclusion,
+        startedAt: s.created_at,
+        createdAt: s.updated_at,
+      });
+    }
+
+    if (results.length === 0) {
+      core.info(`listCheckRuns: no checks or statuses found for ref ${sha}`);
+    }
+
+    return results;
   }
 
   async listReviews(pullNumber: number): Promise<import("./types.js").PullRequestReview[]> {
@@ -246,6 +291,14 @@ class OctokitClient implements GitHubClient {
       workflow_id: workflow,
       ref,
       inputs,
+    });
+  }
+
+  async reRunWorkflowFailedJobs(runId: number): Promise<void> {
+    await this.octokit.rest.actions.reRunWorkflowFailedJobs({
+      owner: this.owner,
+      repo: this.repo,
+      run_id: runId,
     });
   }
 }

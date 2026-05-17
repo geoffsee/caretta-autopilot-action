@@ -26,8 +26,8 @@ describe("processAgentPRs", () => {
           "sha-1": [
             {
               name: "Test",
-              status: "completed",
-              conclusion: "success",
+              status: "completed" as const,
+              conclusion: "success" as const,
               startedAt: null,
               createdAt: "2026-01-01T00:00:00Z",
             },
@@ -42,8 +42,8 @@ describe("processAgentPRs", () => {
       name: "classifies a PR with an in-progress CI run as active and skips dispatch",
       setup: {
         runsByKey: {
-          "ci.yml|in_progress|agent/issue-2": [
-            { id: 99, headSha: "sha-2", status: "in_progress" },
+          "ci.yml|any|agent/issue-2": [
+            { id: 99, headSha: "sha-2", status: "in_progress", conclusion: null },
           ],
         },
       },
@@ -76,8 +76,8 @@ describe("processAgentPRs", () => {
       name: "ignores runs whose head SHA differs from the PR head SHA",
       setup: {
         runsByKey: {
-          "ci.yml|queued|agent/issue-6": [
-            { id: 1, headSha: "stale-sha", status: "queued" },
+          "ci.yml|any|agent/issue-6": [
+            { id: 1, headSha: "stale-sha", status: "queued", conclusion: null },
           ],
         },
       },

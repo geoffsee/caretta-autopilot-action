@@ -143,6 +143,20 @@ describe("OctokitClient", () => {
             },
           }),
         },
+        repos: {
+          getCombinedStatusForRef: mock().mockResolvedValue({
+            data: {
+              statuses: [
+                {
+                  context: "legacy-status",
+                  state: "success",
+                  created_at: "2026-01-01T00:00:00Z",
+                  updated_at: "2026-01-01T00:00:00Z",
+                },
+              ],
+            },
+          }),
+        },
       },
     };
     (github.getOctokit as AnyMock).mockReturnValue(mockOctokit);
@@ -150,13 +164,19 @@ describe("OctokitClient", () => {
     const client = createOctokitClient(token, owner, repo);
     const checks = await client.listCheckRuns("sha-123");
 
-    expect(checks).toHaveLength(1);
+    expect(checks).toHaveLength(2);
     expect(checks[0].name).toBe("Test");
+    expect(checks[1].name).toBe("legacy-status");
     expect(mockOctokit.rest.checks.listForRef).toHaveBeenCalledWith({
       owner,
       repo,
       ref: "sha-123",
       per_page: 100,
+    });
+    expect(mockOctokit.rest.repos.getCombinedStatusForRef).toHaveBeenCalledWith({
+      owner,
+      repo,
+      ref: "sha-123",
     });
   });
 

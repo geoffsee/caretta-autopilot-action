@@ -59,41 +59,47 @@ export async function dispatchMissingCi(
     const checks = await gh.listCheckRuns(pr.headRefOid);
     const testChecks = checks.filter((c) => c.name === config.testCheckName);
     
-    if (testChecks.length > 0) {
-      const latestCheck = testChecks.sort((a, b) => {
-        const aTime = new Date(a.createdAt || a.startedAt || 0).getTime();
-        const bTime = new Date(b.createdAt || b.startedAt || 0).getTime();
-        return bTime - aTime;
-      })[0];
-      
-      core.info(`dispatchMissingCi: PR #${pr.number} already has ${testChecks.length} check(s) named "${config.testCheckName}". Latest status: ${latestCheck.status}, conclusion: ${latestCheck.conclusion}`);
+    const latestCheck = testChecks.sort((a, b) => {
+      const aTime = new Date(a.createdAt || a.startedAt || 0).getTime();
+      const bTime = new Date(b.createdAt || b.startedAt || 0).getTime();
+      return bTime - aTime;
+    })[0];
+
+    if (latestCheck?.conclusion === "success") {
+      core.info(`dispatchMissingCi: PR #${pr.number} already has a successful "${config.testCheckName}" check.`);
       skipped.push(pr.number);
       continue;
     }
 
-    const [queued, inProgress] = await Promise.all([
-      gh.listWorkflowRuns(config.ciWorkflow, "queued", pr.headRefName),
-      gh.listWorkflowRuns(config.ciWorkflow, "in_progress", pr.headRefName),
-    ]);
-    const activeForSha = [
-      ...queued.filter((r) => r.headSha === pr.headRefOid),
-      ...inProgress.filter((r) => r.headSha === pr.headRefOid),
-    ];
-
-    if (activeForSha.length > 0) {
-      core.info(`dispatchMissingCi: PR #${pr.number} has ${activeForSha.length} active workflow run(s) for SHA ${pr.headRefOid}`);
+    // Check for active or failed runs to decide between dispatch and rerun
+    const allRuns = await gh.listWorkflowRuns(config.ciWorkflow, undefined, pr.headRefName);
+    const shaRuns = allRuns.filter((r) => r.headSha === pr.headRefOid);
+    
+    const activeRun = shaRuns.find((r) => r.status === "queued" || r.status === "in_progress");
+    if (activeRun) {
+      core.info(`dispatchMissingCi: PR #${pr.number} has an active workflow run (ID: ${activeRun.id}) for SHA ${pr.headRefOid}`);
       skipped.push(pr.number);
       continue;
     }
+
+    const failedRun = shaRuns.sort((a, b) => b.id - a.id).find((r) => 
+      r.conclusion === "failure" || r.conclusion === "cancelled" || r.conclusion === "timed_out"
+    );
 
     try {
-      core.info(`dispatchMissingCi: dispatching ${config.ciWorkflow} for PR #${pr.number} (${pr.headRefName}) at SHA ${pr.headRefOid}`);
-      await gh.dispatchWorkflow(config.ciWorkflow, pr.headRefName);
-      dispatched.push(pr.number);
+      if (failedRun) {
+        core.info(`dispatchMissingCi: rerunning failed jobs for PR #${pr.number} (Run ID: ${failedRun.id}) at SHA ${pr.headRefOid}`);
+        await gh.reRunWorkflowFailedJobs(failedRun.id);
+        dispatched.push(pr.number);
+      } else {
+        core.info(`dispatchMissingCi: dispatching ${config.ciWorkflow} for PR #${pr.number} (${pr.headRefName}) at SHA ${pr.headRefOid}`);
+        await gh.dispatchWorkflow(config.ciWorkflow, pr.headRefName);
+        dispatched.push(pr.number);
+      }
     } catch (err) {
       failed.push(pr.number);
       core.warning(
-        `dispatchMissingCi: dispatch failed for PR #${pr.number}: ${
+        `dispatchMissingCi: operation failed for PR #${pr.number}: ${
           (err as Error).message
         }`,
       );
