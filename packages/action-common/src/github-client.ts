@@ -233,10 +233,12 @@ class OctokitClient implements GitHubClient {
 
     const results: CheckRun[] = [];
 
+    const checkRunNames = new Set<string>();
     for (const c of checks.data.check_runs) {
       core.info(
         `listCheckRuns: found check run "${c.name}" - status: ${c.status}, conclusion: ${c.conclusion}`,
       );
+      checkRunNames.add(c.name);
       results.push({
         name: c.name,
         status: c.status as CheckRun["status"],
@@ -247,6 +249,13 @@ class OctokitClient implements GitHubClient {
     }
 
     for (const s of statuses.data.statuses) {
+      if (checkRunNames.has(s.context)) {
+        core.info(
+          `listCheckRuns: skipping commit status "${s.context}" because a check run with the same name exists for this ref.`,
+        );
+        continue;
+      }
+
       core.info(
         `listCheckRuns: found commit status "${s.context}" - state: ${s.state}`,
       );

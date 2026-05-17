@@ -182,6 +182,55 @@ describe("OctokitClient", () => {
     );
   });
 
+  it("listCheckRuns prefers check runs over same-name commit statuses", async () => {
+    const mockOctokit = {
+      rest: {
+        checks: {
+          listForRef: mock().mockResolvedValue({
+            data: {
+              check_runs: [
+                {
+                  name: "Test",
+                  status: "completed",
+                  conclusion: "failure",
+                  started_at: "2026-01-01T00:00:00Z",
+                  created_at: "2026-01-01T00:00:00Z",
+                },
+              ],
+            },
+          }),
+        },
+        repos: {
+          getCombinedStatusForRef: mock().mockResolvedValue({
+            data: {
+              statuses: [
+                {
+                  context: "Test",
+                  state: "pending",
+                  created_at: "2026-01-01T00:01:00Z",
+                  updated_at: "2026-01-01T00:01:00Z",
+                },
+              ],
+            },
+          }),
+        },
+      },
+    };
+    (github.getOctokit as AnyMock).mockReturnValue(mockOctokit);
+
+    const client = createOctokitClient(token, owner, repo);
+    const checks = await client.listCheckRuns("sha-456");
+
+    expect(checks).toHaveLength(1);
+    expect(checks[0]).toEqual({
+      name: "Test",
+      status: "completed",
+      conclusion: "failure",
+      startedAt: "2026-01-01T00:00:00Z",
+      createdAt: "2026-01-01T00:00:00Z",
+    });
+  });
+
   it("dispatchWorkflow calls createWorkflowDispatch", async () => {
     const mockOctokit = {
       rest: {

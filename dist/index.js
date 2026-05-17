@@ -24164,8 +24164,10 @@ class OctokitClient {
       })
     ]);
     const results = [];
+    const checkRunNames = new Set;
     for (const c of checks.data.check_runs) {
       core2.info(`listCheckRuns: found check run "${c.name}" - status: ${c.status}, conclusion: ${c.conclusion}`);
+      checkRunNames.add(c.name);
       results.push({
         name: c.name,
         status: c.status,
@@ -24175,6 +24177,10 @@ class OctokitClient {
       });
     }
     for (const s of statuses.data.statuses) {
+      if (checkRunNames.has(s.context)) {
+        core2.info(`listCheckRuns: skipping commit status "${s.context}" because a check run with the same name exists for this ref.`);
+        continue;
+      }
       core2.info(`listCheckRuns: found commit status "${s.context}" - state: ${s.state}`);
       let status = "completed";
       let conclusion = null;
@@ -45588,4 +45594,4 @@ main().catch((error) => {
   core9.setFailed(message);
 });
 
-//# debugId=7D4289293D25715B64756E2164756E21
+//# debugId=114FDB0D7064D15464756E2164756E21
