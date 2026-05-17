@@ -30,6 +30,7 @@ function harness(snapshots: PullRequest[][]): Harness {
     listReviews: async () => [],
     dispatchWorkflow: async () => {},
     reRunWorkflowFailedJobs: async () => {},
+    createCommitStatus: async () => {},
   };
   return {
     gh,

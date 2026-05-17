@@ -63420,6 +63420,17 @@ class OctokitClient {
             run_id: runId,
         });
     }
+    async createCommitStatus(sha, state, context, description, targetUrl) {
+        await this.octokit.rest.repos.createCommitStatus({
+            owner: this.owner,
+            repo: this.repo,
+            sha,
+            state,
+            context,
+            description,
+            target_url: targetUrl,
+        });
+    }
 }
 
 ;// CONCATENATED MODULE: ./src/close-on-merge.ts
@@ -63666,6 +63677,8 @@ async function dispatchMissingCi(gh, config, options = {}) {
         }
         const failedRun = shaRuns.sort((a, b) => b.id - a.id).find((r) => r.conclusion === "failure" || r.conclusion === "cancelled" || r.conclusion === "timed_out");
         try {
+            // Create a pending status to ensure it registers in the PR rollup immediately.
+            await gh.createCommitStatus(pr.headRefOid, "pending", config.testCheckName, failedRun ? "Autopilot rerunning failed CI..." : "Autopilot dispatching CI...");
             if (failedRun) {
                 lib_core.info(`dispatchMissingCi: rerunning failed jobs for PR #${pr.number} (Run ID: ${failedRun.id}) at SHA ${pr.headRefOid}`);
                 await gh.reRunWorkflowFailedJobs(failedRun.id);
@@ -66909,6 +66922,8 @@ async function processAgentPRs(gh, prs, config) {
         }
         const failedRun = shaRuns.sort((a, b) => b.id - a.id).find((r) => r.conclusion === "failure" || r.conclusion === "cancelled" || r.conclusion === "timed_out");
         try {
+            // Create a pending status to ensure it registers in the PR rollup immediately.
+            await gh.createCommitStatus(pr.headRefOid, "pending", config.testCheckName, failedRun ? "Autopilot rerunning failed CI..." : "Autopilot dispatching CI...");
             if (failedRun) {
                 lib_core.info(`processAgentPRs: rerunning failed jobs for PR #${pr.number} (Run ID: ${failedRun.id}) at SHA ${pr.headRefOid}`);
                 await gh.reRunWorkflowFailedJobs(failedRun.id);

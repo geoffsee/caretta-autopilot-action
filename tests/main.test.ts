@@ -177,6 +177,7 @@ function makeHarness(
     },
     async dispatchWorkflow() {},
     async reRunWorkflowFailedJobs() {},
+    async createCommitStatus() {},
   };
   const fakeExec: ExecClient = {
     async exec() {

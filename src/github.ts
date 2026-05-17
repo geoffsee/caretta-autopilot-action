@@ -29,6 +29,13 @@ export interface GitHubClient {
     inputs?: Record<string, string>,
   ): Promise<void>;
   reRunWorkflowFailedJobs(runId: number): Promise<void>;
+  createCommitStatus(
+    sha: string,
+    state: "pending" | "success" | "failure" | "error",
+    context: string,
+    description: string,
+    targetUrl?: string,
+  ): Promise<void>;
 }
 
 type Octokit = ReturnType<typeof github.getOctokit>;
@@ -299,6 +306,24 @@ class OctokitClient implements GitHubClient {
       owner: this.owner,
       repo: this.repo,
       run_id: runId,
+    });
+  }
+
+  async createCommitStatus(
+    sha: string,
+    state: "pending" | "success" | "failure" | "error",
+    context: string,
+    description: string,
+    targetUrl?: string,
+  ): Promise<void> {
+    await this.octokit.rest.repos.createCommitStatus({
+      owner: this.owner,
+      repo: this.repo,
+      sha,
+      state,
+      context,
+      description,
+      target_url: targetUrl,
     });
   }
 }

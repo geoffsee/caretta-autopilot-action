@@ -203,4 +203,34 @@ describe("OctokitClient", () => {
       inputs: { input1: "val1" },
     });
   });
+
+  it("createCommitStatus calls createCommitStatus", async () => {
+    const mockOctokit = {
+      rest: {
+        repos: {
+          createCommitStatus: mock().mockResolvedValue({}),
+        },
+      },
+    };
+    (github.getOctokit as AnyMock).mockReturnValue(mockOctokit);
+
+    const client = createOctokitClient(token, owner, repo);
+    await client.createCommitStatus(
+      "sha-123",
+      "pending",
+      "Test",
+      "Autopilot dispatching CI...",
+      "https://example.com",
+    );
+
+    expect(mockOctokit.rest.repos.createCommitStatus).toHaveBeenCalledWith({
+      owner,
+      repo,
+      sha: "sha-123",
+      state: "pending",
+      context: "Test",
+      description: "Autopilot dispatching CI...",
+      target_url: "https://example.com",
+    });
+  });
 });

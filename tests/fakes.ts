@@ -49,6 +49,14 @@ export interface DispatchCall {
   inputs?: Record<string, string>;
 }
 
+export interface StatusCall {
+  sha: string;
+  state: string;
+  context: string;
+  description: string;
+  targetUrl?: string;
+}
+
 export interface FakeData {
   issues: readonly Issue[];
   prs: readonly PullRequest[];
@@ -78,6 +86,7 @@ export class FakeGitHub implements GitHubClient {
   readonly closedIssues: CloseIssueCall[] = [];
   readonly updatedIssueBodies: UpdateIssueBodyCall[] = [];
   readonly reRunCalls: number[] = [];
+  readonly createdStatuses: StatusCall[] = [];
   private readonly issueBodies: Record<number, string>;
 
   constructor(private readonly data: Partial<FakeData> = {}) {
@@ -137,7 +146,7 @@ export class FakeGitHub implements GitHubClient {
     return [...(this.data.checksBySha?.[sha] ?? [])];
   }
 
-  async listReviews(pullNumber: number): Promise<PullRequestReview[]> {
+  async listReviews(pullNumber: number): Promise<import("../src/types.js").PullRequestReview[]> {
     return [...(this.data.reviewsByPr?.[pullNumber] ?? [])];
   }
 
@@ -154,6 +163,16 @@ export class FakeGitHub implements GitHubClient {
 
   async reRunWorkflowFailedJobs(runId: number): Promise<void> {
     this.reRunCalls.push(runId);
+  }
+
+  async createCommitStatus(
+    sha: string,
+    state: "pending" | "success" | "failure" | "error",
+    context: string,
+    description: string,
+    targetUrl?: string,
+  ): Promise<void> {
+    this.createdStatuses.push({ sha, state, context, description, targetUrl });
   }
 }
 

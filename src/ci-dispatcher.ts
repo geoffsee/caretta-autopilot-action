@@ -87,6 +87,14 @@ export async function dispatchMissingCi(
     );
 
     try {
+      // Create a pending status to ensure it registers in the PR rollup immediately.
+      await gh.createCommitStatus(
+        pr.headRefOid,
+        "pending",
+        config.testCheckName,
+        failedRun ? "Autopilot rerunning failed CI..." : "Autopilot dispatching CI...",
+      );
+
       if (failedRun) {
         core.info(`dispatchMissingCi: rerunning failed jobs for PR #${pr.number} (Run ID: ${failedRun.id}) at SHA ${pr.headRefOid}`);
         await gh.reRunWorkflowFailedJobs(failedRun.id);
