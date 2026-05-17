@@ -203,7 +203,7 @@ describe("executeAutopilot", () => {
     });
     exec.stdout = JSON.stringify([301]);
 
-    await executeAutopilot(gh, exec, makeConfig(), workEval, fakeInstallDeps);
+    await executeAutopilot(gh, exec, makeConfig({ enableDispatch: false }), workEval, fakeInstallDeps);
 
     expect(exec.calls.some((c) => c.args.includes("code-review"))).toBe(true);
     expect(exec.calls.some((c) => c.args.includes("fix-pr"))).toBe(true);
@@ -236,7 +236,7 @@ describe("executeAutopilot", () => {
     });
     exec.stdout = JSON.stringify([302]);
 
-    await executeAutopilot(gh, exec, makeConfig(), workEval, fakeInstallDeps);
+    await executeAutopilot(gh, exec, makeConfig({ enableDispatch: false }), workEval, fakeInstallDeps);
 
     expect(exec.calls.some((c) => c.args.includes("code-review"))).toBe(true);
     expect(exec.calls.some((c) => c.args.includes("fix-pr"))).toBe(true);
@@ -281,6 +281,48 @@ describe("executeAutopilot", () => {
     // Since it timed out, it should have logged a warning and continued.
     // We can verify that it didn't run code-review/fix-pr because latestCheck is null (still in_progress)
     expect(exec.calls.some((c) => c.args.includes("code-review"))).toBe(false);
+  });
+
+  test("runCiGate synchronizes background workflow completion to PR status", async () => {
+    const gh = new FakeGitHub({
+      prs: [makePR({ number: 305, headRefName: "agent/issue-305", headRefOid: "sha-305" })],
+      checksBySha: {
+        "sha-305": [
+          {
+            name: "Test",
+            status: "in_progress",
+            conclusion: null,
+            startedAt: "2026-01-01T00:00:00Z",
+            createdAt: "2026-01-01T00:00:00Z",
+          },
+        ],
+      },
+      runsByKey: {
+        "ci.yml|any|agent/issue-305": [
+          { id: 999, headSha: "sha-305", status: "completed", conclusion: "success" },
+        ],
+      },
+    });
+    exec.stdout = JSON.stringify([305]);
+
+    // Use a short timeout so the loop doesn't block too long
+    const deps: ExecuteDeps = {
+      ...fakeInstallDeps,
+      ciGateTimeoutMs: 200,
+      ciGateIntervalMs: 50,
+    };
+
+    await executeAutopilot(gh, exec, makeConfig(), workEval, deps);
+
+    // Verify that the autopilot called createCommitStatus exactly twice:
+    // 1. Initial pending status from dispatchMissingCi
+    // 2. Success status from synchronization in runCiGate loop
+    const shaStatuses = gh.createdStatuses.filter((s) => s.sha === "sha-305" && s.context === "Test");
+    expect(shaStatuses).toHaveLength(2);
+    
+    expect(shaStatuses[0].state).toBe("pending");
+    expect(shaStatuses[1].state).toBe("success");
+    expect(shaStatuses[1].description).toContain("Autopilot synchronized from run 999");
   });
 
   test("work dispatch skips code-review/fix-pr if a valid review exists for the current SHA", async () => {

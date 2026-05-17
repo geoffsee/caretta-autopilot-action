@@ -355,27 +355,50 @@ class CarettaRunner {
         const checks = await this.gh.listCheckRuns(pr.headRefOid);
         const testChecks = checks.filter((c) => c.name === this.config.testCheckName);
         
-        if (testChecks.length === 0) {
-          core.info(`runCiGate: PR #${pr.number} (${pr.headRefName}) at SHA ${pr.headRefOid} has no "${this.config.testCheckName}" check run yet.`);
-          allDone = false;
-          break;
-        }
-
-        const anyActive = testChecks.some(
-          (c) => c.status === "in_progress" || c.status === "queued"
-        );
-        if (anyActive) {
-          core.info(`runCiGate: PR #${pr.number} (${pr.headRefName}) at SHA ${pr.headRefOid} has active "${this.config.testCheckName}" checks.`);
-          allDone = false;
-          break;
-        }
+        // Find if we have an authoritative background workflow run for this SHA
+        const allRuns = await this.gh.listWorkflowRuns(this.config.ciWorkflow, undefined, pr.headRefName);
+        const latestShaRun = allRuns
+          .filter((r) => r.headSha === pr.headRefOid)
+          .sort((a, b) => b.id - a.id)[0];
 
         const latestCheck = testChecks.sort((a, b) => {
           const aTime = new Date(a.createdAt || a.startedAt || 0).getTime();
           const bTime = new Date(b.createdAt || b.startedAt || 0).getTime();
           return bTime - aTime;
         })[0];
-        core.info(`runCiGate: PR #${pr.number} (${pr.headRefName}) at SHA ${pr.headRefOid} check "${this.config.testCheckName}" is ${latestCheck.status} (${latestCheck.conclusion}).`);
+
+        // If the background run is completed, we can use its conclusion to "fix" any stuck statuses
+        if (latestShaRun && latestShaRun.status === "completed") {
+          const conclusion = latestShaRun.conclusion === "success" ? "success" : "failure";
+          
+          // If the latest check is not completed, or we have no check yet, synchronize.
+          if (!latestCheck || latestCheck.status !== "completed") {
+            core.info(`runCiGate: Background run ${latestShaRun.id} is completed (${latestShaRun.conclusion}); updating PR status for PR #${pr.number}.`);
+            await this.gh.createCommitStatus(
+              pr.headRefOid,
+              conclusion,
+              this.config.testCheckName,
+              `Autopilot synchronized from run ${latestShaRun.id}`
+            );
+            // This will be picked up in the next iteration
+            allDone = false;
+            continue;
+          }
+        }
+
+        if (!latestCheck) {
+          core.info(`runCiGate: PR #${pr.number} (${pr.headRefName}) at SHA ${pr.headRefOid} has no "${this.config.testCheckName}" check run yet.`);
+          allDone = false;
+          break;
+        }
+
+        if (latestCheck.status === "in_progress" || latestCheck.status === "queued") {
+          core.info(`runCiGate: PR #${pr.number} (${pr.headRefName}) at SHA ${pr.headRefOid} latest "${this.config.testCheckName}" check is active (${latestCheck.status}).`);
+          allDone = false;
+          break;
+        }
+
+        core.info(`runCiGate: PR #${pr.number} (${pr.headRefName}) at SHA ${pr.headRefOid} latest "${this.config.testCheckName}" check is ${latestCheck.status} (${latestCheck.conclusion}).`);
       }
 
       if (allDone) {

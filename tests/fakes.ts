@@ -143,7 +143,23 @@ export class FakeGitHub implements GitHubClient {
   }
 
   async listCheckRuns(sha: string): Promise<CheckRun[]> {
-    return [...(this.data.checksBySha?.[sha] ?? [])];
+    const results = [...(this.data.checksBySha?.[sha] ?? [])];
+    
+    // Add manually created statuses with increasing timestamps
+    let offset = 0;
+    for (const s of this.createdStatuses.filter(st => st.sha === sha)) {
+      offset += 1000; // +1 second for each status
+      const time = new Date(new Date("2026-01-01T00:00:00Z").getTime() + offset).toISOString();
+      results.push({
+        name: s.context,
+        status: s.state === "pending" ? "in_progress" : "completed",
+        conclusion: s.state === "pending" ? null : s.state as CheckRun["conclusion"],
+        startedAt: time,
+        createdAt: time,
+      });
+    }
+    
+    return results;
   }
 
   async listReviews(pullNumber: number): Promise<import("../src/types.js").PullRequestReview[]> {
