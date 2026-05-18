@@ -1,8 +1,10 @@
 import type * as exec from "@actions/exec";
 import type { ExecClient } from "../packages/action-common/src/exec-client.js";
+import { matchesGateCheckName } from "../packages/action-common/src/check-runs.js";
 import type { GitHubClient } from "../packages/action-common/src/github-client.js";
 import type {
   CheckRun,
+  CommitStatusState,
   Issue,
   MergedPullRequest,
   PullRequest,
@@ -144,10 +146,21 @@ export class FakeGitHub implements GitHubClient {
 
   async listCheckRuns(sha: string): Promise<CheckRun[]> {
     const results = [...(this.data.checksBySha?.[sha] ?? [])];
+    const checkRunNames = new Set(results.map((c) => c.name));
 
-    // Add manually created statuses with increasing timestamps
+    // Add manually created statuses with increasing timestamps. Mirror the
+    // OctokitClient's shadowing rule: a commit status is dropped when any
+    // check_run for the same gate name is already present, so the gate's
+    // authoritative result wins over a stale autopilot-written status.
     let offset = 0;
     for (const s of this.createdStatuses.filter((st) => st.sha === sha)) {
+      const shadowed = [...checkRunNames].some(
+        (cn) =>
+          cn === s.context ||
+          matchesGateCheckName(cn, s.context) ||
+          matchesGateCheckName(s.context, cn),
+      );
+      if (shadowed) continue;
       offset += 1000; // +1 second for each status
       const time = new Date(
         new Date("2026-01-01T00:00:00Z").getTime() + offset,
@@ -163,6 +176,21 @@ export class FakeGitHub implements GitHubClient {
     }
 
     return results;
+  }
+
+  async getLatestCommitStatus(
+    sha: string,
+    context: string,
+  ): Promise<CommitStatusState | null> {
+    const matches = this.createdStatuses.filter(
+      (s) =>
+        s.sha === sha &&
+        (s.context === context ||
+          matchesGateCheckName(s.context, context) ||
+          matchesGateCheckName(context, s.context)),
+    );
+    if (matches.length === 0) return null;
+    return matches[matches.length - 1].state as CommitStatusState;
   }
 
   async listReviews(

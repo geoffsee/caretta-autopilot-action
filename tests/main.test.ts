@@ -180,6 +180,9 @@ function makeHarness(
     async listCheckRuns() {
       return [];
     },
+    async getLatestCommitStatus() {
+      return null;
+    },
     async listReviews() {
       return [];
     },

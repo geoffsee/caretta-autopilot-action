@@ -24228,6 +24228,17 @@ class OctokitClient {
     }
     return results;
   }
+  async getLatestCommitStatus(sha, context) {
+    const res = await this.octokit.rest.repos.getCombinedStatusForRef({
+      owner: this.owner,
+      repo: this.repo,
+      ref: sha
+    });
+    const match = res.data.statuses.find((s) => s.context === context || matchesGateCheckName(s.context, context) || matchesGateCheckName(context, s.context));
+    if (!match)
+      return null;
+    return match.state;
+  }
   async listReviews(pullNumber) {
     const res = await this.octokit.paginate(this.octokit.rest.pulls.listReviews, {
       owner: this.owner,
@@ -44964,6 +44975,22 @@ function isNamedCheckActivelyRunning(check) {
     return false;
   return check.status === "queued" || check.status === "in_progress";
 }
+async function reconcileGateCommitStatus(gh, config, pr, latestCheck, logPrefix) {
+  if (config.dryRun || !config.enableDispatch)
+    return;
+  if (!latestCheck || latestCheck.status !== "completed")
+    return;
+  const target = latestCheck.conclusion === "success" ? "success" : "failure";
+  const current = await gh.getLatestCommitStatus(pr.headRefOid, config.testCheckName);
+  if (current === target)
+    return;
+  try {
+    await gh.createCommitStatus(pr.headRefOid, target, config.testCheckName, `Autopilot synchronized "${config.testCheckName}" from completed check run`);
+    core5.info(`${logPrefix}: reconciled "${config.testCheckName}" commit status to ${target} for PR #${pr.number} at SHA ${pr.headRefOid} (was ${current ?? "unset"})`);
+  } catch (err) {
+    core5.warning(`${logPrefix}: failed to reconcile commit status for PR #${pr.number}: ${err.message}`);
+  }
+}
 async function getPrCiSnapshot(gh, config, pr) {
   const checks = await gh.listCheckRuns(pr.headRefOid);
   const latestCheck = latestNamedCheck(checks, config.testCheckName);
@@ -45356,8 +45383,11 @@ class CarettaRunner {
         if (latestShaRun && latestShaRun.status === "completed") {
           const conclusion = latestShaRun.conclusion === "success" ? "success" : "failure";
           if (!latestCheck || latestCheck.status !== "completed") {
-            core8.info(`runCiGate: Background run ${latestShaRun.id} is completed (${latestShaRun.conclusion}); updating PR status for PR #${pr.number}.`);
-            await this.gh.createCommitStatus(pr.headRefOid, conclusion, this.config.testCheckName, `Autopilot synchronized from run ${latestShaRun.id}`);
+            const currentStatus = await this.gh.getLatestCommitStatus(pr.headRefOid, this.config.testCheckName);
+            if (currentStatus !== conclusion) {
+              core8.info(`runCiGate: Background run ${latestShaRun.id} is completed (${latestShaRun.conclusion}); updating PR status for PR #${pr.number}.`);
+              await this.gh.createCommitStatus(pr.headRefOid, conclusion, this.config.testCheckName, `Autopilot synchronized from run ${latestShaRun.id}`);
+            }
             allDone = false;
             continue;
           }
@@ -45373,6 +45403,7 @@ class CarettaRunner {
           break;
         }
         core8.info(`runCiGate: PR #${pr.number} (${pr.headRefName}) at SHA ${pr.headRefOid} latest "${this.config.testCheckName}" check is ${latestCheck.status} (${latestCheck.conclusion}).`);
+        await reconcileGateCommitStatus(this.gh, this.config, pr, latestCheck, "runCiGate");
       }
       if (allDone) {
         core8.info("All CI runs completed.");
@@ -45387,6 +45418,7 @@ class CarettaRunner {
 var core8, defaultExecuteDeps;
 var init_execute_autopilot = __esm(() => {
   init_caretta_install();
+  init_ci_dispatch_core();
   init_ci_dispatcher();
   init_conflict_resolver();
   core8 = __toESM(require_core(), 1);
@@ -45421,6 +45453,7 @@ async function processAgentPRs(gh, prs, config) {
     const entry = toEntry(pr);
     const snapshot = await getPrCiSnapshot(gh, config, pr);
     if (snapshot.latestCheck?.conclusion === "success") {
+      await reconcileGateCommitStatus(gh, config, pr, snapshot.latestCheck, "processAgentPRs");
       current.push(entry);
       continue;
     }
@@ -45634,4 +45667,4 @@ main().catch((error) => {
   core9.setFailed(message);
 });
 
-//# debugId=3C11D6BEBBAA277F64756E2164756E21
+//# debugId=DC1041D9EAC80A6764756E2164756E21

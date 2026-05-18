@@ -3,6 +3,7 @@ import * as github from "@actions/github";
 import { matchesGateCheckName } from "./check-runs.js";
 import type {
   CheckRun,
+  CommitStatusState,
   Issue,
   MergedPullRequest,
   PullRequest,
@@ -24,6 +25,17 @@ export interface GitHubClient {
     branch?: string,
   ): Promise<WorkflowRun[]>;
   listCheckRuns(sha: string): Promise<CheckRun[]>;
+  /**
+   * Latest commit status state for `context` on `sha`, or `null` if no status
+   * with that context (matched against gate naming) has been recorded.
+   * Used to detect a stale `pending` commit status that the autopilot wrote
+   * pre-dispatch and that GitHub's PR rollup is still showing even though the
+   * workflow's check_run has since completed.
+   */
+  getLatestCommitStatus(
+    sha: string,
+    context: string,
+  ): Promise<CommitStatusState | null>;
   listReviews(pullNumber: number): Promise<PullRequestReview[]>;
   dispatchWorkflow(
     workflow: string,
@@ -289,6 +301,25 @@ class OctokitClient implements GitHubClient {
     }
 
     return results;
+  }
+
+  async getLatestCommitStatus(
+    sha: string,
+    context: string,
+  ): Promise<CommitStatusState | null> {
+    const res = await this.octokit.rest.repos.getCombinedStatusForRef({
+      owner: this.owner,
+      repo: this.repo,
+      ref: sha,
+    });
+    const match = res.data.statuses.find(
+      (s) =>
+        s.context === context ||
+        matchesGateCheckName(s.context, context) ||
+        matchesGateCheckName(context, s.context),
+    );
+    if (!match) return null;
+    return match.state as CommitStatusState;
   }
 
   async listReviews(pullNumber: number): Promise<PullRequestReview[]> {

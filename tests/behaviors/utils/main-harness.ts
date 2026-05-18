@@ -97,6 +97,9 @@ export function makeMainHarness(
     async listCheckRuns() {
       return [];
     },
+    async getLatestCommitStatus() {
+      return null;
+    },
     async listReviews() {
       return [];
     },

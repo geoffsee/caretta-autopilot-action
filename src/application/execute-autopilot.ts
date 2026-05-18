@@ -12,6 +12,7 @@ import type {
   AutopilotConfig,
   EvaluationResult,
 } from "../../packages/action-common/src/types.js";
+import { reconcileGateCommitStatus } from "./ci-dispatch-core.js";
 import { dispatchMissingCi } from "./ci-dispatcher.js";
 import {
   ConflictResolver,
@@ -363,16 +364,24 @@ class CarettaRunner {
             latestShaRun.conclusion === "success" ? "success" : "failure";
 
           // If the latest check is not completed, or we have no check yet, synchronize.
+          // The write is idempotent: skip if the commit status already matches
+          // so polling doesn't keep re-writing while the check_run lags behind.
           if (!latestCheck || latestCheck.status !== "completed") {
-            core.info(
-              `runCiGate: Background run ${latestShaRun.id} is completed (${latestShaRun.conclusion}); updating PR status for PR #${pr.number}.`,
-            );
-            await this.gh.createCommitStatus(
+            const currentStatus = await this.gh.getLatestCommitStatus(
               pr.headRefOid,
-              conclusion,
               this.config.testCheckName,
-              `Autopilot synchronized from run ${latestShaRun.id}`,
             );
+            if (currentStatus !== conclusion) {
+              core.info(
+                `runCiGate: Background run ${latestShaRun.id} is completed (${latestShaRun.conclusion}); updating PR status for PR #${pr.number}.`,
+              );
+              await this.gh.createCommitStatus(
+                pr.headRefOid,
+                conclusion,
+                this.config.testCheckName,
+                `Autopilot synchronized from run ${latestShaRun.id}`,
+              );
+            }
             // This will be picked up in the next iteration
             allDone = false;
             continue;
@@ -400,6 +409,13 @@ class CarettaRunner {
 
         core.info(
           `runCiGate: PR #${pr.number} (${pr.headRefName}) at SHA ${pr.headRefOid} latest "${this.config.testCheckName}" check is ${latestCheck.status} (${latestCheck.conclusion}).`,
+        );
+        await reconcileGateCommitStatus(
+          this.gh,
+          this.config,
+          pr,
+          latestCheck,
+          "runCiGate",
         );
       }
 

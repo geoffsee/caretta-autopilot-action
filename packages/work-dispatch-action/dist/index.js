@@ -44501,6 +44501,17 @@ class OctokitClient {
     }
     return results;
   }
+  async getLatestCommitStatus(sha, context) {
+    const res = await this.octokit.rest.repos.getCombinedStatusForRef({
+      owner: this.owner,
+      repo: this.repo,
+      ref: sha
+    });
+    const match = res.data.statuses.find((s) => s.context === context || matchesGateCheckName(s.context, context) || matchesGateCheckName(context, s.context));
+    if (!match)
+      return null;
+    return match.state;
+  }
   async listReviews(pullNumber) {
     const res = await this.octokit.paginate(this.octokit.rest.pulls.listReviews, {
       owner: this.owner,
@@ -44808,4 +44819,4 @@ main().catch((error) => {
   core5.setFailed(message);
 });
 
-//# debugId=947015D2A5F6AEC764756E2164756E21
+//# debugId=083156941E55F35564756E2164756E21

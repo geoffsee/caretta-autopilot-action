@@ -59,6 +59,8 @@ export interface CheckRun {
   createdAt: string | null;
 }
 
+export type CommitStatusState = "pending" | "success" | "failure" | "error";
+
 export interface WorkflowRun {
   id: number;
   headSha: string;

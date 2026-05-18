@@ -186,4 +186,148 @@ describe("processAgentPRs", () => {
       },
     ]);
   });
+
+  test("reconciles stale pending commit status when check_run is success", async () => {
+    // Simulate the production bug: a prior dispatch wrote a "Test" commit
+    // status as pending, then the workflow ran and produced a successful
+    // "Test" check_run on the same SHA. Without reconciliation, the PR's
+    // statusCheckRollup merges both into one "Test" context whose state stays
+    // pending — blocking the merge despite the green check.
+    const gh = new FakeGitHub({
+      checksBySha: {
+        "sha-success": [
+          {
+            name: "Test",
+            status: "completed" as const,
+            conclusion: "success" as const,
+            startedAt: null,
+            createdAt: "2026-01-01T00:00:00Z",
+          },
+        ],
+      },
+    });
+    await gh.createCommitStatus(
+      "sha-success",
+      "pending",
+      "Test",
+      "Autopilot dispatching CI...",
+    );
+
+    const result = await processAgentPRs(
+      gh,
+      [makePR({ number: 21, headRefOid: "sha-success" })],
+      makeConfig(),
+    );
+
+    expect(result.current).toHaveLength(1);
+    const reconciliation = gh.createdStatuses.find(
+      (s) => s.state === "success",
+    );
+    expect(reconciliation).toEqual({
+      sha: "sha-success",
+      state: "success",
+      context: "Test",
+      description: 'Autopilot synchronized "Test" from completed check run',
+      targetUrl: undefined,
+    });
+  });
+
+  test("does not re-write commit status when it already matches the check conclusion", async () => {
+    const gh = new FakeGitHub({
+      checksBySha: {
+        "sha-already-reconciled": [
+          {
+            name: "Test",
+            status: "completed" as const,
+            conclusion: "success" as const,
+            startedAt: null,
+            createdAt: "2026-01-01T00:00:00Z",
+          },
+        ],
+      },
+    });
+    await gh.createCommitStatus(
+      "sha-already-reconciled",
+      "success",
+      "Test",
+      "Previously reconciled",
+    );
+
+    const before = gh.createdStatuses.length;
+    const result = await processAgentPRs(
+      gh,
+      [makePR({ number: 22, headRefOid: "sha-already-reconciled" })],
+      makeConfig(),
+    );
+
+    expect(result.current).toHaveLength(1);
+    expect(gh.createdStatuses).toHaveLength(before);
+  });
+
+  test("matches the CI / Test workflow check name when reconciling against a Test gate", async () => {
+    const gh = new FakeGitHub({
+      checksBySha: {
+        "sha-ci-test": [
+          {
+            name: "CI / Test",
+            status: "completed" as const,
+            conclusion: "success" as const,
+            startedAt: null,
+            createdAt: "2026-01-01T00:00:00Z",
+          },
+        ],
+      },
+    });
+    await gh.createCommitStatus(
+      "sha-ci-test",
+      "pending",
+      "Test",
+      "Autopilot dispatching CI...",
+    );
+
+    const result = await processAgentPRs(
+      gh,
+      [makePR({ number: 23, headRefOid: "sha-ci-test" })],
+      makeConfig(),
+    );
+
+    expect(result.current).toHaveLength(1);
+    const reconciliation = gh.createdStatuses.find(
+      (s) => s.state === "success",
+    );
+    expect(reconciliation?.context).toBe("Test");
+    expect(reconciliation?.state).toBe("success");
+  });
+
+  test("skips reconciliation in dry-run mode", async () => {
+    const gh = new FakeGitHub({
+      checksBySha: {
+        "sha-dry": [
+          {
+            name: "Test",
+            status: "completed" as const,
+            conclusion: "success" as const,
+            startedAt: null,
+            createdAt: "2026-01-01T00:00:00Z",
+          },
+        ],
+      },
+    });
+    await gh.createCommitStatus(
+      "sha-dry",
+      "pending",
+      "Test",
+      "Autopilot dispatching CI...",
+    );
+    const before = gh.createdStatuses.length;
+
+    const result = await processAgentPRs(
+      gh,
+      [makePR({ number: 24, headRefOid: "sha-dry" })],
+      makeConfig({ dryRun: true }),
+    );
+
+    expect(result.current).toHaveLength(1);
+    expect(gh.createdStatuses).toHaveLength(before);
+  });
 });

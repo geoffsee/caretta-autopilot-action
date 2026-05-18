@@ -26,6 +26,49 @@ export function isNamedCheckActivelyRunning(
   return check.status === "queued" || check.status === "in_progress";
 }
 
+/**
+ * When the workflow's check_run has completed but the autopilot's pre-dispatch
+ * `pending` commit status is still recorded under the same gate name, GitHub
+ * collapses the two into one "Test" context on the PR rollup and shows
+ * pending — blocking the PR even though the actual check passed. This writes
+ * a matching commit status to clear the stale entry. Idempotent: it reads the
+ * current state first and only writes when it disagrees with the conclusion.
+ */
+export async function reconcileGateCommitStatus(
+  gh: GitHubClient,
+  config: AutopilotConfig,
+  pr: PullRequest,
+  latestCheck: CheckRun | undefined,
+  logPrefix: string,
+): Promise<void> {
+  if (config.dryRun || !config.enableDispatch) return;
+  if (!latestCheck || latestCheck.status !== "completed") return;
+  const target: "success" | "failure" =
+    latestCheck.conclusion === "success" ? "success" : "failure";
+
+  const current = await gh.getLatestCommitStatus(
+    pr.headRefOid,
+    config.testCheckName,
+  );
+  if (current === target) return;
+
+  try {
+    await gh.createCommitStatus(
+      pr.headRefOid,
+      target,
+      config.testCheckName,
+      `Autopilot synchronized "${config.testCheckName}" from completed check run`,
+    );
+    core.info(
+      `${logPrefix}: reconciled "${config.testCheckName}" commit status to ${target} for PR #${pr.number} at SHA ${pr.headRefOid} (was ${current ?? "unset"})`,
+    );
+  } catch (err) {
+    core.warning(
+      `${logPrefix}: failed to reconcile commit status for PR #${pr.number}: ${(err as Error).message}`,
+    );
+  }
+}
+
 export async function getPrCiSnapshot(
   gh: GitHubClient,
   config: AutopilotConfig,

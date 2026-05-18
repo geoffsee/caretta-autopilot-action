@@ -9,6 +9,7 @@ import {
   dispatchOrRerunCi,
   getPrCiSnapshot,
   isNamedCheckActivelyRunning,
+  reconcileGateCommitStatus,
 } from "./ci-dispatch-core.js";
 
 export function filterAgentPRs(
@@ -49,6 +50,13 @@ export async function processAgentPRs(
     const snapshot = await getPrCiSnapshot(gh, config, pr);
 
     if (snapshot.latestCheck?.conclusion === "success") {
+      await reconcileGateCommitStatus(
+        gh,
+        config,
+        pr,
+        snapshot.latestCheck,
+        "processAgentPRs",
+      );
       current.push(entry);
       continue;
     }

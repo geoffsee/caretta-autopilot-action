@@ -27,6 +27,7 @@ function harness(snapshots: PullRequest[][]): Harness {
     closeIssueWithComment: async () => {},
     listWorkflowRuns: async () => [],
     listCheckRuns: async () => [],
+    getLatestCommitStatus: async () => null,
     listReviews: async () => [],
     dispatchWorkflow: async () => {},
     reRunWorkflowFailedJobs: async () => {},
