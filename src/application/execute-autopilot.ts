@@ -185,7 +185,7 @@ class CarettaRunner {
     const prsAfterFix = await this.gh.listOpenPullRequests();
     const issueStringsAfterFix = issues.map(String);
     const queuedPrs = prsAfterFix.filter((pr) => {
-      const match = pr.headRefName.match(/^agent\/issue-([0-9]+)$/);
+      const match = pr.headRefName.match(/^agent\/issue-([0-9]+)(?:-.*)?$/);
       return match && issueStringsAfterFix.includes(match[1]);
     });
 
@@ -268,7 +268,7 @@ class CarettaRunner {
 
     const candidates = prs.filter((pr) => {
       if (pr.isDraft || pr.mergeStateStatus === "DIRTY") return false;
-      const match = pr.headRefName.match(/^agent\/issue-([0-9]+)$/);
+      const match = pr.headRefName.match(/^agent\/issue-([0-9]+)(?:-.*)?$/);
       if (issueStrings.length > 0) {
         return match && issueStrings.includes(match[1]);
       }
@@ -330,7 +330,7 @@ class CarettaRunner {
     while (Date.now() - start < timeout) {
       const prs = await this.gh.listOpenPullRequests();
       const scopedPrs = prs.filter((pr) => {
-        const match = pr.headRefName.match(/^agent\/issue-([0-9]+)$/);
+        const match = pr.headRefName.match(/^agent\/issue-([0-9]+)(?:-.*)?$/);
         // We wait for all agent-branch PRs related to this tracker.
         // If auto-merge synced it, we should wait for it.
         return !!match;

@@ -419,6 +419,7 @@ describe("main: input parsing", () => {
     const cfg = h.runCalls[0].config;
     expect(cfg.agentBranchPattern).toBeInstanceOf(RegExp);
     expect(cfg.agentBranchPattern.test("agent/issue-42")).toBe(true);
+    expect(cfg.agentBranchPattern.test("agent/issue-42-suffix")).toBe(true);
     expect(cfg.agentBranchPattern.test("main")).toBe(false);
     expect(cfg.testCheckName).toBe("Test");
   });

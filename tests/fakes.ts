@@ -252,7 +252,7 @@ export function makeConfig(
     dryRun: false,
     enableDispatch: true,
     ciWorkflow: "ci.yml",
-    agentBranchPattern: /^agent\/issue-[0-9]+$/,
+    agentBranchPattern: /^agent\/issue-[0-9]+(?:-.*)?$/,
     testCheckName: "Test",
     gitUserName: "caretta-autopilot[bot]",
     gitUserEmail: "caretta-autopilot[bot]@users.noreply.github.com",

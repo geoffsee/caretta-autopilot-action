@@ -26,6 +26,20 @@ describe("dispatchMissingCi", () => {
     ]);
   });
 
+  test("dispatches ci.yml for an agent PR with a suffix in the branch name", async () => {
+    const gh = new FakeGitHub({
+      prs: [makePR({ number: 101, headRefName: "agent/issue-101-fix" })],
+      checksBySha: { "sha-101": [] },
+    });
+
+    const result = await dispatchMissingCi(gh, makeConfig());
+
+    expect(result.dispatched).toEqual([101]);
+    expect(gh.dispatched).toEqual([
+      { workflow: "ci.yml", ref: "agent/issue-101-fix", inputs: undefined },
+    ]);
+  });
+
   test("skips PRs whose head SHA already has a Test check", async () => {
     const gh = new FakeGitHub({
       prs: [makePR({ number: 102, headRefName: "agent/issue-102" })],

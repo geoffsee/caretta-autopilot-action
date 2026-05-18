@@ -1,11 +1,32 @@
 import type { CheckRun, WorkflowRun } from "./types.js";
 
+/**
+ * True if `checkName` is the check GitHub should report for a branch-protection
+ * / gate name of `gateName`.
+ *
+ * GitHub Actions uses `"{workflow name} / {job name}"` (e.g. `CI / Test`)
+ * for check runs, while commit statuses and older setups often use just the job
+ * id (e.g. `Test`). Autopilot's `test-check-name` defaults to the short form.
+ *
+ * Matching is symmetric so a gate of `CI / Test` still matches a lone `Test`
+ * check name if GitHub ever returns the short form.
+ */
+export function matchesGateCheckName(
+  checkName: string,
+  gateName: string,
+): boolean {
+  if (checkName === gateName) return true;
+  if (checkName.endsWith(` / ${gateName}`)) return true;
+  if (gateName.endsWith(` / ${checkName}`)) return true;
+  return false;
+}
+
 export function latestNamedCheck(
   checks: readonly CheckRun[],
   name: string,
 ): CheckRun | undefined {
   return [...checks]
-    .filter((check) => check.name === name)
+    .filter((check) => matchesGateCheckName(check.name, name))
     .sort((a, b) => checkTime(b) - checkTime(a))[0];
 }
 

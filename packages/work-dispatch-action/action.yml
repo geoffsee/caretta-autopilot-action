@@ -36,7 +36,7 @@ inputs:
   agent-branch-pattern:
     description: "Regex used to match agent branches."
     required: false
-    default: "^agent/issue-[0-9]+$"
+    default: "^agent/issue-[0-9]+(?:-.*)?$"
   ci-timeout-minutes:
     description: "Minutes to wait for CI completion in each tracker gate."
     required: false

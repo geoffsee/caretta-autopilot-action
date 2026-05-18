@@ -3,7 +3,7 @@ import { latestNamedCheck } from "../../../action-common/src/check-runs.js";
 import type { ExecClient } from "../../../action-common/src/exec-client.js";
 import type { GitHubClient } from "../../../action-common/src/github-client.js";
 
-export const DEFAULT_AGENT_BRANCH = /^agent\/issue-[0-9]+$/;
+export const DEFAULT_AGENT_BRANCH = /^agent\/issue-[0-9]+(?:-.*)?$/;
 export const DEFAULT_TEST_CHECK_NAME = "Test";
 export const DEFAULT_CI_TIMEOUT_MINUTES = 20;
 
@@ -146,7 +146,7 @@ export class TrackerLoopRunner {
 
     const candidates = prs.filter((pr) => {
       if (pr.isDraft || pr.mergeStateStatus === "DIRTY") return false;
-      const match = pr.headRefName.match(/^agent\/issue-([0-9]+)$/);
+      const match = pr.headRefName.match(/^agent\/issue-([0-9]+)(?:-.*)?$/);
       if (issueStrings.length > 0) {
         return match && issueStrings.includes(match[1]);
       }
@@ -183,7 +183,7 @@ export class TrackerLoopRunner {
       const prs = await this.gh.listOpenPullRequests();
       const issueStrings = issues.map(String);
       const scopedPrs = prs.filter((pr) => {
-        const match = pr.headRefName.match(/^agent\/issue-([0-9]+)$/);
+        const match = pr.headRefName.match(/^agent\/issue-([0-9]+)(?:-.*)?$/);
         return match && issueStrings.includes(match[1]);
       });
 

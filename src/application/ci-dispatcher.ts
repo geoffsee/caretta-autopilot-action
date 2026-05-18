@@ -1,7 +1,11 @@
 import * as core from "@actions/core";
 import type { GitHubClient } from "../../packages/action-common/src/github-client.js";
 import type { AutopilotConfig } from "../../packages/action-common/src/types.js";
-import { dispatchOrRerunCi, getPrCiSnapshot } from "./ci-dispatch-core.js";
+import {
+  dispatchOrRerunCi,
+  getPrCiSnapshot,
+  isNamedCheckActivelyRunning,
+} from "./ci-dispatch-core.js";
 
 export interface DispatchMissingCiOptions {
   /** When set, restricts to PRs whose branch matches `agent/issue-<n>` for one of these issue numbers. */
@@ -53,7 +57,7 @@ export async function dispatchMissingCi(
   const failed: number[] = [];
 
   for (const pr of eligible) {
-    const m = pr.headRefName.match(/^agent\/issue-([0-9]+)$/);
+    const m = pr.headRefName.match(/^agent\/issue-([0-9]+)(?:-.*)?$/);
     const issueNum = m ? m[1] : undefined;
 
     if (scope && (!issueNum || !scope.has(issueNum))) {
@@ -68,6 +72,14 @@ export async function dispatchMissingCi(
     if (snapshot.latestCheck?.conclusion === "success") {
       core.info(
         `dispatchMissingCi: PR #${pr.number} already has a successful "${config.testCheckName}" check.`,
+      );
+      skipped.push(pr.number);
+      continue;
+    }
+
+    if (isNamedCheckActivelyRunning(snapshot.latestCheck)) {
+      core.info(
+        `dispatchMissingCi: PR #${pr.number} has an active "${config.testCheckName}" check (${snapshot.latestCheck?.status}).`,
       );
       skipped.push(pr.number);
       continue;

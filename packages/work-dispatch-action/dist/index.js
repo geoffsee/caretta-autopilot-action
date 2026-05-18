@@ -44292,6 +44292,23 @@ var require_github = __commonJS((exports) => {
   exports.getOctokit = getOctokit;
 });
 
+// ../action-common/src/check-runs.ts
+function matchesGateCheckName(checkName, gateName) {
+  if (checkName === gateName)
+    return true;
+  if (checkName.endsWith(` / ${gateName}`))
+    return true;
+  if (gateName.endsWith(` / ${checkName}`))
+    return true;
+  return false;
+}
+function latestNamedCheck(checks, name) {
+  return [...checks].filter((check) => matchesGateCheckName(check.name, name)).sort((a, b) => checkTime(b) - checkTime(a))[0];
+}
+function checkTime(check) {
+  return new Date(check.createdAt || check.startedAt || 0).getTime();
+}
+
 // ../action-common/src/github-client.ts
 function createOctokitClient(token, owner, repo) {
   const octokit = github.getOctokit(token);
@@ -44456,8 +44473,9 @@ class OctokitClient {
       });
     }
     for (const s of statuses.data.statuses) {
-      if (checkRunNames.has(s.context)) {
-        core3.info(`listCheckRuns: skipping commit status "${s.context}" because a check run with the same name exists for this ref.`);
+      const shadowedByCheck = [...checkRunNames].some((cn) => cn === s.context || matchesGateCheckName(cn, s.context));
+      if (shadowedByCheck) {
+        core3.info(`listCheckRuns: skipping commit status "${s.context}" because a check run already covers this gate for this ref.`);
         continue;
       }
       core3.info(`listCheckRuns: found commit status "${s.context}" - state: ${s.state}`);
@@ -44530,14 +44548,6 @@ var init_github_client = __esm(() => {
   core3 = __toESM(require_core(), 1);
   github = __toESM(require_github(), 1);
 });
-
-// ../action-common/src/check-runs.ts
-function latestNamedCheck(checks, name) {
-  return [...checks].filter((check) => check.name === name).sort((a, b) => checkTime(b) - checkTime(a))[0];
-}
-function checkTime(check) {
-  return new Date(check.createdAt || check.startedAt || 0).getTime();
-}
 
 // src/application/tracker-loop-runner.ts
 class TrackerLoopRunner {
@@ -44639,7 +44649,7 @@ class TrackerLoopRunner {
     const candidates = prs.filter((pr) => {
       if (pr.isDraft || pr.mergeStateStatus === "DIRTY")
         return false;
-      const match = pr.headRefName.match(/^agent\/issue-([0-9]+)$/);
+      const match = pr.headRefName.match(/^agent\/issue-([0-9]+)(?:-.*)?$/);
       if (issueStrings.length > 0) {
         return match && issueStrings.includes(match[1]);
       }
@@ -44668,7 +44678,7 @@ class TrackerLoopRunner {
       const prs = await this.gh.listOpenPullRequests();
       const issueStrings = issues.map(String);
       const scopedPrs = prs.filter((pr) => {
-        const match = pr.headRefName.match(/^agent\/issue-([0-9]+)$/);
+        const match = pr.headRefName.match(/^agent\/issue-([0-9]+)(?:-.*)?$/);
         return match && issueStrings.includes(match[1]);
       });
       if (scopedPrs.length === 0) {
@@ -44704,7 +44714,7 @@ function parseTimeoutMinutes(input) {
 var core4, DEFAULT_AGENT_BRANCH, DEFAULT_TEST_CHECK_NAME = "Test", DEFAULT_CI_TIMEOUT_MINUTES = 20;
 var init_tracker_loop_runner = __esm(() => {
   core4 = __toESM(require_core(), 1);
-  DEFAULT_AGENT_BRANCH = /^agent\/issue-[0-9]+$/;
+  DEFAULT_AGENT_BRANCH = /^agent\/issue-[0-9]+(?:-.*)?$/;
 });
 
 // src/composition/root.ts
@@ -44798,4 +44808,4 @@ main().catch((error) => {
   core5.setFailed(message);
 });
 
-//# debugId=3600350EFD6B2D6B64756E2164756E21
+//# debugId=947015D2A5F6AEC764756E2164756E21

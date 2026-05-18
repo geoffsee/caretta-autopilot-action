@@ -34,6 +34,10 @@ inputs:
     description: "Workflow file dispatched per agent PR to attach a Test check to the head SHA."
     required: false
     default: "ci.yml"
+  test-check-name:
+    description: "Gate check name (matches exact, or GitHub Actions' \"Workflow / job\" name such as CI / Test when set to the job id Test)."
+    required: false
+    default: "Test"
   git-user-name:
     description: "Git author/committer name used when caretta creates commits."
     required: false

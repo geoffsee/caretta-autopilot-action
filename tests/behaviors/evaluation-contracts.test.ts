@@ -51,8 +51,9 @@ describe("evaluation behavior contracts", () => {
 });
 
 describe("DEFAULT_AGENT_BRANCH (shared constant with trigger prefix)", () => {
-  test("agent branch pattern matches agent/issue-<n> only", () => {
+  test("agent branch pattern matches agent/issue-<n> and suffixes", () => {
     expect(DEFAULT_AGENT_BRANCH.test("agent/issue-1")).toBe(true);
+    expect(DEFAULT_AGENT_BRANCH.test("agent/issue-1-fix-bug")).toBe(true);
     expect(DEFAULT_AGENT_BRANCH.test("agent/issue-")).toBe(false);
     expect(DEFAULT_AGENT_BRANCH.test("feature/agent/issue-1")).toBe(false);
   });

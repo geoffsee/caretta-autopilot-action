@@ -77,11 +77,15 @@ export async function runAutopilot(
     gh.listOpenPullRequests(),
   ]);
   const evaluation = domain.evaluate(issues, prs);
-  const prCi = await processAgentPRs(gh, prs, config);
+  let prCi = await processAgentPRs(gh, prs, config);
   const decision = domain.decideExecution(prCi, config);
 
   if (decision.targetDispatched === "executed") {
     await executeAutopilot(gh, exec, config, evaluation, executeDeps);
+    // Commits pushed with the default GITHUB_TOKEN do not trigger push/pull_request
+    // workflows; re-scan and dispatch CI for any new PR tips.
+    const prsAfterExecute = await gh.listOpenPullRequests();
+    prCi = await processAgentPRs(gh, prsAfterExecute, config);
   }
 
   const summary = domain.buildSummary(evaluation, prCi, decision, config);

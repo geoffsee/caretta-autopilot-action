@@ -358,17 +358,16 @@ describe("executeAutopilot", () => {
 
     await executeAutopilot(gh, exec, makeConfig(), workEval, deps);
 
-    // Verify that the autopilot called createCommitStatus exactly twice:
-    // 1. Initial pending status from dispatchMissingCi
-    // 2. Success status from synchronization in runCiGate loop
+    // When the check run is still in_progress but the CI workflow for this SHA
+    // already completed, dispatchMissingCi does not start another run; runCiGate
+    // synchronizes the PR status from the completed workflow.
     const shaStatuses = gh.createdStatuses.filter(
       (s) => s.sha === "sha-305" && s.context === "Test",
     );
-    expect(shaStatuses).toHaveLength(2);
+    expect(shaStatuses).toHaveLength(1);
 
-    expect(shaStatuses[0].state).toBe("pending");
-    expect(shaStatuses[1].state).toBe("success");
-    expect(shaStatuses[1].description).toContain(
+    expect(shaStatuses[0].state).toBe("success");
+    expect(shaStatuses[0].description).toContain(
       "Autopilot synchronized from run 999",
     );
   });

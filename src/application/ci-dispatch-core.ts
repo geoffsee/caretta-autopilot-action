@@ -18,6 +18,14 @@ export interface PrCiSnapshot {
   readonly failedRun?: WorkflowRun;
 }
 
+/** True when the named check exists but has not finished (including pending commit statuses mapped to in_progress). */
+export function isNamedCheckActivelyRunning(
+  check: CheckRun | undefined,
+): boolean {
+  if (!check || check.conclusion === "success") return false;
+  return check.status === "queued" || check.status === "in_progress";
+}
+
 export async function getPrCiSnapshot(
   gh: GitHubClient,
   config: AutopilotConfig,

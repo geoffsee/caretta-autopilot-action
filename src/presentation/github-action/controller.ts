@@ -67,6 +67,7 @@ export class AutopilotWorkflow {
         ? true
         : this.runtime.getBooleanInput("enable-dispatch");
     const ciWorkflow = this.runtime.getInput("ci-workflow") || "ci.yml";
+    const testCheckName = this.runtime.getInput("test-check-name") || "Test";
     const gitUserName =
       this.runtime.getInput("git-user-name") || "caretta-autopilot[bot]";
     const gitUserEmail =
@@ -98,7 +99,7 @@ export class AutopilotWorkflow {
       enableDispatch,
       ciWorkflow,
       agentBranchPattern: DEFAULT_AGENT_BRANCH,
-      testCheckName: DEFAULT_TEST_CHECK_NAME,
+      testCheckName,
       githubToken: token,
       gitUserName,
       gitUserEmail,

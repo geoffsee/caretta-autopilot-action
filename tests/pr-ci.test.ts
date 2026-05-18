@@ -20,6 +20,25 @@ describe("filterAgentPRs", () => {
 describe("processAgentPRs", () => {
   test.each([
     {
+      name: "classifies CI / Test check run as current when gate is Test",
+      setup: {
+        checksBySha: {
+          "sha-1c": [
+            {
+              name: "CI / Test",
+              status: "completed" as const,
+              conclusion: "success" as const,
+              startedAt: null,
+              createdAt: "2026-01-01T00:00:00Z",
+            },
+          ],
+        },
+      },
+      prs: [makePR({ number: 11, headRefOid: "sha-1c" })],
+      config: makeConfig(),
+      expected: { current: 1, pending: 0, dispatched: 0, ghDispatched: 0 },
+    },
+    {
       name: "classifies a PR with an existing Test check as current and skips dispatch",
       setup: {
         checksBySha: {
@@ -37,6 +56,25 @@ describe("processAgentPRs", () => {
       prs: [makePR({ number: 1 })],
       config: makeConfig(),
       expected: { current: 1, pending: 0, dispatched: 0, ghDispatched: 0 },
+    },
+    {
+      name: "classifies a PR with an in-progress Test check as active and skips dispatch",
+      setup: {
+        checksBySha: {
+          "sha-2b": [
+            {
+              name: "Test",
+              status: "in_progress" as const,
+              conclusion: null,
+              startedAt: "2026-01-01T00:00:00Z",
+              createdAt: "2026-01-01T00:00:00Z",
+            },
+          ],
+        },
+      },
+      prs: [makePR({ number: 2, headRefOid: "sha-2b" })],
+      config: makeConfig(),
+      expected: { active: 1, pending: 1, dispatched: 0, ghDispatched: 0 },
     },
     {
       name: "classifies a PR with an in-progress CI run as active and skips dispatch",

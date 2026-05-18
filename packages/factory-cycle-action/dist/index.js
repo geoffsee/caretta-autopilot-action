@@ -44292,6 +44292,17 @@ var require_github = __commonJS((exports) => {
   exports.getOctokit = getOctokit;
 });
 
+// ../action-common/src/check-runs.ts
+function matchesGateCheckName(checkName, gateName) {
+  if (checkName === gateName)
+    return true;
+  if (checkName.endsWith(` / ${gateName}`))
+    return true;
+  if (gateName.endsWith(` / ${checkName}`))
+    return true;
+  return false;
+}
+
 // ../action-common/src/github-client.ts
 function createOctokitClient(token, owner, repo) {
   const octokit = github.getOctokit(token);
@@ -44456,8 +44467,9 @@ class OctokitClient {
       });
     }
     for (const s of statuses.data.statuses) {
-      if (checkRunNames.has(s.context)) {
-        core3.info(`listCheckRuns: skipping commit status "${s.context}" because a check run with the same name exists for this ref.`);
+      const shadowedByCheck = [...checkRunNames].some((cn) => cn === s.context || matchesGateCheckName(cn, s.context));
+      if (shadowedByCheck) {
+        core3.info(`listCheckRuns: skipping commit status "${s.context}" because a check run already covers this gate for this ref.`);
         continue;
       }
       core3.info(`listCheckRuns: found commit status "${s.context}" - state: ${s.state}`);
@@ -44665,4 +44677,4 @@ main().catch((error) => {
   core5.setFailed(message);
 });
 
-//# debugId=AC5C3119E83AF1B364756E2164756E21
+//# debugId=4C841700229DE32764756E2164756E21

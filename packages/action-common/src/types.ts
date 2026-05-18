@@ -116,5 +116,5 @@ export interface AutopilotConfig {
   gitUserEmail: string;
 }
 
-export const DEFAULT_AGENT_BRANCH = /^agent\/issue-[0-9]+$/;
+export const DEFAULT_AGENT_BRANCH = /^agent\/issue-[0-9]+(?:-.*)?$/;
 export const DEFAULT_TEST_CHECK_NAME = "Test";

@@ -24013,6 +24013,29 @@ var require_github = __commonJS((exports) => {
   exports.getOctokit = getOctokit;
 });
 
+// packages/action-common/src/check-runs.ts
+function matchesGateCheckName(checkName, gateName) {
+  if (checkName === gateName)
+    return true;
+  if (checkName.endsWith(` / ${gateName}`))
+    return true;
+  if (gateName.endsWith(` / ${checkName}`))
+    return true;
+  return false;
+}
+function latestNamedCheck(checks, name) {
+  return [...checks].filter((check) => matchesGateCheckName(check.name, name)).sort((a, b) => checkTime(b) - checkTime(a))[0];
+}
+function latestFailedRun(runs) {
+  return [...runs].sort((a, b) => b.id - a.id).find((run) => run.conclusion === "failure" || run.conclusion === "cancelled" || run.conclusion === "timed_out");
+}
+function activeRun(runs) {
+  return runs.find((run) => run.status === "queued" || run.status === "in_progress");
+}
+function checkTime(check) {
+  return new Date(check.createdAt || check.startedAt || 0).getTime();
+}
+
 // packages/action-common/src/github-client.ts
 function createOctokitClient(token, owner, repo) {
   const octokit = github.getOctokit(token);
@@ -24177,8 +24200,9 @@ class OctokitClient {
       });
     }
     for (const s of statuses.data.statuses) {
-      if (checkRunNames.has(s.context)) {
-        core2.info(`listCheckRuns: skipping commit status "${s.context}" because a check run with the same name exists for this ref.`);
+      const shadowedByCheck = [...checkRunNames].some((cn) => cn === s.context || matchesGateCheckName(cn, s.context));
+      if (shadowedByCheck) {
+        core2.info(`listCheckRuns: skipping commit status "${s.context}" because a check run already covers this gate for this ref.`);
         continue;
       }
       core2.info(`listCheckRuns: found commit status "${s.context}" - state: ${s.state}`);
@@ -24253,9 +24277,9 @@ var init_github_client = __esm(() => {
 });
 
 // packages/action-common/src/types.ts
-var DEFAULT_AGENT_BRANCH, DEFAULT_TEST_CHECK_NAME = "Test";
+var DEFAULT_AGENT_BRANCH;
 var init_types = __esm(() => {
-  DEFAULT_AGENT_BRANCH = /^agent\/issue-[0-9]+$/;
+  DEFAULT_AGENT_BRANCH = /^agent\/issue-[0-9]+(?:-.*)?$/;
 });
 
 // src/domain/decide.ts
@@ -44934,21 +44958,12 @@ var init_caretta_install = __esm(() => {
   ];
 });
 
-// packages/action-common/src/check-runs.ts
-function latestNamedCheck(checks, name) {
-  return [...checks].filter((check) => check.name === name).sort((a, b) => checkTime(b) - checkTime(a))[0];
-}
-function latestFailedRun(runs) {
-  return [...runs].sort((a, b) => b.id - a.id).find((run) => run.conclusion === "failure" || run.conclusion === "cancelled" || run.conclusion === "timed_out");
-}
-function activeRun(runs) {
-  return runs.find((run) => run.status === "queued" || run.status === "in_progress");
-}
-function checkTime(check) {
-  return new Date(check.createdAt || check.startedAt || 0).getTime();
-}
-
 // src/application/ci-dispatch-core.ts
+function isNamedCheckActivelyRunning(check) {
+  if (!check || check.conclusion === "success")
+    return false;
+  return check.status === "queued" || check.status === "in_progress";
+}
 async function getPrCiSnapshot(gh, config, pr) {
   const checks = await gh.listCheckRuns(pr.headRefOid);
   const latestCheck = latestNamedCheck(checks, config.testCheckName);
@@ -45009,7 +45024,7 @@ async function dispatchMissingCi(gh, config, options = {}) {
   const skipped = [];
   const failed = [];
   for (const pr of eligible) {
-    const m = pr.headRefName.match(/^agent\/issue-([0-9]+)$/);
+    const m = pr.headRefName.match(/^agent\/issue-([0-9]+)(?:-.*)?$/);
     const issueNum = m ? m[1] : undefined;
     if (scope && (!issueNum || !scope.has(issueNum))) {
       core6.info(`dispatchMissingCi: skipping PR #${pr.number} (${pr.headRefName}) - not in current issue scope`);
@@ -45018,6 +45033,11 @@ async function dispatchMissingCi(gh, config, options = {}) {
     const snapshot = await getPrCiSnapshot(gh, config, pr);
     if (snapshot.latestCheck?.conclusion === "success") {
       core6.info(`dispatchMissingCi: PR #${pr.number} already has a successful "${config.testCheckName}" check.`);
+      skipped.push(pr.number);
+      continue;
+    }
+    if (isNamedCheckActivelyRunning(snapshot.latestCheck)) {
+      core6.info(`dispatchMissingCi: PR #${pr.number} has an active "${config.testCheckName}" check (${snapshot.latestCheck?.status}).`);
       skipped.push(pr.number);
       continue;
     }
@@ -45239,7 +45259,7 @@ class CarettaRunner {
     const prsAfterFix = await this.gh.listOpenPullRequests();
     const issueStringsAfterFix = issues.map(String);
     const queuedPrs = prsAfterFix.filter((pr) => {
-      const match = pr.headRefName.match(/^agent\/issue-([0-9]+)$/);
+      const match = pr.headRefName.match(/^agent\/issue-([0-9]+)(?:-.*)?$/);
       return match && issueStringsAfterFix.includes(match[1]);
     });
     const needsAutomerge = queuedPrs.some((pr) => !pr.isAutoMergeEnabled);
@@ -45281,7 +45301,7 @@ class CarettaRunner {
     const candidates = prs.filter((pr) => {
       if (pr.isDraft || pr.mergeStateStatus === "DIRTY")
         return false;
-      const match = pr.headRefName.match(/^agent\/issue-([0-9]+)$/);
+      const match = pr.headRefName.match(/^agent\/issue-([0-9]+)(?:-.*)?$/);
       if (issueStrings.length > 0) {
         return match && issueStrings.includes(match[1]);
       }
@@ -45320,7 +45340,7 @@ class CarettaRunner {
     while (Date.now() - start < timeout) {
       const prs = await this.gh.listOpenPullRequests();
       const scopedPrs = prs.filter((pr) => {
-        const match = pr.headRefName.match(/^agent\/issue-([0-9]+)$/);
+        const match = pr.headRefName.match(/^agent\/issue-([0-9]+)(?:-.*)?$/);
         return !!match;
       });
       if (scopedPrs.length === 0) {
@@ -45404,6 +45424,11 @@ async function processAgentPRs(gh, prs, config) {
       current.push(entry);
       continue;
     }
+    if (isNamedCheckActivelyRunning(snapshot.latestCheck)) {
+      pending.push(entry);
+      active.push(entry);
+      continue;
+    }
     if (snapshot.runInProgress) {
       pending.push(entry);
       active.push(entry);
@@ -45443,10 +45468,12 @@ async function runAutopilot(gh, exec2, config, _ref, executeDeps, domain = funct
     gh.listOpenPullRequests()
   ]);
   const evaluation = domain.evaluate(issues, prs);
-  const prCi = await processAgentPRs(gh, prs, config);
+  let prCi = await processAgentPRs(gh, prs, config);
   const decision = domain.decideExecution(prCi, config);
   if (decision.targetDispatched === "executed") {
     await executeAutopilot(gh, exec2, config, evaluation, executeDeps);
+    const prsAfterExecute = await gh.listOpenPullRequests();
+    prCi = await processAgentPRs(gh, prsAfterExecute, config);
   }
   const summary3 = domain.buildSummary(evaluation, prCi, decision, config);
   return { evaluation, prCi, decision, closeOnMerge, summary: summary3 };
@@ -45537,6 +45564,7 @@ var init_controller = __esm(() => {
       const dryRun = this.runtime.getBooleanInput("dry-run");
       const enableDispatch = this.runtime.getInput("enable-dispatch") === "" ? true : this.runtime.getBooleanInput("enable-dispatch");
       const ciWorkflow = this.runtime.getInput("ci-workflow") || "ci.yml";
+      const testCheckName = this.runtime.getInput("test-check-name") || "Test";
       const gitUserName = this.runtime.getInput("git-user-name") || "caretta-autopilot[bot]";
       const gitUserEmail = this.runtime.getInput("git-user-email") || "caretta-autopilot[bot]@users.noreply.github.com";
       const ref = this.githubContext.ref?.replace(/^refs\/heads\//, "") || "master";
@@ -45562,7 +45590,7 @@ _${trigger.reason}_
         enableDispatch,
         ciWorkflow,
         agentBranchPattern: DEFAULT_AGENT_BRANCH,
-        testCheckName: DEFAULT_TEST_CHECK_NAME,
+        testCheckName,
         githubToken: token,
         gitUserName,
         gitUserEmail
@@ -45606,4 +45634,4 @@ main().catch((error) => {
   core9.setFailed(message);
 });
 
-//# debugId=8D1C317D0BC48CE364756E2164756E21
+//# debugId=3C11D6BEBBAA277F64756E2164756E21

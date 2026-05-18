@@ -5,7 +5,11 @@ import type {
   PrEntry,
   PullRequest,
 } from "../../packages/action-common/src/types.js";
-import { dispatchOrRerunCi, getPrCiSnapshot } from "./ci-dispatch-core.js";
+import {
+  dispatchOrRerunCi,
+  getPrCiSnapshot,
+  isNamedCheckActivelyRunning,
+} from "./ci-dispatch-core.js";
 
 export function filterAgentPRs(
   prs: readonly PullRequest[],
@@ -46,6 +50,12 @@ export async function processAgentPRs(
 
     if (snapshot.latestCheck?.conclusion === "success") {
       current.push(entry);
+      continue;
+    }
+
+    if (isNamedCheckActivelyRunning(snapshot.latestCheck)) {
+      pending.push(entry);
+      active.push(entry);
       continue;
     }
 

@@ -1,5 +1,6 @@
 import * as core from "@actions/core";
 import * as github from "@actions/github";
+import { matchesGateCheckName } from "./check-runs.js";
 import type {
   CheckRun,
   Issue,
@@ -249,9 +250,13 @@ class OctokitClient implements GitHubClient {
     }
 
     for (const s of statuses.data.statuses) {
-      if (checkRunNames.has(s.context)) {
+      const shadowedByCheck = [...checkRunNames].some(
+        (cn) =>
+          cn === s.context || matchesGateCheckName(cn, s.context),
+      );
+      if (shadowedByCheck) {
         core.info(
-          `listCheckRuns: skipping commit status "${s.context}" because a check run with the same name exists for this ref.`,
+          `listCheckRuns: skipping commit status "${s.context}" because a check run already covers this gate for this ref.`,
         );
         continue;
       }
