@@ -5,7 +5,10 @@ import type {
 } from "../../action-common/src/action-runtime.js";
 import type { ExecClient } from "../../action-common/src/exec-client.js";
 import type { GitHubClient } from "../../action-common/src/github-client.js";
-import { createWorkDispatchComposition } from "../src/composition/root.js";
+import {
+  createWorkDispatchComposition,
+  runWorkDispatchAction,
+} from "../src/composition/root.js";
 import {
   type TrackerLoopDependencies,
   TrackerLoopWorkflow,
@@ -69,6 +72,9 @@ const fakeGh: GitHubClient = {
   async listCheckRuns() {
     return [];
   },
+  async getLatestCommitStatus() {
+    return null;
+  },
   async listReviews() {
     return [];
   },
@@ -105,6 +111,17 @@ describe("work-dispatch composition", () => {
 
     await composition.resolve(TrackerLoopWorkflow).run();
 
+    expect(runtime.outputs.tracker).toBe("7");
+    expect(runtime.outputs.caretta_version).toBe("v1");
+  });
+
+  test("runWorkDispatchAction runs the composed workflow", async () => {
+    const runtime = new FakeRuntime();
+    await runWorkDispatchAction({
+      runtime,
+      githubContext: { repo: { owner: "o", repo: "r" } },
+      dependencies: deps,
+    });
     expect(runtime.outputs.tracker).toBe("7");
     expect(runtime.outputs.caretta_version).toBe("v1");
   });

@@ -1,7 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import type { GitHubClient } from "../packages/action-common/src/github-client.js";
 import type { PullRequest } from "../packages/action-common/src/types.js";
-import { ConflictResolver } from "../src/application/conflict-resolver.js";
+import {
+  ConflictResolver,
+  type ConflictResolverDeps,
+} from "../src/application/conflict-resolver.js";
 import { FakeExec, FakeGitHub, makeConfig, makePR } from "./fakes.js";
 
 interface Harness {
@@ -57,6 +60,23 @@ function fakeDeps(fix: (pr: number) => Promise<void>) {
 }
 
 describe("ConflictResolver", () => {
+  test("default fixConflicts throws a configuration error when invoked", () => {
+    const gh = new FakeGitHub();
+    const resolver = new ConflictResolver(
+      gh,
+      makeConfig(),
+      {},
+      {
+        now: () => 0,
+        sleep: async () => {},
+      },
+    );
+    const deps = (resolver as unknown as { deps: ConflictResolverDeps }).deps;
+    expect(() => {
+      deps.fixConflicts(42);
+    }).toThrow(/no fixConflicts dependency configured/);
+  });
+
   test("fixes a single DIRTY agent PR and reports it resolved", async () => {
     const dirty = makePR({
       number: 101,

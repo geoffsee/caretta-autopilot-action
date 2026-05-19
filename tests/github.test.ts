@@ -75,6 +75,7 @@ describe("OctokitClient", () => {
           pullRequest: {
             reviewDecision: "APPROVED",
             mergeStateStatus: "CLEAN",
+            autoMergeRequest: { enabledAt: "2026-01-02T00:00:00Z" },
           },
         },
       }),
@@ -87,6 +88,8 @@ describe("OctokitClient", () => {
     expect(prs).toHaveLength(1);
     expect(prs[0].number).toBe(3);
     expect(prs[0].reviewDecision).toBe("APPROVED");
+    expect(prs[0].isAutoMergeEnabled).toBe(true);
+    expect(prs[0].mergeStateStatus).toBe("CLEAN");
     expect(mockOctokit.graphql).toHaveBeenCalled();
   });
 
@@ -326,5 +329,232 @@ describe("OctokitClient", () => {
       description: "Autopilot dispatching CI...",
       target_url: "https://example.com",
     });
+  });
+
+  it("listRecentlyMergedPullRequests filters merged PRs and clamps limit", async () => {
+    const mockOctokit = {
+      rest: {
+        pulls: {
+          list: mock().mockResolvedValue({
+            data: [
+              {
+                number: 10,
+                title: "Merged",
+                body: "x",
+                merged_at: "2026-01-01T00:00:00Z",
+                head: { ref: "h", sha: "s" },
+                base: { ref: "main" },
+                html_url: "https://example/10",
+              },
+              {
+                number: 11,
+                title: "Closed not merged",
+                merged_at: null,
+                head: { ref: "h2", sha: "s2" },
+                base: { ref: "main" },
+                html_url: "https://example/11",
+              },
+            ],
+          }),
+        },
+      },
+    };
+    (github.getOctokit as AnyMock).mockReturnValue(mockOctokit);
+
+    const client = createOctokitClient(token, owner, repo);
+    const merged = await client.listRecentlyMergedPullRequests(0);
+    expect(merged).toHaveLength(1);
+    expect(merged[0].number).toBe(10);
+    expect(mockOctokit.rest.pulls.list).toHaveBeenCalledWith(
+      expect.objectContaining({ per_page: 1 }),
+    );
+
+    await client.listRecentlyMergedPullRequests(500);
+    expect(mockOctokit.rest.pulls.list).toHaveBeenCalledWith(
+      expect.objectContaining({ per_page: 100 }),
+    );
+  });
+
+  it("getDefaultBranch returns repo default", async () => {
+    const mockOctokit = {
+      rest: {
+        repos: {
+          get: mock().mockResolvedValue({
+            data: { default_branch: "develop" },
+          }),
+        },
+      },
+    };
+    (github.getOctokit as AnyMock).mockReturnValue(mockOctokit);
+
+    const client = createOctokitClient(token, owner, repo);
+    expect(await client.getDefaultBranch()).toBe("develop");
+  });
+
+  it("getIssueBody and updateIssueBody delegate to issues API", async () => {
+    const issuesGet = mock().mockResolvedValue({
+      data: { body: "hello" },
+    });
+    const issuesUpdate = mock().mockResolvedValue({});
+    const mockOctokit = {
+      rest: {
+        issues: {
+          get: issuesGet,
+          update: issuesUpdate,
+        },
+      },
+    };
+    (github.getOctokit as AnyMock).mockReturnValue(mockOctokit);
+
+    const client = createOctokitClient(token, owner, repo);
+    expect(await client.getIssueBody(7)).toBe("hello");
+    await client.updateIssueBody(7, "next");
+    expect(issuesUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        owner,
+        repo,
+        issue_number: 7,
+        body: "next",
+      }),
+    );
+  });
+
+  it("closeIssueWithComment posts comment when non-empty and always closes", async () => {
+    const createComment = mock().mockResolvedValue({});
+    const issuesUpdate = mock().mockResolvedValue({});
+    const mockOctokit = {
+      rest: {
+        issues: {
+          createComment,
+          update: issuesUpdate,
+        },
+      },
+    };
+    (github.getOctokit as AnyMock).mockReturnValue(mockOctokit);
+
+    const client = createOctokitClient(token, owner, repo);
+    await client.closeIssueWithComment(5, "done");
+    expect(createComment).toHaveBeenCalled();
+    expect(issuesUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        issue_number: 5,
+        state: "closed",
+        state_reason: "completed",
+      }),
+    );
+  });
+
+  it("closeIssueWithComment skips createComment when comment is blank", async () => {
+    const createComment = mock().mockResolvedValue({});
+    const issuesUpdate = mock().mockResolvedValue({});
+    const mockOctokit = {
+      rest: {
+        issues: {
+          createComment,
+          update: issuesUpdate,
+        },
+      },
+    };
+    (github.getOctokit as AnyMock).mockReturnValue(mockOctokit);
+
+    const client = createOctokitClient(token, owner, repo);
+    await client.closeIssueWithComment(5, "   ");
+    expect(createComment).not.toHaveBeenCalled();
+    expect(issuesUpdate).toHaveBeenCalled();
+  });
+
+  it("getLatestCommitStatus returns matching state or null", async () => {
+    const getCombined = mock().mockResolvedValue({
+      data: {
+        statuses: [
+          { context: "Other", state: "success" },
+          { context: "CI / Test", state: "pending" },
+        ],
+      },
+    });
+    const mockOctokit = {
+      rest: {
+        repos: {
+          getCombinedStatusForRef: getCombined,
+        },
+      },
+    };
+    (github.getOctokit as AnyMock).mockReturnValue(mockOctokit);
+
+    const client = createOctokitClient(token, owner, repo);
+    expect(await client.getLatestCommitStatus("sha", "Test")).toBe("pending");
+    expect(await client.getLatestCommitStatus("sha", "missing")).toBeNull();
+  });
+
+  it("listReviews maps paginated reviews", async () => {
+    const mockOctokit = {
+      paginate: mock().mockResolvedValue([
+        {
+          state: "APPROVED",
+          body: "lgtm",
+          commit_id: "abc",
+          user: { login: "reviewer" },
+        },
+      ]),
+      rest: {
+        pulls: {
+          listReviews: {},
+        },
+      },
+    };
+    (github.getOctokit as AnyMock).mockReturnValue(mockOctokit);
+
+    const client = createOctokitClient(token, owner, repo);
+    const reviews = await client.listReviews(99);
+    expect(reviews).toEqual([
+      {
+        state: "APPROVED",
+        body: "lgtm",
+        commitId: "abc",
+        user: "reviewer",
+      },
+    ]);
+  });
+
+  it("reRunWorkflowFailedJobs delegates to actions API", async () => {
+    const reRun = mock().mockResolvedValue({});
+    const mockOctokit = {
+      rest: {
+        actions: {
+          reRunWorkflowFailedJobs: reRun,
+        },
+      },
+    };
+    (github.getOctokit as AnyMock).mockReturnValue(mockOctokit);
+
+    const client = createOctokitClient(token, owner, repo);
+    await client.reRunWorkflowFailedJobs(555);
+    expect(reRun).toHaveBeenCalledWith({
+      owner,
+      repo,
+      run_id: 555,
+    });
+  });
+
+  it("listCheckRuns logs when no checks or statuses exist", async () => {
+    const mockOctokit = {
+      rest: {
+        checks: {
+          listForRef: mock().mockResolvedValue({
+            data: { check_runs: [] },
+          }),
+        },
+        repos: {
+          getCombinedStatusForRef: mock().mockResolvedValue({
+            data: { statuses: [] },
+          }),
+        },
+      },
+    };
+    (github.getOctokit as AnyMock).mockReturnValue(mockOctokit);
+
+    const client = createOctokitClient(token, owner, repo);
+    const checks = await client.listCheckRuns("sha-empty");
+    expect(checks).toHaveLength(0);
   });
 });

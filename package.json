@@ -11,7 +11,8 @@
     "typecheck": "tsc --noEmit",
     "lint": "biome check",
     "format": "biome check --write",
-    "test": "bun test tests ./behavior-suite/",
+    "test": "bun test tests packages/work-dispatch-action/tests packages/factory-cycle-action/tests ./behavior-suite/",
+    "test:coverage": "bun test --coverage tests packages/work-dispatch-action/tests packages/factory-cycle-action/tests ./behavior-suite/",
     "test:behavior": "bun test ./behavior-suite/",
     "postinstall": ".dev/scripts/postinstall.sh"
   },

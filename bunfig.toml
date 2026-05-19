@@ -2,3 +2,14 @@ telemetry = false
 
 [test]
 root = "./tests"
+coverageSkipTestFiles = true
+coveragePathIgnorePatterns = [
+  "tests/behaviors/utils/**",
+  "tests/fakes.ts",
+  "tests/behaviors/contract-registry.ts",
+  ".dev/**",
+  "examples/**",
+]
+# Line coverage is 100%; Bun's `coverageThreshold` applies to all metrics by default, so a 1.0
+# threshold fails until function coverage catches up (~96.6% aggregate). Enforce locally via:
+#   bun run test:coverage | rg '^All files'

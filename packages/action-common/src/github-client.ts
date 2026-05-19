@@ -263,8 +263,7 @@ class OctokitClient implements GitHubClient {
 
     for (const s of statuses.data.statuses) {
       const shadowedByCheck = [...checkRunNames].some(
-        (cn) =>
-          cn === s.context || matchesGateCheckName(cn, s.context),
+        (cn) => cn === s.context || matchesGateCheckName(cn, s.context),
       );
       if (shadowedByCheck) {
         core.info(

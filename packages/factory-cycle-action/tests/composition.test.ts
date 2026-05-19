@@ -5,7 +5,10 @@ import type {
 } from "../../action-common/src/action-runtime.js";
 import type { ExecClient } from "../../action-common/src/exec-client.js";
 import type { GitHubClient } from "../../action-common/src/github-client.js";
-import { createFactoryCycleComposition } from "../src/composition/root.js";
+import {
+  createFactoryCycleComposition,
+  runFactoryCycleAction,
+} from "../src/composition/root.js";
 import {
   type FactoryCycleDependencies,
   FactoryCycleWorkflow,
@@ -63,6 +66,9 @@ const fakeGh: GitHubClient = {
   async listCheckRuns() {
     return [];
   },
+  async getLatestCommitStatus() {
+    return null;
+  },
   async listReviews() {
     return [];
   },
@@ -100,6 +106,16 @@ describe("factory-cycle composition", () => {
     await composition.resolve(FactoryCycleWorkflow).run();
 
     expect(runtime.outputs.skipped_due_to_open_sprint).toBe("false");
+    expect(runtime.outputs.caretta_version).toBe("v1");
+  });
+
+  test("runFactoryCycleAction runs the composed workflow", async () => {
+    const runtime = new FakeRuntime();
+    await runFactoryCycleAction({
+      runtime,
+      githubContext: { repo: { owner: "o", repo: "r" } },
+      dependencies: deps,
+    });
     expect(runtime.outputs.caretta_version).toBe("v1");
   });
 

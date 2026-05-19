@@ -14,7 +14,6 @@ import { createOctokitClient as createProductionGitHubClient } from "../../../pa
 import {
   type AutopilotConfig,
   DEFAULT_AGENT_BRANCH,
-  DEFAULT_TEST_CHECK_NAME,
 } from "../../../packages/action-common/src/types.js";
 import {
   AutopilotUseCase,

@@ -1,6 +1,6 @@
 import type * as exec from "@actions/exec";
-import type { ExecClient } from "../packages/action-common/src/exec-client.js";
 import { matchesGateCheckName } from "../packages/action-common/src/check-runs.js";
+import type { ExecClient } from "../packages/action-common/src/exec-client.js";
 import type { GitHubClient } from "../packages/action-common/src/github-client.js";
 import type {
   CheckRun,
@@ -71,6 +71,11 @@ export interface FakeData {
   dispatchShouldFail: (workflow: string, ref: string) => boolean;
   closeIssueShouldFail: (issueNumber: number) => boolean;
   updateIssueBodyShouldFail: (issueNumber: number) => boolean;
+  getIssueBodyShouldFail?: (issueNumber: number) => boolean;
+  /** Pre-seeded commit statuses (e.g. stale pending before reconcile). */
+  initialCommitStatuses?: readonly StatusCall[];
+  /** Consume N failures on `createCommitStatus` calls, then succeed. */
+  createCommitStatusFailTimes?: number;
 }
 
 export interface CloseIssueCall {
@@ -89,10 +94,15 @@ export class FakeGitHub implements GitHubClient {
   readonly updatedIssueBodies: UpdateIssueBodyCall[] = [];
   readonly reRunCalls: number[] = [];
   readonly createdStatuses: StatusCall[] = [];
+  private commitStatusFailsRemaining = 0;
   private readonly issueBodies: Record<number, string>;
 
   constructor(private readonly data: Partial<FakeData> = {}) {
     this.issueBodies = { ...(data.issueBodies ?? {}) };
+    this.commitStatusFailsRemaining = data.createCommitStatusFailTimes ?? 0;
+    for (const s of data.initialCommitStatuses ?? []) {
+      this.createdStatuses.push(s);
+    }
   }
 
   async listOpenIssues(): Promise<Issue[]> {
@@ -114,6 +124,9 @@ export class FakeGitHub implements GitHubClient {
   }
 
   async getIssueBody(issueNumber: number): Promise<string> {
+    if (this.data.getIssueBodyShouldFail?.(issueNumber)) {
+      throw new Error(`getIssueBody failed for #${issueNumber}`);
+    }
     return this.issueBodies[issueNumber] ?? "";
   }
 
@@ -223,6 +236,10 @@ export class FakeGitHub implements GitHubClient {
     description: string,
     targetUrl?: string,
   ): Promise<void> {
+    if (this.commitStatusFailsRemaining > 0) {
+      this.commitStatusFailsRemaining -= 1;
+      throw new Error("FakeGitHub: createCommitStatus failed");
+    }
     this.createdStatuses.push({ sha, state, context, description, targetUrl });
   }
 }

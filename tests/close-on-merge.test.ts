@@ -280,6 +280,33 @@ describe("closeIssuesForMergedPrs", () => {
     expect(gh.updatedIssueBodies).toHaveLength(0);
   });
 
+  test("warns when tracker checklist update fails", async () => {
+    const warnings: string[] = [];
+    const gh = new FakeGitHub({
+      mergedPrs: [
+        makeMergedPR({
+          number: 54,
+          body: "Closes #40",
+          baseRefName: "agent/issue-36",
+        }),
+      ],
+      defaultBranch: "main",
+      issueBodies: {
+        43: "## Sprint backlog\n- [ ] #40 tracing\n- [ ] #41 ui\n",
+      },
+      updateIssueBodyShouldFail: (n) => n === 43,
+    });
+    const result = await closeIssuesForMergedPrs(gh, new Set([40]), 43, {
+      logInfo: () => {},
+      logWarning: (m) => warnings.push(m),
+    });
+    expect(result.closed).toEqual([40]);
+    expect(result.trackerUpdated).toBe(false);
+    expect(
+      warnings.some((w) => w.includes("failed to update tracker #43")),
+    ).toBe(true);
+  });
+
   test("warns and continues when closeIssueWithComment fails for one issue", async () => {
     const warnings: string[] = [];
     const gh = new FakeGitHub({
