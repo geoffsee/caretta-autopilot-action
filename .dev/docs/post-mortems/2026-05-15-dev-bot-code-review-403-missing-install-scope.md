@@ -1,9 +1,8 @@
-# Post-mortem: code-review 403 — dev_bot App not installed on `auto-pilot-example`
+# Post-Mortem: code-review 403 — dev_bot App not installed on `auto-pilot-example`
 
-**Date:** 2026-05-15
-**Owner:** @geoffsee
+**Date:** 2026-05-15 | **Severity:** Low — single workflow run; no data loss | **Author:** @geoffsee
+
 **Status:** Resolved (operator config)
-**Severity:** Low — single workflow run; no data loss
 
 ## Summary
 
@@ -25,18 +24,18 @@ The review payload was generated correctly and dropped to
   its prior state instead of receiving the requested changes.
 - Run: `actions/runs/25923822740/job/76202319400`.
 
-## Timeline (UTC)
+## Timeline
 
-- **14:56** — Prior autopilot run completes cleanly; `gh pr update-branch`
+- **14:56 UTC** — Prior autopilot run completes cleanly; `gh pr update-branch`
   succeeds for all eight tracker PRs.
-- **15:45** — Next autopilot run begins. `gh pr update-branch` flakes on four
+- **15:45 UTC** — Next autopilot run begins. `gh pr update-branch` flakes on four
   PRs with transient GitHub GraphQL errors; caretta posts conflict-resolution
   markers and continues (unrelated to this incident).
-- **15:46** — `code-review 21` starts.
-- **15:51** — `code-review` exits after the 403; review payload preserved on
+- **15:46 UTC** — `code-review 21` starts.
+- **15:51 UTC** — `code-review` exits after the 403; review payload preserved on
   disk, no review posted to the PR.
 
-## Root cause
+## Root Cause
 
 The dev_bot GitHub App was not installed on the `auto-pilot-example`
 repository (or the repo was not in the App's "selected repositories" list).
@@ -58,7 +57,7 @@ Added `auto-pilot-example` to the dev_bot GitHub App installation's
 repository list. No code change required; next autopilot run authenticates
 correctly.
 
-## What went well
+## What Went Well
 
 - `warnIfBotCredsIncomplete` in `execute.ts:81` already documents this exact
   failure mode ("expect HTTP 403 on code-review") for the related
@@ -67,7 +66,7 @@ correctly.
   run log instead of retrying and burning credits.
 - Review payload was preserved on disk, so no work was lost.
 
-## What didn't
+## What Went Poorly
 
 - The action has no preflight that the configured App installation actually
   covers the repo it's about to operate on. The 403 only surfaces deep inside
@@ -76,16 +75,13 @@ correctly.
   checklist or README section in this package — easy to miss when wiring up a
   new consumer repo.
 
-## Follow-ups
+## Action Items
 
-- [ ] Document the dev_bot App installation step in the README's setup
-  section, including the "add target repos to the App" requirement and a link
-  to the GitHub App settings page.
-- [ ] Consider a cheap preflight in `executeAutopilot`: when the work route
-  is selected and bot creds are configured, hit
-  `GET /repos/{owner}/{repo}/installation` with an App JWT and fail-fast with
-  a clear error if the installation does not include the current repo.
-  Cheaper than discovering the problem 5 minutes into `code-review`.
-- [ ] Not blocking, but: the reverted `mintInstallationToken` commit
-  (`c068c43`) is the natural place to attach the preflight, since it already
-  has the JWT-signing primitives.
+| Action | Owner | Due |
+|--------|-------|-----|
+| Document the dev_bot App installation step in the README's setup section, including the "add target repos to the App" requirement and a link to the GitHub App settings page. | TODO | TODO |
+| Consider a cheap preflight in `executeAutopilot`: when the work route is selected and bot creds are configured, hit `GET /repos/{owner}/{repo}/installation` with an App JWT and fail-fast with a clear error if the installation does not include the current repo. Cheaper than discovering the problem 5 minutes into `code-review`. | TODO | TODO |
+| Revisit the reverted `mintInstallationToken` commit (`c068c43`) as the natural place to attach the preflight (JWT-signing primitives already present). | TODO | TODO |
+
+---
+*Blameless: this document examines systems and processes, not individuals.*

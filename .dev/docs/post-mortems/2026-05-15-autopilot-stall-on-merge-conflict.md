@@ -1,6 +1,7 @@
-# Post-mortem: Autopilot stalls on "Waiting for CI to complete..." when a PR has an undetected merge conflict
+# Post-Mortem: Autopilot stalls on "Waiting for CI to complete..." when a PR has an undetected merge conflict
 
-**Date:** 2026-05-15
+**Date:** 2026-05-15 | **Severity:** TODO | **Author:** TODO
+
 **Status:** Resolved (workaround); follow-ups open
 
 ## Summary
@@ -12,39 +13,43 @@ An autopilot run hung indefinitely on the log line `Waiting for CI to complete..
 - One autopilot run was stuck for ~20+ minutes and had to be unblocked manually.
 - Other agent PRs in the run were also waiting on the same gate, delaying their progression.
 
-## Detection
+## Timeline
 
-Surfaced when the operator noticed the workflow had not advanced past step 3 (`Run geoffsee/caretta-autopilot-action@main`) for an extended period and asked us to inspect the gating logic.
+- **Detection:** Surfaced when the operator noticed the workflow had not advanced past step 3 (`Run geoffsee/caretta-autopilot-action@main`) for an extended period and asked us to inspect the gating logic.
+- **Remediation (this incident):**
+  1. Identified the conflicting PR via `gh pr list --json mergeable`.
+  2. Checked out the branch and merged its actual base locally to surface the conflict.
+  3. Resolved the conflict by keeping the head branch's version (it already integrated the base's changes correctly).
+  4. Ran `bun test` locally — all green.
+  5. Pushed the merge commit to the PR branch.
+  6. Manually dispatched the `CI` workflow against the updated head via `gh workflow run`.
+  7. Verified the resulting run completed `success` and the `Test` check appeared on the new SHA.
 
-## Root cause
+## Root Cause
 
 The CI gate in `src/execute.ts` (`runCiGate`) considers a PR "done" only when a check run named `Test` exists on the head SHA with a terminal status. It does not inspect `pull_request.mergeable`. A PR in `CONFLICTING` state never produces that check, so the gate spins until its 20-minute timeout — and if the gate is entered late in the run, the operator sees the symptom as an indefinite hang.
 
 In this specific case, the conflicting PR's base branch was another agent branch (not `main`), which made the conflict invisible to a casual `git merge origin/main` check.
 
-## Resolution (this incident)
+## What Went Well
 
-1. Identified the conflicting PR via `gh pr list --json mergeable`.
-2. Checked out the branch and merged its actual base locally to surface the conflict.
-3. Resolved the conflict by keeping the head branch's version (it already integrated the base's changes correctly).
-4. Ran `bun test` locally — all green.
-5. Pushed the merge commit to the PR branch.
-6. Manually dispatched the `CI` workflow against the updated head via `gh workflow run`.
-7. Verified the resulting run completed `success` and the `Test` check appeared on the new SHA.
+- TODO
+
+## What Went Poorly
+
+- TODO
+
+## Action Items
+
+| Action | Owner | Due |
+|--------|-------|-----|
+| Conflict detection in `runCiGate`: query `pull_request.mergeable`, skip or fail-fast on `CONFLICTING`, log PR number. | TODO | TODO |
+| Make the wait loop diagnostic (per-PR pending reasons on each poll). | TODO | TODO |
+| Pre-commit hook in this repo (`bun test`, `tsc --noEmit` as appropriate). | TODO | TODO |
 
 ## Related context
 
 New repository rulesets are now in place for all branches and the default branch, requiring pull requests to merge with a passing `Test` check. This means a PR that never produces a `Test` check cannot merge at all — making the autopilot's silent stall mode more costly, since work blocked behind such a PR cannot trivially be force-merged.
-
-## Follow-ups
-
-- **Conflict detection in the CI gate.** Have the gate query `pull_request.mergeable` for each scoped PR and skip-or-fail-fast on `CONFLICTING`, instead of polling for a check that will never appear. Log the PR number explicitly so operators don't have to dig.
-- **Make the wait message diagnostic.** Include which PRs are still pending and why (e.g., `missing Test check`, `in_progress`, `unmergeable`) on each poll, so a stall is self-explaining from the log alone.
-- **Pre-commit hook in this repo.** Adding a pre-commit hook that runs `bun test` (and ideally `tsc --noEmit`) would catch failures before they reach a CI runner. Benefits:
-    - Faster feedback loop — failures surface in seconds locally instead of minutes after pushing.
-    - Saves CI minutes that would otherwise be burned on trivially broken commits.
-    - Reduces the rate of red `Test` checks landing on PRs, which under the new rulesets directly translates to fewer merge blockers.
-    - Catches the easy class of issues (syntax, type errors, obviously failing tests) before they cascade into autopilot-level stalls like this one.
 
 ## Mitigation options
 
@@ -242,3 +247,6 @@ The test layering — `inspect` (pure), strategy (side-effectful but narrow), `a
 3. Build the in-loop auto-resolution behavior described above on top of (1)+(2). Start with the safe case (merge base into head when there is no real conflict), gated by a config flag, and let it bake before extending to richer resolution strategies.
 4. Evaluate (3) and (4) once (1)+(2)+(3) have produced a few weeks of clearer logs.
 5. Consider the broader form of (5) and (7) only if conflicts or rule-blocked PRs remain a recurring source of stalls after the above.
+
+---
+*Blameless: this document examines systems and processes, not individuals.*

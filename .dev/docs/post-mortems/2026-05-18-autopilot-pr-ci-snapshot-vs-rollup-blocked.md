@@ -1,12 +1,13 @@
 ---
-title: Post-mortem — "the autopilot is lying"
+title: Post-mortem — autopilot CI classification vs GitHub PR rollup mismatch
 date: 2026-05-18
 status: Resolved (same day)
 ---
 
 # Post-mortem: autopilot reports CI as success while the PRs themselves stay BLOCKED
 
-**Date:** 2026-05-18
+**Date:** 2026-05-18 | **Severity:** TODO | **Author:** TODO
+
 **Status:** Resolved same day. The five live agent PRs (#141, #142, #143, #144, #145) will be cleared by the next autopilot run because reconciliation is idempotent and self-healing.
 
 ## Summary
@@ -17,9 +18,9 @@ The autopilot's per-PR scan was classifying agent PRs as `current` (CI successfu
 
 - All five open agent PRs were stuck `BLOCKED` even though their dispatched workflows had passed (or, for #143, were being correctly re-run after failure).
 - The cron-driven autopilot kept marking them as `current` and skipping any remediation — there is no other actor that would have noticed the divergence.
-- Trust regression: the operator-facing classification (`current` / `pending` / `failed`) became unreliable. The user reported it as "the autopilot is lying," and the framing is accurate: the autopilot's report did not match the user's view of the same artifacts.
+- Trust regression: the operator-facing classification (`current` / `pending` / `failed`) became unreliable. The user reported that the autopilot’s view of PR state did not match what they saw in GitHub for the same PRs (rollup / mergeability), which is accurate for the failure mode.
 
-## Sequence (PR #145 as the worked example)
+## Timeline
 
 1. Autopilot scan picked up `agent/issue-139` at SHA `9ccc70f25…`. No `Test` check existed yet.
 2. `dispatchOrRerunCi` (`ci-dispatch-core.ts`) called `dispatchWorkflow("ci.yml", "agent/issue-139")` and immediately wrote `createCommitStatus(sha, "pending", "Test", "Autopilot dispatching CI...")` as a visibility signal.
@@ -30,7 +31,7 @@ The autopilot's per-PR scan was classifying agent PRs as `current` (CI successfu
    - `getPrCiSnapshot.latestCheck.conclusion === "success"` → `processAgentPRs` pushed the PR to `current` and moved on.
 5. Meanwhile, `gh pr view 145` / GraphQL `statusCheckRollup` continued to report exactly one context: `StatusContext "Test" PENDING`, `mergeStateStatus: BLOCKED`. The commit_status the autopilot had written at step 2 was never updated, and GitHub's PR rollup collapses status + check_run sharing a context name into one row whose state is dominated by `pending`. The PR could not merge.
 
-## Root cause
+## Root Cause
 
 Two structural conditions had to coincide:
 
@@ -40,11 +41,22 @@ Two structural conditions had to coincide:
 
 The autopilot trusted itself. The PR rollup is what gated merging. They diverged silently.
 
-## Why earlier iterations missed it
+## What Went Well
+
+- TODO
+
+## What Went Poorly
 
 The 2026-05-17 convergence commit (`c7e0aa0`) closed four real gaps: branch regex flex, `"workflow / job"` check naming, dispatch idempotency, post-execute re-scan. None of them touched the *reconciliation gap* — that the pre-dispatch pending commit_status is never updated to match the workflow's eventual conclusion. The gap was invisible in tests because `FakeGitHub.listCheckRuns` did not implement production's same-name shadowing rule. With the fake, a manually written `pending` status appeared as a newer check_run entry and dominated `latestNamedCheck`'s sort, so tests could never construct the exact production divergence (check_run says success, commit_status says pending, PR rollup says pending). The test surface effectively guaranteed they agreed.
 
 `runCiGate`'s existing sync block (`execute-autopilot.ts:362-380`) was almost the right idea applied at the wrong moment: it wrote a reconciling commit_status when the workflow_run was completed but the check_run was *not yet* completed. In production, by the time the autopilot polled again, the check_run had usually caught up, so the block's success case never fired — but its failure mode in the catch-up window also went unnoticed because the writes it produced were shadowed by the in_progress check_run on every subsequent iteration (silent over-writing, no rate-limit signal until much later).
+
+## Action Items
+
+| Action | Owner | Due |
+|--------|-------|-----|
+| Publish dispatch progress under a non-colliding commit status context (e.g. `autopilot/ci-dispatch`) so `Test` is the sole merge-gate writer (follow-up noted in Lessons). | TODO | TODO |
+| TODO — additional tracked follow-ups from this incident, if any | TODO | TODO |
 
 ## What was changed (commit pending)
 
@@ -68,4 +80,7 @@ Verification: `bun run typecheck` clean across `autopilot-action`, `work-dispatc
 
 4. **Idempotency at the API level is not a nice-to-have when writes can be shadowed.** A `createCommitStatus` call that produces no visible state change (because something else with higher precedence shadows it) is indistinguishable from a successful update until you look at the rollup. Every poll under those conditions silently consumes rate limit. Always read-before-write when you can't observe the effect of the write.
 
-5. **The user's framing was load-bearing.** "The autopilot is lying" is more useful than "the check status is wrong" — it points at the trust-shaped problem (autopilot's report does not match the user's view) instead of just the surface symptom. The fix was scoped to restoring agreement, not to defending the autopilot's previous view as technically correct.
+5. **The user's framing was load-bearing.** Describing a **trust mismatch** (autopilot’s summary vs the operator’s view of the same PRs) is more useful than only saying “the check status is wrong” — it points at the trust-shaped problem instead of just the surface symptom. The fix was scoped to restoring agreement, not to defending the autopilot's previous view as technically correct.
+
+---
+*Blameless: this document examines systems and processes, not individuals.*

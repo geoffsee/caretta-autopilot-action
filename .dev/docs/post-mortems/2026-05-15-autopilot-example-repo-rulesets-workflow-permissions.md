@@ -1,7 +1,9 @@
-# Post-mortem: Branch rulesets and workflow permissions on autopilot-example-project
+# Post-Mortem: Branch rulesets and workflow permissions on autopilot-example-project
 
-**Date:** 2026-05-15
+**Date:** 2026-05-15 | **Severity:** TODO | **Author:** TODO
+
 **Status:** Active — decisions are in effect; follow-ups open
+
 **Last updated:** 2026-05-15 — `all` ruleset rules stripped (now empty); see below.
 
 ## Summary
@@ -9,6 +11,38 @@
 Two branch rulesets and a permissive workflow-permissions configuration were enabled on `geoffsee/autopilot-example-project`. Together they raise the floor for what is allowed to land — PRs required and a passing `Test` check required to merge into `main`, linear history on `main`, no force-push or deletion — while keeping the `GITHUB_TOKEN` broad enough that the autopilot can continue to push branches, open PRs, and (potentially) approve them. The combination achieves the intended safety properties for code reaching `main`, but it leaves a small number of sharp edges that are worth naming explicitly so they aren't rediscovered during an incident.
 
 As of 2026-05-15T12:07Z, the `all` ruleset has been emptied of rules — it still exists and is `active`, but enforces nothing. The original entry below has been updated to reflect this; the historical configuration is preserved under "Original configuration (now removed)" for context. All gating on `main` now comes from the `default` ruleset alone; `agent/*` and other non-default branches are no longer gated by repository rulesets.
+
+## Impact
+
+- TODO — This entry documents intentional repository configuration and sharp edges, not a discrete outage; no user-visible impact window is recorded here.
+
+## Timeline
+
+- TODO — Key configuration milestones (including emptying the `all` ruleset) are described narratively under **Last updated** above and **## What changed** below; clock times were not kept for this write-up beyond the `2026-05-15T12:07Z` note in **Summary**.
+
+## Root Cause
+
+- TODO — Not framed as a single failure event; rationale for the posture is under **Why these settings are in place** in **## What changed** below.
+
+## What Went Well
+
+- TODO
+
+## What Went Poorly
+
+- TODO
+
+## Action Items
+
+| Action | Owner | Due |
+|--------|-------|-----|
+| Tighten default workflow permissions (repo default read + explicit per-workflow `permissions:`). | TODO | TODO |
+| Decide intentionally on the "Allow GHA to create and approve PRs" toggle; document which workflows may use it. | TODO | TODO |
+| Encode the `Test` check name once (shared source of truth across workflow, rulesets, `runCiGate`). | TODO | TODO |
+| Add a periodic drift check (scheduled workflow or autopilot step) comparing live rulesets to a checked-in JSON file. | TODO | TODO |
+| Consider downgrading Admin bypass to `pull_request` mode if direct pushes to `main` should remain blocked. | TODO | TODO |
+| Consider deleting the empty `all` ruleset if it stays a no-op long-term. | TODO | TODO |
+| Ship `caretta verify-config` + expectations file (see **Recommended solution** below). | TODO | TODO |
 
 ## What changed
 
@@ -59,7 +93,7 @@ Effect: the autopilot workflow has the token authority it needs to push branches
 
 ## Implications for the autopilot
 
-- **The autopilot's CI gate now has teeth for merges into `main`.** Previously a PR with a missing or red `Test` check could still be merged manually; now it cannot. Stalls of the form described in `2026-05-15-autopilot-ci-wait-on-conflict.md` are no longer a soft failure for `main` — they directly translate to merge blockers. (Merges *into* `agent/*` branches no longer hit a ruleset gate since the `all` ruleset was emptied; the autopilot's own `runCiGate` still enforces `Test` in software, independent of GitHub rulesets.)
+- **The autopilot's CI gate now has teeth for merges into `main`.** Previously a PR with a missing or red `Test` check could still be merged manually; now it cannot. Stalls of the form described in `2026-05-15-autopilot-runci-gate-poll-stall-on-merge-conflict.md` are no longer a soft failure for `main` — they directly translate to merge blockers. (Merges *into* `agent/*` branches no longer hit a ruleset gate since the `all` ruleset was emptied; the autopilot's own `runCiGate` still enforces `Test` in software, independent of GitHub rulesets.)
 - **Bypass relies on Admin role, not the bot identity.** The bypass actor for both rulesets is the Repository Admin *role* (actor_id 5, RepositoryRole). `GITHUB_TOKEN` runs as the GitHub Actions identity, which is *not* in that role. The autopilot does not get bypass for `main` — it must satisfy the `default` ruleset like any other contributor. This is the right default for safety. Operations on non-default branches are no longer rule-gated at all (the `all` ruleset is empty), so the autopilot moves freely on `agent/*` branches.
 - **Stacked agent PRs are constrained at the merge-into-`main` step only.** When an agent PR's base is another agent branch (e.g., `#21 → agent/issue-6`), the intermediate merge no longer needs to satisfy a ruleset — only the eventual merge into `main` does. The autopilot still needs to account for the retarget step explicitly, because the merge into `main` will require the retargeted PR's `Test` to be green against the new base.
 - **`strict_required_status_checks_policy: false` is load-bearing.** Because we did *not* require branches to be up-to-date with base before merging, the autopilot can land PRs in any order without each one having to be rebased onto the latest `main` first. Flipping this to `true` later would meaningfully change autopilot throughput.
@@ -154,3 +188,6 @@ Two cadences, doing different jobs:
 2. Add a single scheduled workflow in this repo that runs it nightly and opens a tracking issue on failure.
 3. Once the report is stable, wire it in as the first step of the autopilot run with `--fail-on-mismatch`.
 4. Optionally, generate the expectations file *from* the live config on first run, so adopters get a working baseline without hand-authoring YAML.
+
+---
+*Blameless: this document examines systems and processes, not individuals.*
