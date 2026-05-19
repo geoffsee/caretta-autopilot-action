@@ -11,6 +11,7 @@ import type { GitHubClient } from "../../packages/action-common/src/github-clien
 import type {
   AutopilotConfig,
   EvaluationResult,
+  PullRequest,
 } from "../../packages/action-common/src/types.js";
 import { reconcileGateCommitStatus } from "./ci-dispatch-core.js";
 import { dispatchMissingCi } from "./ci-dispatcher.js";
@@ -36,13 +37,10 @@ export const defaultExecuteDeps: ExecuteDeps = {
   configureGitIdentity,
 };
 
-export async function executeAutopilot(
-  gh: GitHubClient,
-  exec: ExecClient,
+export async function setupCarettaRuntime(
   config: AutopilotConfig,
-  evaluation: EvaluationResult,
   deps: ExecuteDeps = defaultExecuteDeps,
-): Promise<void> {
+): Promise<{ binaryPath: string; env: Record<string, string> }> {
   const installToken =
     config.githubToken?.trim() || process.env.GITHUB_TOKEN || "";
   const { binaryPath } = await deps.installCaretta(
@@ -76,6 +74,66 @@ export async function executeAutopilot(
   }
   warnIfBotCredsIncomplete(env);
   await deps.configureGitIdentity(config.gitUserName, config.gitUserEmail);
+  return { binaryPath, env };
+}
+
+/**
+ * Resolve conflicts on any DIRTY agent PRs independently of the main execution
+ * decision. Without this, a DIRTY PR cannot get `fix-conflicts` called whenever
+ * another agent PR's CI is active — `decideExecution` holds the work route,
+ * `executeAutopilot` is skipped, and the conflict resolver (which only runs
+ * inside `runWorkDispatch`) never fires. Returns true when caretta was invoked
+ * so the caller can re-fetch PR state to pick up the new tips.
+ */
+export async function resolveDirtyAgentPRs(
+  gh: GitHubClient,
+  exec: ExecClient,
+  config: AutopilotConfig,
+  prs: readonly PullRequest[],
+  deps: ExecuteDeps = defaultExecuteDeps,
+): Promise<boolean> {
+  if (config.dryRun || !config.enableDispatch) return false;
+
+  const dirty = prs.filter(
+    (pr) =>
+      !pr.isDraft &&
+      pr.mergeStateStatus === "DIRTY" &&
+      config.agentBranchPattern.test(pr.headRefName),
+  );
+  if (dirty.length === 0) return false;
+
+  core.info(
+    `resolveDirtyAgentPRs: ${dirty.length} DIRTY agent PR(s) detected: ${dirty
+      .map((p) => `#${p.number}`)
+      .join(", ")}`,
+  );
+  const { binaryPath, env } = await setupCarettaRuntime(config, deps);
+
+  const resolver = ConflictResolver.withCaretta(
+    gh,
+    config,
+    binaryPath,
+    env,
+    exec,
+    deps.conflictResolverOptions ?? {},
+  );
+  const result = await resolver.resolveAll();
+  if (result.unresolved.length > 0) {
+    core.warning(
+      `resolveDirtyAgentPRs left ${result.unresolved.length} PR(s) DIRTY after retries: ${result.unresolved.join(", ")}${result.timedOut ? " (timed out)" : ""}`,
+    );
+  }
+  return true;
+}
+
+export async function executeAutopilot(
+  gh: GitHubClient,
+  exec: ExecClient,
+  config: AutopilotConfig,
+  evaluation: EvaluationResult,
+  deps: ExecuteDeps = defaultExecuteDeps,
+): Promise<void> {
+  const { binaryPath, env } = await setupCarettaRuntime(config, deps);
 
   const runner = new CarettaRunner(binaryPath, env, exec, gh, config, deps);
 

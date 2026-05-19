@@ -45182,7 +45182,7 @@ var init_conflict_resolver = __esm(() => {
 });
 
 // src/application/execute-autopilot.ts
-async function executeAutopilot(gh, exec2, config, evaluation, deps = defaultExecuteDeps) {
+async function setupCarettaRuntime(config, deps = defaultExecuteDeps) {
   const installToken = config.githubToken?.trim() || process.env.GITHUB_TOKEN || "";
   const { binaryPath } = await deps.installCaretta(config.carettaVersion, installToken);
   await deps.installLinuxRuntimeDeps();
@@ -45205,6 +45205,25 @@ async function executeAutopilot(gh, exec2, config, evaluation, deps = defaultExe
   }
   warnIfBotCredsIncomplete(env);
   await deps.configureGitIdentity(config.gitUserName, config.gitUserEmail);
+  return { binaryPath, env };
+}
+async function resolveDirtyAgentPRs(gh, exec2, config, prs, deps = defaultExecuteDeps) {
+  if (config.dryRun || !config.enableDispatch)
+    return false;
+  const dirty = prs.filter((pr) => !pr.isDraft && pr.mergeStateStatus === "DIRTY" && config.agentBranchPattern.test(pr.headRefName));
+  if (dirty.length === 0)
+    return false;
+  core8.info(`resolveDirtyAgentPRs: ${dirty.length} DIRTY agent PR(s) detected: ${dirty.map((p) => `#${p.number}`).join(", ")}`);
+  const { binaryPath, env } = await setupCarettaRuntime(config, deps);
+  const resolver = ConflictResolver.withCaretta(gh, config, binaryPath, env, exec2, deps.conflictResolverOptions ?? {});
+  const result = await resolver.resolveAll();
+  if (result.unresolved.length > 0) {
+    core8.warning(`resolveDirtyAgentPRs left ${result.unresolved.length} PR(s) DIRTY after retries: ${result.unresolved.join(", ")}${result.timedOut ? " (timed out)" : ""}`);
+  }
+  return true;
+}
+async function executeAutopilot(gh, exec2, config, evaluation, deps = defaultExecuteDeps) {
+  const { binaryPath, env } = await setupCarettaRuntime(config, deps);
   const runner = new CarettaRunner(binaryPath, env, exec2, gh, config, deps);
   switch (evaluation.route) {
     case "work":
@@ -45496,10 +45515,12 @@ async function runAutopilot(gh, exec2, config, _ref, executeDeps, domain = funct
   const trackerNumber = domain.findActiveSprint(initialIssues);
   const closeOnMerge = await closeIssuesForMergedPrs(gh, new Set(initialIssues.map((i) => i.number)), trackerNumber);
   const closedSet = new Set(closeOnMerge.closed);
-  const [issues, prs] = await Promise.all([
+  const [issues, initialPrs] = await Promise.all([
     closedSet.size === 0 ? Promise.resolve(initialIssues) : Promise.resolve(initialIssues.filter((i) => !closedSet.has(i.number))),
     gh.listOpenPullRequests()
   ]);
+  const dirtyResolved = await resolveDirtyAgentPRs(gh, exec2, config, initialPrs, executeDeps);
+  const prs = dirtyResolved ? await gh.listOpenPullRequests() : initialPrs;
   const evaluation = domain.evaluate(issues, prs);
   let prCi = await processAgentPRs(gh, prs, config);
   const decision = domain.decideExecution(prCi, config);
@@ -45667,4 +45688,4 @@ main().catch((error) => {
   core9.setFailed(message);
 });
 
-//# debugId=DC1041D9EAC80A6764756E2164756E21
+//# debugId=2E0788EAD6A6589364756E2164756E21

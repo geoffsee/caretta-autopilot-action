@@ -17,7 +17,11 @@ import {
   functionalAutopilotDomainModel,
 } from "../domain/autopilot-domain.js";
 import { closeIssuesForMergedPrs } from "./close-on-merge.js";
-import { type ExecuteDeps, executeAutopilot } from "./execute-autopilot.js";
+import {
+  type ExecuteDeps,
+  executeAutopilot,
+  resolveDirtyAgentPRs,
+} from "./execute-autopilot.js";
 import { processAgentPRs } from "./pr-ci.js";
 
 export interface AutopilotRunResult {
@@ -70,12 +74,25 @@ export async function runAutopilot(
   );
 
   const closedSet = new Set(closeOnMerge.closed);
-  const [issues, prs] = await Promise.all([
+  const [issues, initialPrs] = await Promise.all([
     closedSet.size === 0
       ? Promise.resolve(initialIssues)
       : Promise.resolve(initialIssues.filter((i) => !closedSet.has(i.number))),
     gh.listOpenPullRequests(),
   ]);
+
+  // Resolve DIRTY agent PRs before the hold decision. Conflict resolution is
+  // non-disruptive (it doesn't dispatch new work or re-run others' CI), so it
+  // shouldn't be gated by another PR's pending CI.
+  const dirtyResolved = await resolveDirtyAgentPRs(
+    gh,
+    exec,
+    config,
+    initialPrs,
+    executeDeps,
+  );
+  const prs = dirtyResolved ? await gh.listOpenPullRequests() : initialPrs;
+
   const evaluation = domain.evaluate(issues, prs);
   let prCi = await processAgentPRs(gh, prs, config);
   const decision = domain.decideExecution(prCi, config);
