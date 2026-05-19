@@ -13,6 +13,7 @@ HOOKS_DIR="$(git rev-parse --git-path hooks)"
 mkdir -p "${HOOKS_DIR}"
 
 PRE_COMMIT="${HOOKS_DIR}/pre-commit"
+POST_COMMIT="${HOOKS_DIR}/post-commit"
 PRE_PUSH="${HOOKS_DIR}/pre-push"
 
 cat > "${PRE_COMMIT}" <<'HOOK'
@@ -91,6 +92,37 @@ else
 fi
 HOOK
 
+cat > "${POST_COMMIT}" <<'HOOK'
+#!/usr/bin/env bash
+# Post-commit hook: autoformat + auto-fix the just-committed code, and amend
+# any fixes onto the commit so HEAD always lands formatted.
+#
+# CARETTA_FORMAT_AMENDING guards against infinite recursion: the inner
+# `git commit --amend` below re-fires this hook, and the guard makes the
+# nested run exit immediately.
+set -euo pipefail
+
+if [[ "${CARETTA_FORMAT_AMENDING:-0}" = "1" ]]; then
+  exit 0
+fi
+
+cd "$(git rev-parse --show-toplevel)"
+
+echo "[post-commit] format + auto-fix (biome)"
+bun run format
+
+CHANGED="$(git diff --name-only)"
+if [[ -z "${CHANGED}" ]]; then
+  exit 0
+fi
+
+echo "[post-commit] biome rewrote tracked files; amending HEAD:"
+echo "${CHANGED}" | sed 's/^/              /'
+# Only stage files biome touched so unrelated unstaged work isn't swept in.
+printf '%s\n' "${CHANGED}" | xargs git add --
+CARETTA_FORMAT_AMENDING=1 git commit --amend --no-edit >/dev/null
+HOOK
+
 cat > "${PRE_PUSH}" <<'HOOK'
 #!/usr/bin/env bash
 # Pre-push hook: tests + verify all action dist/ outputs are current with src/.
@@ -140,8 +172,9 @@ if [[ "${DIRTY}" -ne 0 ]]; then
 fi
 HOOK
 
-chmod +x "${PRE_COMMIT}" "${PRE_PUSH}"
+chmod +x "${PRE_COMMIT}" "${POST_COMMIT}" "${PRE_PUSH}"
 
 echo "Installed hooks:"
 echo "  ${PRE_COMMIT}"
+echo "  ${POST_COMMIT}"
 echo "  ${PRE_PUSH}"

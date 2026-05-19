@@ -47,6 +47,7 @@ CURRENT_HASH="$(hash_file "${SETUP}")"
 
 if [ -f "${MARKER}" ] \
   && [ -f "${HOOKS_DIR}/pre-commit" ] \
+  && [ -f "${HOOKS_DIR}/post-commit" ] \
   && [ -f "${HOOKS_DIR}/pre-push" ]; then
   STORED_HASH="$(cat "${MARKER}" 2>/dev/null || true)"
   if [ "${CURRENT_HASH}" = "${STORED_HASH}" ]; then
