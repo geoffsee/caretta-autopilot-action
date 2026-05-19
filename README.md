@@ -21,6 +21,7 @@ The action **self-gates** on the triggering event: subscribe broadly in your wor
 ## Table of contents
 
 - [Quick start](#quick-start)
+- [Setup guide](docs/SETUP.md)
 - [How it works](#how-it-works)
 - [Inputs](#inputs)
 - [Outputs](#outputs)
@@ -42,7 +43,7 @@ The action **self-gates** on the triggering event: subscribe broadly in your wor
     github-token: ${{ github.token }}
 ```
 
-A complete example consumer repo lives at [`examples/autopilot-example-project/`](examples/autopilot-example-project).
+A complete example consumer repo lives at [`examples/autopilot-example-project/`](examples/autopilot-example-project). For a step-by-step walkthrough including the required CI workflow, local testing, and troubleshooting, see [`docs/SETUP.md`](docs/SETUP.md).
 
 ## How it works
 
