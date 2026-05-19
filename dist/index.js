@@ -45207,6 +45207,42 @@ async function setupCarettaRuntime(config, deps = defaultExecuteDeps) {
   await deps.configureGitIdentity(config.gitUserName, config.gitUserEmail);
   return { binaryPath, env };
 }
+async function agentPrNeedsReviewOrFix(gh, config, pr) {
+  const checks = await gh.listCheckRuns(pr.headRefOid);
+  const latestCheck = latestNamedCheck(checks, config.testCheckName);
+  if (!latestCheck || latestCheck.status !== "completed")
+    return false;
+  if (latestCheck.conclusion === "failure")
+    return true;
+  if (latestCheck.conclusion !== "success")
+    return false;
+  const reviews = await gh.listReviews(pr.number);
+  const lastBotReview = reviews.filter((r) => r.user.includes("[bot]")).pop();
+  const alreadyReviewed = !!lastBotReview && lastBotReview.state !== "PENDING" && lastBotReview.state !== "DISMISSED" && lastBotReview.body.trim().length > 0 && lastBotReview.commitId === pr.headRefOid;
+  return !alreadyReviewed;
+}
+async function reviewAndFixAgentPRs(gh, exec2, config, prs, deps = defaultExecuteDeps) {
+  if (config.dryRun || !config.enableDispatch)
+    return false;
+  const candidates = prs.filter((pr) => !pr.isDraft && pr.mergeStateStatus !== "DIRTY" && config.agentBranchPattern.test(pr.headRefName));
+  if (candidates.length === 0)
+    return false;
+  const needsAction = [];
+  for (const pr of candidates) {
+    if (await agentPrNeedsReviewOrFix(gh, config, pr))
+      needsAction.push(pr);
+  }
+  if (needsAction.length === 0)
+    return false;
+  core8.info(`reviewAndFixAgentPRs: ${needsAction.length} agent PR(s) need review/fix: ${needsAction.map((p) => `#${p.number}`).join(", ")}`);
+  const { binaryPath, env } = await setupCarettaRuntime(config, deps);
+  const runner = new CarettaRunner(binaryPath, env, exec2, gh, config, deps);
+  for (const pr of needsAction) {
+    await runner.runCaretta("code-review", [String(pr.number)]);
+    await runner.runCaretta("fix-pr", [String(pr.number)]);
+  }
+  return true;
+}
 async function resolveDirtyAgentPRs(gh, exec2, config, prs, deps = defaultExecuteDeps) {
   if (config.dryRun || !config.enableDispatch)
     return false;
@@ -45358,22 +45394,10 @@ class CarettaRunner {
     }
     const results = [];
     for (const pr of candidates) {
-      const reviews = await this.gh.listReviews(pr.number);
-      const lastReview = reviews.filter((r) => r.user.includes("[bot]")).pop();
-      if (lastReview && lastReview.state !== "PENDING" && lastReview.state !== "DISMISSED" && lastReview.body.trim().length > 0 && lastReview.commitId === pr.headRefOid) {
-        const checks2 = await this.gh.listCheckRuns(pr.headRefOid);
-        const latestCheck2 = latestNamedCheck(checks2, this.config.testCheckName);
-        if (latestCheck2?.conclusion === "success") {
-          core8.info(`Skipping PR #${pr.number}: Already reviewed on commit ${pr.headRefOid} and CI is success.`);
-          continue;
-        }
-      }
-      const checks = await this.gh.listCheckRuns(pr.headRefOid);
-      const latestCheck = latestNamedCheck(checks, this.config.testCheckName);
-      if (latestCheck?.conclusion === "success" || latestCheck?.conclusion === "failure") {
+      if (await agentPrNeedsReviewOrFix(this.gh, this.config, pr)) {
         results.push(pr.number);
       } else {
-        core8.info(`Skipping PR #${pr.number} because CI status is ${latestCheck?.conclusion || "missing"}`);
+        core8.info(`Skipping PR #${pr.number}: already reviewed for ${pr.headRefOid} or CI not actionable`);
       }
     }
     return results;
@@ -45520,7 +45544,9 @@ async function runAutopilot(gh, exec2, config, _ref, executeDeps, domain = funct
     gh.listOpenPullRequests()
   ]);
   const dirtyResolved = await resolveDirtyAgentPRs(gh, exec2, config, initialPrs, executeDeps);
-  const prs = dirtyResolved ? await gh.listOpenPullRequests() : initialPrs;
+  const prsAfterDirty = dirtyResolved ? await gh.listOpenPullRequests() : initialPrs;
+  const reviewed = await reviewAndFixAgentPRs(gh, exec2, config, prsAfterDirty, executeDeps);
+  const prs = reviewed ? await gh.listOpenPullRequests() : prsAfterDirty;
   const evaluation = domain.evaluate(issues, prs);
   let prCi = await processAgentPRs(gh, prs, config);
   const decision = domain.decideExecution(prCi, config);
@@ -45688,4 +45714,4 @@ main().catch((error) => {
   core9.setFailed(message);
 });
 
-//# debugId=2E0788EAD6A6589364756E2164756E21
+//# debugId=AC8A2A3134122C4F64756E2164756E21

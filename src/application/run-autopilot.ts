@@ -21,6 +21,7 @@ import {
   type ExecuteDeps,
   executeAutopilot,
   resolveDirtyAgentPRs,
+  reviewAndFixAgentPRs,
 } from "./execute-autopilot.js";
 import { processAgentPRs } from "./pr-ci.js";
 
@@ -91,7 +92,22 @@ export async function runAutopilot(
     initialPrs,
     executeDeps,
   );
-  const prs = dirtyResolved ? await gh.listOpenPullRequests() : initialPrs;
+  const prsAfterDirty = dirtyResolved
+    ? await gh.listOpenPullRequests()
+    : initialPrs;
+
+  // Same rationale for code-review/fix-pr remediation on existing PRs: it acts
+  // on PRs whose CI is already complete (success or failure), so it should not
+  // be gated by another agent PR's in-flight CI or by `processAgentPRs`'s own
+  // rerun-of-failing-CI side effect.
+  const reviewed = await reviewAndFixAgentPRs(
+    gh,
+    exec,
+    config,
+    prsAfterDirty,
+    executeDeps,
+  );
+  const prs = reviewed ? await gh.listOpenPullRequests() : prsAfterDirty;
 
   const evaluation = domain.evaluate(issues, prs);
   let prCi = await processAgentPRs(gh, prs, config);

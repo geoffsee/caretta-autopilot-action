@@ -78,6 +78,87 @@ export async function setupCarettaRuntime(
 }
 
 /**
+ * Decides whether an agent PR needs caretta to run `code-review` / `fix-pr`.
+ * Shared by the `reviewAndFixAgentPRs` pre-pass and `CarettaRunner`'s
+ * tracker-scoped review step so both stay in lockstep.
+ *
+ * Returns true when the latest `Test` check is completed AND either
+ *   (a) `failure` (always needs another pass), or
+ *   (b) `success` without a valid bot review on the current SHA.
+ * Returns false when CI is in-flight/missing or a valid bot review already
+ * covers the current SHA with passing CI.
+ */
+async function agentPrNeedsReviewOrFix(
+  gh: GitHubClient,
+  config: AutopilotConfig,
+  pr: PullRequest,
+): Promise<boolean> {
+  const checks = await gh.listCheckRuns(pr.headRefOid);
+  const latestCheck = latestNamedCheck(checks, config.testCheckName);
+  if (!latestCheck || latestCheck.status !== "completed") return false;
+  if (latestCheck.conclusion === "failure") return true;
+  if (latestCheck.conclusion !== "success") return false;
+
+  const reviews = await gh.listReviews(pr.number);
+  const lastBotReview = reviews.filter((r) => r.user.includes("[bot]")).pop();
+  const alreadyReviewed =
+    !!lastBotReview &&
+    lastBotReview.state !== "PENDING" &&
+    lastBotReview.state !== "DISMISSED" &&
+    lastBotReview.body.trim().length > 0 &&
+    lastBotReview.commitId === pr.headRefOid;
+  return !alreadyReviewed;
+}
+
+/**
+ * Run `code-review` and `fix-pr` on agent PRs that need them, independently of
+ * `decideExecution`'s hold gate. Without this, a PR with `Test=success` waiting
+ * for review (or `Test=failure` needing remediation) is stuck whenever the hold
+ * is engaged — either by another agent PR's active CI, or by `processAgentPRs`'s
+ * own rerun of the failing PR's CI, which adds it to `prCi.dispatched` and
+ * skips `executeAutopilot` → `runWorkDispatch` where review/fix lives.
+ *
+ * Returns true when caretta was invoked so the caller can re-fetch PR state to
+ * pick up any new tips.
+ */
+export async function reviewAndFixAgentPRs(
+  gh: GitHubClient,
+  exec: ExecClient,
+  config: AutopilotConfig,
+  prs: readonly PullRequest[],
+  deps: ExecuteDeps = defaultExecuteDeps,
+): Promise<boolean> {
+  if (config.dryRun || !config.enableDispatch) return false;
+
+  const candidates = prs.filter(
+    (pr) =>
+      !pr.isDraft &&
+      pr.mergeStateStatus !== "DIRTY" &&
+      config.agentBranchPattern.test(pr.headRefName),
+  );
+  if (candidates.length === 0) return false;
+
+  const needsAction: PullRequest[] = [];
+  for (const pr of candidates) {
+    if (await agentPrNeedsReviewOrFix(gh, config, pr)) needsAction.push(pr);
+  }
+  if (needsAction.length === 0) return false;
+
+  core.info(
+    `reviewAndFixAgentPRs: ${needsAction.length} agent PR(s) need review/fix: ${needsAction
+      .map((p) => `#${p.number}`)
+      .join(", ")}`,
+  );
+  const { binaryPath, env } = await setupCarettaRuntime(config, deps);
+  const runner = new CarettaRunner(binaryPath, env, exec, gh, config, deps);
+  for (const pr of needsAction) {
+    await runner.runCaretta("code-review", [String(pr.number)]);
+    await runner.runCaretta("fix-pr", [String(pr.number)]);
+  }
+  return true;
+}
+
+/**
  * Resolve conflicts on any DIRTY agent PRs independently of the main execution
  * decision. Without this, a DIRTY PR cannot get `fix-conflicts` called whenever
  * another agent PR's CI is active — `decideExecution` holds the work route,
@@ -340,40 +421,11 @@ class CarettaRunner {
 
     const results: number[] = [];
     for (const pr of candidates) {
-      const reviews = await this.gh.listReviews(pr.number);
-      const lastReview = reviews.filter((r) => r.user.includes("[bot]")).pop();
-
-      if (
-        lastReview &&
-        lastReview.state !== "PENDING" &&
-        lastReview.state !== "DISMISSED" &&
-        lastReview.body.trim().length > 0 &&
-        lastReview.commitId === pr.headRefOid
-      ) {
-        // If CI is failing, we still want to run fix-pr even if it was already reviewed.
-        // However, we only do this if CI actually failed. If CI is success, we skip.
-        const checks = await this.gh.listCheckRuns(pr.headRefOid);
-        const latestCheck = latestNamedCheck(checks, this.config.testCheckName);
-
-        if (latestCheck?.conclusion === "success") {
-          core.info(
-            `Skipping PR #${pr.number}: Already reviewed on commit ${pr.headRefOid} and CI is success.`,
-          );
-          continue;
-        }
-      }
-
-      const checks = await this.gh.listCheckRuns(pr.headRefOid);
-      const latestCheck = latestNamedCheck(checks, this.config.testCheckName);
-
-      if (
-        latestCheck?.conclusion === "success" ||
-        latestCheck?.conclusion === "failure"
-      ) {
+      if (await agentPrNeedsReviewOrFix(this.gh, this.config, pr)) {
         results.push(pr.number);
       } else {
         core.info(
-          `Skipping PR #${pr.number} because CI status is ${latestCheck?.conclusion || "missing"}`,
+          `Skipping PR #${pr.number}: already reviewed for ${pr.headRefOid} or CI not actionable`,
         );
       }
     }
