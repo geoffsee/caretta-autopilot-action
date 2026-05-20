@@ -45495,9 +45495,13 @@ async function processAgentPRs(gh, prs, config) {
   for (const pr of eligible) {
     const entry = toEntry(pr);
     const snapshot = await getPrCiSnapshot(gh, config, pr);
-    if (snapshot.latestCheck?.conclusion === "success") {
+    if (snapshot.latestCheck?.status === "completed") {
       await reconcileGateCommitStatus(gh, config, pr, snapshot.latestCheck, "processAgentPRs");
-      current.push(entry);
+      if (snapshot.latestCheck.conclusion === "success") {
+        current.push(entry);
+      } else {
+        failed.push(entry);
+      }
       continue;
     }
     if (isNamedCheckActivelyRunning(snapshot.latestCheck)) {
@@ -45714,4 +45718,4 @@ main().catch((error) => {
   core9.setFailed(message);
 });
 
-//# debugId=AC8A2A3134122C4F64756E2164756E21
+//# debugId=2160248B1A0FFCD764756E2164756E21

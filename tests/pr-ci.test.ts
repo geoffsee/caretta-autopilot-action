@@ -232,6 +232,67 @@ describe("processAgentPRs", () => {
     });
   });
 
+  test("reconciles stale pending commit status when check_run is failure (PR #141 repro)", async () => {
+    // Production state observed on geoffsee/autopilot-example-project#141 at
+    // head b286cd38: a completed "Test" check_run reports conclusion: failure
+    // (real test bug in the PR), while the autopilot's pre-dispatch "Test"
+    // commit status is still recorded as pending ("Autopilot dispatching
+    // CI..."). The PR rollup collapses both into one "Test" row whose state
+    // is pending, hiding the failure and blocking the merge. The 2026-05-18
+    // reconciliation fix handles the same shape on the success path. This
+    // test asserts that the failure path is reconciled symmetrically: when
+    // the named check is completed with a non-success conclusion, the
+    // autopilot must write a matching commit status so the rollup reflects
+    // the failure that already exists in the check_run.
+    const gh = new FakeGitHub({
+      checksBySha: {
+        "sha-failure": [
+          {
+            name: "Test",
+            status: "completed" as const,
+            conclusion: "failure" as const,
+            startedAt: null,
+            createdAt: "2026-01-01T00:00:00Z",
+          },
+        ],
+      },
+    });
+    await gh.createCommitStatus(
+      "sha-failure",
+      "pending",
+      "Test",
+      "Autopilot dispatching CI...",
+    );
+
+    await processAgentPRs(
+      gh,
+      [makePR({ number: 141, headRefOid: "sha-failure" })],
+      makeConfig(),
+    );
+
+    // 1. Reconciliation: a matching "failure" commit status must be written so
+    //    the PR rollup stops shadowing the completed check_run with pending.
+    const reconciliation = gh.createdStatuses.find(
+      (s) => s.state === "failure",
+    );
+    expect(reconciliation).toEqual({
+      sha: "sha-failure",
+      state: "failure",
+      context: "Test",
+      description: 'Autopilot synchronized "Test" from completed check run',
+      targetUrl: undefined,
+    });
+
+    // 2. No fresh dispatch: re-dispatching on a SHA whose Test check already
+    //    concluded would just rewrite a new "pending" commit status and mask
+    //    the failure all over again (the observed PR #141 loop).
+    expect(gh.dispatched).toHaveLength(0);
+    const freshPending = gh.createdStatuses.filter(
+      (s, i) => i > 0 && s.state === "pending",
+    );
+    expect(freshPending).toEqual([]);
+  });
+
   test("does not re-write commit status when it already matches the check conclusion", async () => {
     const gh = new FakeGitHub({
       checksBySha: {

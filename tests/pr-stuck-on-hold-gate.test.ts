@@ -114,10 +114,13 @@ describe("agent PR work-dispatch stuck behind hold-on-active-CI", () => {
       fakeInstallDeps,
     );
 
-    // Sanity: processAgentPRs did rerun/dispatch this PR's CI — exactly the
-    // side effect that's currently triggering the hold gate and skipping
-    // executeAutopilot. The expected behavior is that work dispatch still runs.
-    expect(result.prCi.dispatched.length).toBeGreaterThan(0);
+    // processAgentPRs no longer re-dispatches CI on a SHA whose named check
+    // already concluded — it reconciles the stale pending commit status and
+    // buckets the PR into `failed`. This is the inverse of the original bug:
+    // `dispatched`/`active` stay empty, the hold gate does not trip, and
+    // `reviewAndFixAgentPRs` reaches `fix-pr` without depending on the gate.
+    expect(result.prCi.dispatched).toHaveLength(0);
+    expect(result.prCi.failed.map((p) => p.number)).toEqual([141]);
 
     const fixPr = exec.calls.find(
       (c) => c.args.includes("fix-pr") && c.args.includes("141"),

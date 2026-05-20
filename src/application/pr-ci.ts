@@ -49,7 +49,12 @@ export async function processAgentPRs(
     const entry = toEntry(pr);
     const snapshot = await getPrCiSnapshot(gh, config, pr);
 
-    if (snapshot.latestCheck?.conclusion === "success") {
+    // A completed check on this SHA is the authoritative result; the rollup
+    // must reflect it regardless of conclusion. Reconciling only on success
+    // (the 2026-05-18 fix's original scope) left failure shadowed behind the
+    // pre-dispatch pending commit status, and re-dispatching on a SHA whose
+    // check already concluded would just rewrite that pending and loop.
+    if (snapshot.latestCheck?.status === "completed") {
       await reconcileGateCommitStatus(
         gh,
         config,
@@ -57,7 +62,11 @@ export async function processAgentPRs(
         snapshot.latestCheck,
         "processAgentPRs",
       );
-      current.push(entry);
+      if (snapshot.latestCheck.conclusion === "success") {
+        current.push(entry);
+      } else {
+        failed.push(entry);
+      }
       continue;
     }
 
