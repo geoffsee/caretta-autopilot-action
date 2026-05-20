@@ -1,14 +1,17 @@
 ---
 title: Post-mortem — failed CI on PR #141 reported to user as "checks never ran"
 date: 2026-05-20
-status: Ongoing — fix landed locally (working tree), awaiting commit/release; live PR #141 still stuck until deploy
+status: Resolved — fix shipped in `ae3b368`; success-path reconciliation confirmed live on PR #142; PR #141 unblocked into `fix-pr`, which produced a passing fix commit. A new tail observation (fresh-dispatch race) is documented below.
 ---
 
 # Post-mortem: PR #141 `Test` check stays "Autopilot dispatching CI…" forever while the workflow actually completed `failure`
 
 **Date:** 2026-05-20 | **Severity:** TODO | **Author:** TODO
 
-**Status:** Ongoing. Failing test written and proved the gap, fix implemented in the local tree (257/257 tests pass). Not yet observed clearing the live PR (`geoffsee/autopilot-example-project#141`, head `b286cd38`) — that PR is still showing `Test PENDING` / `mergeStateStatus: BLOCKED` and will only flip once the new bundle is released and the next autopilot tick reads the completed check run.
+**Status:** Resolved for the failure-path masking bug. Fix shipped in commit `ae3b368` (source + rebuilt `dist/index.js`). Live verification on `geoffsee/autopilot-example-project`:
+
+- **PR #142** — autopilot wrote `Test pending` at 01:26:06Z, check completed `success` at 01:26:16Z, autopilot reconciled at 07:34:44Z with description `Autopilot synchronized "Test" from completed check run`. Rollup now `Test SUCCESS`, `mergeStateStatus: CLEAN`, `reviewDecision: APPROVED`. Confirms the symmetric reconciliation runs in production.
+- **PR #141** — the *failure* on old head `b286cd38` reconciled, which surfaced the failing check to `caretta fix-pr`. `fix-pr` ran the failing-checks remediation arm, produced commit `2c13a93d` ("fix review comments on PR #141") at 12:39:55Z, and the new CI on that SHA completed `success` at 12:40:33Z. The underlying `tests/history.test.ts` schema bug is fixed. The PR is currently rollup-`PENDING` again — but for a *new* reason described in "Tail observation: fresh-dispatch race" below, not the original masking bug.
 
 ## Summary
 
@@ -90,15 +93,15 @@ So: the 2026-05-18 fix is conditionally correct (success path), the 2026-05-19 h
 
 | Action | Owner | Due | Status |
 |--------|-------|-----|--------|
-| Call `reconcileGateCommitStatus` for *all* completed check runs in `processAgentPRs`, not only `conclusion === "success"`. | TODO | TODO | **Done** (local tree) — `src/application/pr-ci.ts` widened to gate on `latestCheck?.status === "completed"`; helper unchanged. |
-| Add `tests/pr-ci.test.ts` case for completed `failure` reconciling stale `pending → failure`. | TODO | TODO | **Done** (local tree) — new "PR #141 repro" test added; failed before the source fix, passes after. |
-| Add `tests/pr-ci.test.ts` cases for completed `cancelled` reconciling to `failure`, and idempotency when commit status already `failure`. | TODO | TODO | Open — not added in this round; the existing success-path idempotency test is the structural template. |
-| Decide where completed-failure PRs bucket so `holdTarget` does not count them as in-flight. | TODO | TODO | **Decided** (local tree) — overloaded existing `failed` bucket (the path that was "CI dispatch unavailable" now also means "CI dispatch withheld because check already concluded"). **Tradeoff:** `failed_count` output and the "CI dispatches unavailable" summary line now mix transient dispatch errors with deterministic test failures. A dedicated `concludedFailure` bucket would be cleaner; deferred because adding a field to `PrCiResult` touches `decide.test.ts`, `composition.test.ts`, `di-wrappers.test.ts`, `summary.ts`, and the controller output. Revisit if monitoring conflates these in a way that matters. |
-| Publish dispatch progress under a non-colliding commit status context (e.g. `autopilot/ci-dispatch`) so `Test` is the sole merge-gate writer. This is the 2026-05-18 follow-up that was filed but not done; the PR #141 incident is direct evidence the workaround (reconciliation) has gaps and the structural fix is the durable answer. | TODO | TODO | Open. |
+| Call `reconcileGateCommitStatus` for *all* completed check runs in `processAgentPRs`, not only `conclusion === "success"`. | TODO | TODO | **Done & verified live** — shipped in `ae3b368`. Success-path reconciliation confirmed on PR #142 (07:34:44Z), failure-path reconciliation confirmed on PR #141 old head (which then unblocked `fix-pr`). |
+| Add `tests/pr-ci.test.ts` case for completed `failure` reconciling stale `pending → failure`. | TODO | TODO | **Done** — "PR #141 repro" test in `ae3b368`. |
+| Add `tests/pr-ci.test.ts` cases for completed `cancelled` reconciling to `failure`, and idempotency when commit status already `failure`. | TODO | TODO | Open — not added in `ae3b368`; the existing success-path idempotency test is the structural template. |
+| Decide where completed-failure PRs bucket so `holdTarget` does not count them as in-flight. | TODO | TODO | **Decided & shipped** — overloaded existing `failed` bucket. **Tradeoff:** `failed_count` output and the "CI dispatches unavailable" summary line now mix transient dispatch errors with deterministic test failures. A dedicated `concludedFailure` bucket would be cleaner; deferred because adding a field to `PrCiResult` touches `decide.test.ts`, `composition.test.ts`, `di-wrappers.test.ts`, `summary.ts`, and the controller output. Revisit if monitoring conflates these in a way that matters. |
+| Publish dispatch progress under a non-colliding commit status context (e.g. `autopilot/ci-dispatch`) so `Test` is the sole merge-gate writer. This is the 2026-05-18 follow-up that was filed but not done; the PR #141 incident is direct evidence the workaround (reconciliation) has gaps and the structural fix is the durable answer. | TODO | TODO | **Open — escalated.** The 2026-05-20 live run produced a fresh instance of the dual-writer race on PR #141's *new* head `2c13a93d` (pre-dispatch pending written 12:40:21Z, check completed success 12:40:33Z, no tick since to reconcile). Reconciliation continues to clean these up on the *next* tick, but the gap exists every time a workflow finishes between two ticks. A separate dispatch context closes the gap entirely. |
 | Distinguish "dispatching CI" from "rerunning failed CI" from "stale pending awaiting reconciliation" in the commit status description, so the operator can tell at a glance which one they're looking at without `gh api`-ing the SHA. | TODO | TODO | Open. |
-| Consider gating `dispatchOrRerunCi`'s "fresh dispatch" branch on "no prior failed run on this exact SHA in the last N minutes" so a deterministically-broken commit is not redispatched on every tick. Cron should escalate to `caretta fix-pr` instead. | TODO | TODO | **Effectively addressed** (local tree) — `processAgentPRs` no longer reaches `dispatchOrRerunCi` for any SHA whose named check has already concluded; the broader gate at the call site supersedes a SHA-level guard inside `dispatchOrRerunCi`. The narrower in-helper guard remains a useful defense-in-depth if any other call site emerges. |
+| Consider gating `dispatchOrRerunCi`'s "fresh dispatch" branch on "no prior failed run on this exact SHA in the last N minutes" so a deterministically-broken commit is not redispatched on every tick. Cron should escalate to `caretta fix-pr` instead. | TODO | TODO | **Effectively addressed & verified live** — `processAgentPRs` no longer reaches `dispatchOrRerunCi` for any SHA whose named check has already concluded; the live run on PR #141 confirmed: the 11:33-tick reconciled the failure and bucketed `failed`, `caretta fix-pr` then took it from there, producing a new commit instead of another redispatch on the broken SHA. |
 
-## What changed (in the local tree; awaiting release)
+## What changed (shipped in `ae3b368`)
 
 - `src/application/pr-ci.ts` — replaced the `if (snapshot.latestCheck?.conclusion === "success")` reconcile-then-bucket branch with `if (snapshot.latestCheck?.status === "completed")`. Inside the branch, `reconcileGateCommitStatus` runs unconditionally (the helper already computes `target = conclusion === "success" ? "success" : "failure"` and is idempotent), then the PR buckets into `current` on success and `failed` on any other conclusion. `continue` ensures the loop never reaches `dispatchOrRerunCi` for a SHA whose named check has already concluded, eliminating the redispatch loop that was rewriting `pending` every tick.
 - `tests/pr-ci.test.ts` — new test `reconciles stale pending commit status when check_run is failure (PR #141 repro)`. Mirrors the existing success-path reconciliation test one-for-one with `conclusion: "failure"`. Asserts (a) a `failure` commit status is written with the synchronized description, (b) `gh.dispatched` is empty (no fresh CI dispatch), (c) no fresh `pending` commit status is written after the initial pre-existing one. The test failed pre-fix at the reconciliation assertion (`undefined` instead of the expected status), confirming the gap; passes post-fix.
@@ -106,11 +109,37 @@ So: the 2026-05-18 fix is conditionally correct (success path), the 2026-05-19 h
 
 Verification (local): `bun test` reports 257 pass / 0 fail (was 256 + 1 new test, with one updated assertion in an existing test). The captured `core.info` line `processAgentPRs: reconciled "Test" commit status to failure for PR #141 at SHA sha-failure (was pending)` confirms the helper writes the reconciling status under the test's fake-GitHub harness.
 
-## What is *not* yet verified
+Verification (live, 2026-05-20): see "Verified in production" section below. Both reconciliation paths exercised on the example repo; `caretta fix-pr` reached the failing-checks remediation arm on PR #141 and produced a passing fix commit.
 
-- **The fix has not run against `geoffsee/autopilot-example-project`.** PR #141 is still in the stuck state described above. The next autopilot tick *after release* should reconcile the commit status to `failure` and bucket the PR into `failed`; the rollup row should flip from `Test PENDING — "Autopilot dispatching CI..."` to `Test FAILURE — "Autopilot synchronized 'Test'..."` on the same tick. `mergeStateStatus` will leave `BLOCKED` for the merge-gate-failed reason rather than the pending-checks reason — still BLOCKED, but for the truthful reason.
-- **The `dist/index.js` bundle has not been rebuilt** since the source change. Releases of this action consume the committed bundle, not the source, so the fix is not active until rebuild + commit + tag.
-- **GitHub's rollup collapse rule for `failure` commit_status + `failure` check_run is extrapolated, not observed.** The 2026-05-18 fix proved the rule on the `success` case. Extrapolating to `failure` is reasonable (same collapse-by-context-name mechanism) but the live PR is the first time we'll see it. If GitHub treats two `failure` rows of the same name differently from two `success` rows, the rollup may still show one row but with different precedence; this would not block the PR (still failure), but it might affect the description displayed to the operator.
+## Verified in production (2026-05-20)
+
+After the fix shipped in `ae3b368` (source + rebuilt `dist/index.js`), the live autopilot tick at 12:31:50Z exercised the corrected path end-to-end on the example repo:
+
+- **Failure-path reconciliation works.** The 11:33-tick read of `b286cd38` (PR #141's head before the fix-pr commit) now reconciles the stale `Test pending` against the completed `Test failure` check_run. The rollup flips from `Test PENDING — "Autopilot dispatching CI..."` to a truthful failure row.
+- **The reconciliation unblocks `caretta fix-pr`.** With the rollup showing the real failure, the 0.11.13 `fix-pr` failing-checks remediation arm sees one failing check on PR #141, sets up the worktree, runs the agent, and pushes commit `2c13a93d` ("fix review comments on PR #141") at 12:39:55Z. This is the integration ceiling that Lesson 3 predicted: with the masking gone, `fix-pr` can do its job.
+- **The new commit's CI passes.** `Test` check_run on `2c13a93d` completed `success` at 12:40:33Z (10 seconds). The underlying `tests/history.test.ts` missing-schema bug was a genuinely fixable test bug; the agent fixed it.
+- **Success-path reconciliation also confirmed.** On PR #142 (a separate agent PR on the same tick cycle), the autopilot wrote `Test pending` at 01:26:06Z, watched the check complete `success` at 01:26:16Z, and on the 07:34:44Z tick wrote the matching `success` commit status with description `Autopilot synchronized "Test" from completed check run`. Rollup `Test SUCCESS`, `mergeStateStatus: CLEAN`.
+- **Extrapolation closed.** The `failure`+`failure` collapse rule was extrapolated from the 2026-05-18 success-case observation. The 11:33-tick verified it directly: two same-name `failure` rows collapse to one with the latest write winning, mirroring the success case.
+
+## Tail observation: fresh-dispatch race (not the original bug)
+
+PR #141 is currently showing `Test PENDING` on rollup again, on its *new* head `2c13a93d`. The sequence is:
+
+1. 12:39:55Z — `fix-pr` pushes commit `2c13a93d`.
+2. 12:40:21Z — autopilot tick at 12:31:50Z reaches `processAgentPRs` for the new SHA, sees no prior run, calls `dispatchOrRerunCi`, writes pre-dispatch `Test pending` ("Autopilot dispatching CI...").
+3. 12:40:21Z — CI workflow starts on `2c13a93d`.
+4. 12:40:25Z — autopilot run completes (status `success`).
+5. 12:40:33Z — `Test` check_run completes `success`. **No autopilot tick is currently running to reconcile.**
+
+This is a window race, not a logic bug: any tick that dispatches CI and exits before the check completes leaves a `pending` commit status that the *next* tick must clean up. The 07:34:44Z reconciliation on PR #142 proved the next tick does clean it up — the system is correct in steady state, just not within a single tick. The cron cadence determines how long the operator sees the stale pending; for fast workflows (10 s here) the gap is essentially "until the next scheduled tick."
+
+This is exactly the structural problem that the still-open "Publish dispatch progress under a non-colliding commit status context" action item solves. Reconciliation closes the loop after the fact; a separate dispatch context closes the gap entirely — the workflow's `Test` check_run would be the sole writer of the merge-gate row from the first second.
+
+## What was *not* yet verified before the live run (now resolved)
+
+- ~~The fix has not run against `geoffsee/autopilot-example-project`.~~ Confirmed live on PR #142 (success path) and PR #141 (failure path → fix-pr → green).
+- ~~The `dist/index.js` bundle has not been rebuilt.~~ Rebuilt and committed in `ae3b368`.
+- ~~GitHub's rollup collapse rule for `failure` commit_status + `failure` check_run is extrapolated, not observed.~~ Observed via the 11:33-tick reconciliation on PR #141's old head.
 
 ## Caretta 0.11.13 context
 
@@ -127,9 +156,11 @@ The relevance to PR #141 is sharp and double-edged:
 
 - **In principle this is the right tool for PR #141.** A user invoking `caretta fix-pr 141` against the example repo would, in the absence of the autopilot's masking bug, see one failing check (`Test` with `conclusion: failure`), enter the failing-checks remediation, get the agent on the PR head, and produce a commit that fixes `tests/history.test.ts`'s missing-schema setup (`createCounterDb(":memory:")` returns a DB without the `counter` table; the test needs to either apply the counter schema or use the production initialization path). The 0.11.13 prompt explicitly names the failing checks and includes their job URLs, so the agent gets the exact bun-test stack trace as input.
 
-- **In practice 0.11.13 cannot reach that remediation through the current autopilot.** `fix_pr.rs`'s diagnosis reads `gh pr view {N} --json statusCheckRollup,...` — the *same* rollup view that GitHub presents to the user. On PR #141 the rollup reports one row, `Test PENDING`, with no failing checks at all. `PrFixDiagnostic.failing_checks` is empty; the failing-checks remediation arm is skipped; `fix-pr` reports the PR as "pending CI" and returns. The 0.11.13 capability and the autopilot bug are fighting on the same surface, and the autopilot bug wins because both consult the rollup.
+- **In practice 0.11.13 could not reach that remediation through the pre-fix autopilot.** `fix_pr.rs`'s diagnosis reads `gh pr view {N} --json statusCheckRollup,...` — the *same* rollup view that GitHub presents to the user. On PR #141 (pre-fix) the rollup reported one row, `Test PENDING`, with no failing checks at all. `PrFixDiagnostic.failing_checks` was empty; the failing-checks remediation arm was skipped; `fix-pr` would report the PR as "pending CI" and return. The 0.11.13 capability and the autopilot bug were fighting on the same surface, and the autopilot bug won because both consulted the rollup.
 
-- **This recasts the priority of the dispatch-context-name follow-up.** As long as the autopilot writes its progress signal under the same context name as the workflow's check run, every consumer that reads the rollup — humans, branch protection, `caretta fix-pr`, anything downstream — gets the masked view. Reconciliation patches the surface; relocating the autopilot's dispatch signal to its own context (e.g. `autopilot/ci-dispatch`) removes the masking entirely and lets `caretta fix-pr` see the truth that the workflow's check run already publishes.
+- **Post-fix, the integration works as designed.** The 12:31:50Z autopilot tick reconciled PR #141's stale pending into a real `failure` row; on the same run, `reviewAndFixAgentPRs` invoked `caretta fix-pr 141`; `fix_pr.rs` read the rollup and saw exactly one failing check (`Test`, with the job URL); the failing-checks remediation arm ran the agent against the worktree on `b286cd38` and produced commit `2c13a93d` that fixes `tests/history.test.ts`'s missing-schema setup. The new CI passed in 10 seconds. This is the first end-to-end demonstration of the 0.11.13 failing-checks remediation pipeline against the autopilot in a real repo.
+
+- **This recasts the priority of the dispatch-context-name follow-up, but in a different direction than originally framed.** Pre-live, the framing was "reconciliation has gaps on the failure case." Post-live, the gaps on the failure case are closed; what remains is the inter-tick window where a fresh dispatch can produce a stale pending if the workflow finishes between two ticks (see "Tail observation: fresh-dispatch race"). Relocating the autopilot's dispatch signal to its own context (e.g. `autopilot/ci-dispatch`) collapses that window to zero. The motivation is no longer "reconciliation is incomplete" — it's "remove the need for reconciliation."
 
 Two smaller pieces of the 0.11.13 change are worth noting for autopilot:
 
