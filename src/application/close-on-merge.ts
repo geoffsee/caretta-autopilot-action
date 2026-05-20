@@ -106,6 +106,24 @@ export function updateTrackerChecklist(
   return updated;
 }
 
+const CHECKBOX_TICKED_RE = /^\s*[-*]\s+\[[xX]\]/m;
+const CHECKBOX_UNTICKED_RE = /^\s*[-*]\s+\[\s\]/m;
+
+/**
+ * True when `body` contains at least one ticked checkbox row and zero
+ * unticked rows. Used by `closeIssuesForMergedPrs` to decide whether the
+ * tracker has nothing left to deliver and should be closed.
+ *
+ * Requires at least one tick so a tracker body without any checklist (or
+ * with only unrelated `[ ]` text in prose) is never mistakenly treated
+ * as complete.
+ */
+export function isChecklistComplete(body: string): boolean {
+  if (!body) return false;
+  if (!CHECKBOX_TICKED_RE.test(body)) return false;
+  return !CHECKBOX_UNTICKED_RE.test(body);
+}
+
 export interface CloseOnMergeDeps {
   readonly logInfo?: (msg: string) => void;
   readonly logWarning?: (msg: string) => void;
@@ -159,6 +177,7 @@ export async function closeIssuesForMergedPrs(
   }
 
   let trackerUpdated = false;
+  let trackerCompleted = false;
   if (trackerNumber !== null && closed.length > 0) {
     try {
       const body = await gh.getIssueBody(trackerNumber);
@@ -170,6 +189,22 @@ export async function closeIssuesForMergedPrs(
           `updated tracker #${trackerNumber} checklist for ${closed.length} closed issue(s)`,
         );
       }
+      if (isChecklistComplete(next)) {
+        try {
+          await gh.closeIssueWithComment(
+            trackerNumber,
+            "All sprint items shipped. Closing tracker as completed so the next autopilot tick routes to the factory cycle and plans the next sprint.",
+          );
+          trackerCompleted = true;
+          info(`closed completed tracker #${trackerNumber}`);
+        } catch (err) {
+          warn(
+            `failed to close completed tracker #${trackerNumber}: ${
+              err instanceof Error ? err.message : String(err)
+            }`,
+          );
+        }
+      }
     } catch (err) {
       warn(
         `failed to update tracker #${trackerNumber}: ${
@@ -179,5 +214,5 @@ export async function closeIssuesForMergedPrs(
     }
   }
 
-  return { closed, skipped, trackerUpdated };
+  return { closed, skipped, trackerUpdated, trackerCompleted };
 }

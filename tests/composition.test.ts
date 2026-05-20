@@ -117,7 +117,12 @@ function makeDeps(mark: string): AutopilotDependencies {
         failed: [],
       },
       decision: { holdTarget: false, targetDispatched: "executed" },
-      closeOnMerge: { closed: [], skipped: [], trackerUpdated: false },
+      closeOnMerge: {
+        closed: [],
+        skipped: [],
+        trackerUpdated: false,
+        trackerCompleted: false,
+      },
       summary: mark,
     }),
   };

@@ -53,7 +53,12 @@ export function makeRunResult(
     evaluation: makeEvaluation(),
     prCi: makePrCi(),
     decision: makeDecision(),
-    closeOnMerge: { closed: [], skipped: [], trackerUpdated: false },
+    closeOnMerge: {
+      closed: [],
+      skipped: [],
+      trackerUpdated: false,
+      trackerCompleted: false,
+    },
     summary: "summary text",
     ...overrides,
   };

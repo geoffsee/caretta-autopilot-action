@@ -443,4 +443,53 @@ describe("closeIssuesForMergedPrs", () => {
     expect(result.closed).toEqual([40]);
     expect(gh.closedIssues).toHaveLength(1);
   });
+
+  test("regression (sprint #140 tail): closes the tracker itself once the final checklist item ticks to 100% — otherwise findActiveSprint keeps returning the completed tracker and the factory route is suppressed indefinitely", async () => {
+    // Live shape after the 2026-05-20 reconciliation: tracker #140's first
+    // four items (#135/#137/#138/#139) are already `- [x]` from prior
+    // passes. This pass closes the last open sprint item (#136) via
+    // default-branch merge of PR #142, which ticks `- [x] #136`. With every
+    // checklist row now ticked, the tracker has nothing left to deliver —
+    // but nothing in autopilot closes it. The next tick's
+    // `findActiveSprint` still finds #140 (sprint label + open), routes
+    // `evaluate` to `"work"`, `tracker-matrix` returns 0 issues, and the
+    // tick is a no-op. The factory cycle (housekeeping → ideation →
+    // strategic-review → sprint-planning) can never run, so the next
+    // sprint is never planned. An operator must close #140 by hand.
+    const gh = new FakeGitHub({
+      mergedPrs: [
+        makeMergedPR({
+          number: 142,
+          body: "Closes #136\n\nAutomated PR opened by caretta issue runner.",
+          headRefName: "agent/issue-136",
+          baseRefName: "main",
+        }),
+      ],
+      defaultBranch: "main",
+      issueBodies: {
+        140:
+          "## Checklist\n\n" +
+          "- [x] #135 C2: GET /api/counter/history\n" +
+          "- [ ] #136 F3: GET /api/health endpoint\n" +
+          "- [x] #137 F1: Versioned migration runner\n" +
+          "- [x] #138 C1: WebSocket real-time counter sync in frontend\n" +
+          "- [x] #139 F2: Structured JSON logging\n",
+      },
+    });
+
+    const result = await closeIssuesForMergedPrs(gh, new Set([136]), 140);
+
+    // Pre-existing behavior the fix already covers — sanity:
+    expect(result.closed).toEqual([136]);
+    expect(result.trackerUpdated).toBe(true);
+    expect(gh.updatedIssueBodies[0].body).toContain("- [x] #136");
+
+    // The missing invariant: after the final tick brings the checklist to
+    // 100%, the tracker itself should be closed. Currently
+    // `closeIssuesForMergedPrs` writes the new body and returns; nothing
+    // calls `closeIssueWithComment` against the tracker, so #140 stays
+    // OPEN and `findActiveSprint` keeps returning it on every subsequent
+    // tick.
+    expect(gh.closedIssues.map((c) => c.issueNumber)).toContain(140);
+  });
 });

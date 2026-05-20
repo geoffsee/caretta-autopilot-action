@@ -24645,6 +24645,13 @@ function updateTrackerChecklist(body, closedIssueNumbers) {
   }
   return updated;
 }
+function isChecklistComplete(body) {
+  if (!body)
+    return false;
+  if (!CHECKBOX_TICKED_RE.test(body))
+    return false;
+  return !CHECKBOX_UNTICKED_RE.test(body);
+}
 async function closeIssuesForMergedPrs(gh, openIssueNumbers, trackerNumber, deps = {}) {
   const info4 = deps.logInfo ?? ((m) => core3.info(m));
   const warn = deps.logWarning ?? ((m) => core3.warning(m));
@@ -24668,6 +24675,7 @@ async function closeIssuesForMergedPrs(gh, openIssueNumbers, trackerNumber, deps
     }
   }
   let trackerUpdated = false;
+  let trackerCompleted = false;
   if (trackerNumber !== null && closed.length > 0) {
     try {
       const body = await gh.getIssueBody(trackerNumber);
@@ -24677,16 +24685,27 @@ async function closeIssuesForMergedPrs(gh, openIssueNumbers, trackerNumber, deps
         trackerUpdated = true;
         info4(`updated tracker #${trackerNumber} checklist for ${closed.length} closed issue(s)`);
       }
+      if (isChecklistComplete(next)) {
+        try {
+          await gh.closeIssueWithComment(trackerNumber, "All sprint items shipped. Closing tracker as completed so the next autopilot tick routes to the factory cycle and plans the next sprint.");
+          trackerCompleted = true;
+          info4(`closed completed tracker #${trackerNumber}`);
+        } catch (err) {
+          warn(`failed to close completed tracker #${trackerNumber}: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
     } catch (err) {
       warn(`failed to update tracker #${trackerNumber}: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
-  return { closed, skipped, trackerUpdated };
+  return { closed, skipped, trackerUpdated, trackerCompleted };
 }
-var core3, CLOSING_KEYWORD_RE;
+var core3, CLOSING_KEYWORD_RE, CHECKBOX_TICKED_RE, CHECKBOX_UNTICKED_RE;
 var init_close_on_merge = __esm(() => {
   core3 = __toESM(require_core(), 1);
   CLOSING_KEYWORD_RE = /\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\b\s*:?\s*#(\d+)/gi;
+  CHECKBOX_TICKED_RE = /^\s*[-*]\s+\[[xX]\]/m;
+  CHECKBOX_UNTICKED_RE = /^\s*[-*]\s+\[\s\]/m;
 });
 
 // node_modules/@actions/tool-cache/node_modules/@actions/core/lib/utils.js
@@ -45711,4 +45730,4 @@ main().catch((error) => {
   core9.setFailed(message);
 });
 
-//# debugId=D4912CD3EB6DB4E464756E2164756E21
+//# debugId=E9FFC6E44D90535064756E2164756E21

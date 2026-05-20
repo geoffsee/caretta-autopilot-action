@@ -49,6 +49,13 @@ export interface IssueCloseResult {
   readonly closed: readonly number[];
   readonly skipped: readonly IssueCloseSkip[];
   readonly trackerUpdated: boolean;
+  /**
+   * True when this pass closed the tracker itself because every checklist
+   * item ticked to `- [x]` after the body update. Lets the next-tick
+   * `findActiveSprint` return `null` so the factory route can plan the
+   * next sprint instead of looping on a completed tracker.
+   */
+  readonly trackerCompleted: boolean;
 }
 
 export interface CheckRun {
