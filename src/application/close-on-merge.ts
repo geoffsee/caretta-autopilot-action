@@ -36,10 +36,19 @@ export function parseClosingIssueNumbers(body: string): number[] {
 /**
  * Decide which (pr, issueNumber) pairs need explicit closing.
  *
- * - Skip PRs already targeting `defaultBranch` — GitHub closed those for us.
- * - Skip issue numbers not currently in the `openIssueNumbers` set —
- *   already closed or never existed.
+ * `openIssueNumbers` is the sole authority: if the linked issue is still in
+ * the open-issue set after a merge, we close it ourselves, regardless of
+ * whether the PR targeted the default branch. GitHub does not auto-close
+ * PRs authored and merged by GitHub App identities (which is the autopilot's
+ * actor) even when they target the default branch, so a default-branch skip
+ * is not safe. If GitHub *did* close the issue, it falls out of
+ * `openIssueNumbers` and the "not open" skip catches it.
+ *
+ * - Skip issue numbers not currently in `openIssueNumbers` — already closed
+ *   (by GitHub or by hand) or never existed.
  * - De-duplicate so the same issue is closed at most once per pass.
+ *
+ * The `defaultBranch` parameter is retained for the back-link comment.
  */
 export interface CloseCandidate {
   readonly pr: MergedPullRequest;
@@ -49,7 +58,7 @@ export interface CloseCandidate {
 export function selectCloseCandidates(
   mergedPrs: readonly MergedPullRequest[],
   openIssueNumbers: ReadonlySet<number>,
-  defaultBranch: string,
+  _defaultBranch: string,
 ): {
   readonly candidates: readonly CloseCandidate[];
   readonly skipped: readonly IssueCloseSkip[];
@@ -60,17 +69,9 @@ export function selectCloseCandidates(
   for (const pr of mergedPrs) {
     const refs = parseClosingIssueNumbers(pr.body);
     if (refs.length === 0) continue;
-    const targetsDefault = pr.baseRefName === defaultBranch;
     for (const num of refs) {
       if (seen.has(num)) continue;
       seen.add(num);
-      if (targetsDefault) {
-        skipped.push({
-          number: num,
-          reason: `PR #${pr.number} targets default branch ${defaultBranch}; GitHub will close`,
-        });
-        continue;
-      }
       if (!openIssueNumbers.has(num)) {
         skipped.push({
           number: num,
@@ -137,10 +138,13 @@ export async function closeIssuesForMergedPrs(
 
   const closed: number[] = [];
   for (const { pr, issueNumber } of candidates) {
+    const baseNote =
+      pr.baseRefName === defaultBranch
+        ? "GitHub's closing-keyword automation did not fire (the PR was authored or merged by a GitHub App identity)"
+        : `the PR targeted \`${pr.baseRefName}\` rather than \`${defaultBranch}\`, so GitHub's closing-keyword automation did not fire`;
     const comment =
       `Closed by merged PR ${pr.url} (#${pr.number}).\n\n` +
-      `Auto-closed by autopilot because the PR targeted \`${pr.baseRefName}\` ` +
-      `rather than \`${defaultBranch}\`, so GitHub's closing-keyword automation did not fire.`;
+      `Auto-closed by autopilot because ${baseNote}.`;
     try {
       await gh.closeIssueWithComment(issueNumber, comment);
       closed.push(issueNumber);

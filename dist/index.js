@@ -24611,7 +24611,7 @@ function parseClosingIssueNumbers(body) {
   }
   return out;
 }
-function selectCloseCandidates(mergedPrs, openIssueNumbers, defaultBranch) {
+function selectCloseCandidates(mergedPrs, openIssueNumbers, _defaultBranch) {
   const candidates = [];
   const skipped = [];
   const seen = new Set;
@@ -24619,18 +24619,10 @@ function selectCloseCandidates(mergedPrs, openIssueNumbers, defaultBranch) {
     const refs = parseClosingIssueNumbers(pr.body);
     if (refs.length === 0)
       continue;
-    const targetsDefault = pr.baseRefName === defaultBranch;
     for (const num of refs) {
       if (seen.has(num))
         continue;
       seen.add(num);
-      if (targetsDefault) {
-        skipped.push({
-          number: num,
-          reason: `PR #${pr.number} targets default branch ${defaultBranch}; GitHub will close`
-        });
-        continue;
-      }
       if (!openIssueNumbers.has(num)) {
         skipped.push({
           number: num,
@@ -24663,9 +24655,10 @@ async function closeIssuesForMergedPrs(gh, openIssueNumbers, trackerNumber, deps
   const { candidates, skipped } = selectCloseCandidates(mergedPrs, openIssueNumbers, defaultBranch);
   const closed = [];
   for (const { pr, issueNumber } of candidates) {
+    const baseNote = pr.baseRefName === defaultBranch ? "GitHub's closing-keyword automation did not fire (the PR was authored or merged by a GitHub App identity)" : `the PR targeted \`${pr.baseRefName}\` rather than \`${defaultBranch}\`, so GitHub's closing-keyword automation did not fire`;
     const comment = `Closed by merged PR ${pr.url} (#${pr.number}).
 
-` + `Auto-closed by autopilot because the PR targeted \`${pr.baseRefName}\` ` + `rather than \`${defaultBranch}\`, so GitHub's closing-keyword automation did not fire.`;
+` + `Auto-closed by autopilot because ${baseNote}.`;
     try {
       await gh.closeIssueWithComment(issueNumber, comment);
       closed.push(issueNumber);
@@ -45718,4 +45711,4 @@ main().catch((error) => {
   core9.setFailed(message);
 });
 
-//# debugId=2160248B1A0FFCD764756E2164756E21
+//# debugId=D4912CD3EB6DB4E464756E2164756E21

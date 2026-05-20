@@ -77,7 +77,12 @@ describe("selectCloseCandidates", () => {
     expect(skipped).toEqual([]);
   });
 
-  test("skips PRs that target the default branch (GitHub already closed them)", () => {
+  test("default-branch merge whose linked issue GitHub already closed is skipped as 'not open' (issue dropped from openIssueNumbers)", () => {
+    // The historical assumption was "PR targets default → GitHub closed it →
+    // skip." That is correct *when GitHub actually closed it* — in which case
+    // the issue is no longer in openIssueNumbers and the "not open" skip
+    // catches it. The bug (sprint #140 incident) was the skip firing on the
+    // base-branch alone, without consulting openIssueNumbers.
     const mergedPrs = [
       makeMergedPR({
         number: 50,
@@ -87,13 +92,44 @@ describe("selectCloseCandidates", () => {
     ];
     const { candidates, skipped } = selectCloseCandidates(
       mergedPrs,
-      new Set([39]),
+      new Set<number>(),
       "main",
     );
     expect(candidates).toHaveLength(0);
     expect(skipped).toHaveLength(1);
     expect(skipped[0].number).toBe(39);
-    expect(skipped[0].reason).toContain("default branch");
+    expect(skipped[0].reason).toContain("not open");
+  });
+
+  test("regression (sprint #140 / PRs #141–#146): produces a candidate when a default-branch merge's linked issue is still in the open-issue set — GitHub does NOT auto-close PRs authored+merged by GitHub Apps, so the autopilot must replay closure", () => {
+    // Live shape on geoffsee/autopilot-example-project as of 2026-05-20:
+    //   PR #145 merged into main with body "Closes #139", authored and merged
+    //   by app/github-actions[bot]. Issue #139's timeline has no `closed`
+    //   event and `gh issue list` still reports it OPEN. The next autopilot
+    //   tick called `runAutopilot`, which passed `#139` in openIssueNumbers
+    //   to `selectCloseCandidates`. The expected behavior is to produce a
+    //   candidate (close the issue ourselves); the current implementation
+    //   takes the `targetsDefault` skip branch before consulting
+    //   openIssueNumbers and the issue stays open, which lets the work-loop
+    //   re-dispatch on the next tick and open duplicate PRs (#146, #147,
+    //   #148 in the live incident).
+    const mergedPrs = [
+      makeMergedPR({
+        number: 145,
+        body: "Closes #139\n\nAutomated PR opened by caretta issue runner.",
+        headRefName: "agent/issue-139",
+        baseRefName: "main",
+      }),
+    ];
+    const { candidates, skipped } = selectCloseCandidates(
+      mergedPrs,
+      new Set([139]),
+      "main",
+    );
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0].issueNumber).toBe(139);
+    expect(candidates[0].pr.number).toBe(145);
+    expect(skipped).toEqual([]);
   });
 
   test("skips issues that are not currently open", () => {
@@ -222,7 +258,28 @@ describe("closeIssuesForMergedPrs", () => {
     expect(gh.closedIssues[0].comment).toContain("agent/issue-36");
   });
 
-  test("does NOT close issues referenced by PRs targeting the default branch", async () => {
+  test("regression (sprint #140): closes issue referenced by default-branch merge when the issue is still open — GitHub's auto-close did not fire (bot author/merger)", async () => {
+    const gh = new FakeGitHub({
+      mergedPrs: [
+        makeMergedPR({
+          number: 145,
+          body: "Closes #139\n\nAutomated PR opened by caretta issue runner.",
+          headRefName: "agent/issue-139",
+          baseRefName: "main",
+          url: "https://example/pull/145",
+        }),
+      ],
+      defaultBranch: "main",
+    });
+    const result = await closeIssuesForMergedPrs(gh, new Set([139]), null);
+    expect(result.closed).toEqual([139]);
+    expect(gh.closedIssues).toHaveLength(1);
+    expect(gh.closedIssues[0].issueNumber).toBe(139);
+    expect(gh.closedIssues[0].comment).toContain("https://example/pull/145");
+    expect(gh.closedIssues[0].comment).toContain("GitHub App identity");
+  });
+
+  test("default-branch merge whose linked issue is no longer open is a no-op (GitHub already closed it)", async () => {
     const gh = new FakeGitHub({
       mergedPrs: [
         makeMergedPR({
@@ -233,10 +290,10 @@ describe("closeIssuesForMergedPrs", () => {
       ],
       defaultBranch: "main",
     });
-    const result = await closeIssuesForMergedPrs(gh, new Set([39]), null);
+    const result = await closeIssuesForMergedPrs(gh, new Set<number>(), null);
     expect(result.closed).toEqual([]);
     expect(gh.closedIssues).toHaveLength(0);
-    expect(result.skipped[0].reason).toContain("default branch");
+    expect(result.skipped[0].reason).toContain("not open");
   });
 
   test("ticks the tracker's checklist for each closed issue", async () => {
@@ -262,7 +319,7 @@ describe("closeIssuesForMergedPrs", () => {
     expect(gh.updatedIssueBodies[0].body).toContain("- [ ] #41 ui");
   });
 
-  test("skips tracker update when no issues were closed", async () => {
+  test("skips tracker update when no issues were closed (linked issue already gone from openIssueNumbers)", async () => {
     const gh = new FakeGitHub({
       mergedPrs: [
         makeMergedPR({
@@ -274,7 +331,7 @@ describe("closeIssuesForMergedPrs", () => {
       defaultBranch: "main",
       issueBodies: { 43: "- [ ] #39\n" },
     });
-    const result = await closeIssuesForMergedPrs(gh, new Set([39]), 43);
+    const result = await closeIssuesForMergedPrs(gh, new Set<number>(), 43);
     expect(result.closed).toEqual([]);
     expect(result.trackerUpdated).toBe(false);
     expect(gh.updatedIssueBodies).toHaveLength(0);
