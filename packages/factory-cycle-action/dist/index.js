@@ -44357,6 +44357,7 @@ class OctokitClient {
         url: pr.html_url,
         headRefName: pr.head.ref,
         headRefOid: pr.head.sha,
+        baseRefName: pr.base.ref,
         mergeStateStatus: detail.repository.pullRequest.mergeStateStatus,
         isAutoMergeEnabled: !!detail.repository.pullRequest.autoMergeRequest
       });
@@ -44547,6 +44548,18 @@ class OctokitClient {
       target_url: targetUrl
     });
   }
+  async enableAutoMerge(prNumber) {
+    const { data } = await this.octokit.rest.pulls.get({
+      owner: this.owner,
+      repo: this.repo,
+      pull_number: prNumber
+    });
+    await this.octokit.graphql(`mutation($prId: ID!) {
+        enablePullRequestAutoMerge(input: { pullRequestId: $prId, mergeMethod: SQUASH }) {
+          clientMutationId
+        }
+      }`, { prId: data.node_id });
+  }
 }
 var core3, github;
 var init_github_client = __esm(() => {
@@ -44688,4 +44701,4 @@ main().catch((error) => {
   core5.setFailed(message);
 });
 
-//# debugId=DB8E29022DFE7DB164756E2164756E21
+//# debugId=D83655ECA319E19364756E2164756E21

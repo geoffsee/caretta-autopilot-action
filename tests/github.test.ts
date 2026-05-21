@@ -63,6 +63,7 @@ describe("OctokitClient", () => {
           updated_at: "2026-01-01T00:00:00Z",
           html_url: "https://example/3",
           head: { ref: "branch-3", sha: "sha-3" },
+          base: { ref: "main" },
         },
       ]),
       rest: {

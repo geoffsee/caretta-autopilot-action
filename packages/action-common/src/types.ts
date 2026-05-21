@@ -19,6 +19,7 @@ export interface PullRequest {
   url: string;
   headRefName: string;
   headRefOid: string;
+  baseRefName: string;
   mergeStateStatus: string;
   isAutoMergeEnabled: boolean;
 }

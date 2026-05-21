@@ -50,6 +50,15 @@ export interface GitHubClient {
     description: string,
     targetUrl?: string,
   ): Promise<void>;
+  /**
+   * Enable squash auto-merge on the given PR. GitHub will merge it once all
+   * branch-protection conditions are satisfied (required checks, approvals,
+   * branch up-to-date). Used by the autopilot's automerge gate to unstick
+   * merge-ready agent PRs when caretta's `--automerge-queue` bails on an
+   * empty tracker-matrix (parser-regression bypass; see post-mortem
+   * 2026-05-21-stuck-prs-tracker-matrix-empty-and-stacked-pr-retarget-failure.md).
+   */
+  enableAutoMerge(prNumber: number): Promise<void>;
 }
 
 type Octokit = ReturnType<typeof github.getOctokit>;
@@ -129,6 +138,7 @@ class OctokitClient implements GitHubClient {
         url: pr.html_url,
         headRefName: pr.head.ref,
         headRefOid: pr.head.sha,
+        baseRefName: pr.base.ref,
         mergeStateStatus: detail.repository.pullRequest.mergeStateStatus,
         isAutoMergeEnabled: !!detail.repository.pullRequest.autoMergeRequest,
       });
@@ -377,5 +387,21 @@ class OctokitClient implements GitHubClient {
       description,
       target_url: targetUrl,
     });
+  }
+
+  async enableAutoMerge(prNumber: number): Promise<void> {
+    const { data } = await this.octokit.rest.pulls.get({
+      owner: this.owner,
+      repo: this.repo,
+      pull_number: prNumber,
+    });
+    await this.octokit.graphql(
+      `mutation($prId: ID!) {
+        enablePullRequestAutoMerge(input: { pullRequestId: $prId, mergeMethod: SQUASH }) {
+          clientMutationId
+        }
+      }`,
+      { prId: data.node_id },
+    );
   }
 }

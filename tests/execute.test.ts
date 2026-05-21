@@ -663,6 +663,105 @@ describe("executeAutopilot", () => {
     expect(automergeQueueIdx).toBeGreaterThanOrEqual(0);
   });
 
+  // Second-order regression discovered after the JS-gate fix above shipped:
+  // the autopilot invoked `caretta auto-merge --automerge-queue`, but caretta
+  // itself bailed with `auto-merge (lineage): nothing scheduled after
+  // deterministic ordering filtered to open PR rows.` because its lineage
+  // path consults `pending_issues_execution_order` (the same parser as
+  // tracker-matrix). PR #159 stayed at `autoMergeRequest: null` after the
+  // next live tick (run `26230198916`) — so the JS gate firing isn't
+  // sufficient on its own. The autopilot must enable auto-merge directly
+  // via the GitHub API for merge-ready agent PRs, bypassing caretta's
+  // broken lineage. See post-mortem
+  // .dev/docs/post-mortems/2026-05-21-stuck-prs-tracker-matrix-empty-and-stacked-pr-retarget-failure.md.
+  test("regression: empty tracker-matrix with merge-ready agent PR → autopilot enables auto-merge directly on the PR", async () => {
+    const pr = makePR({
+      number: 159,
+      headRefName: "agent/issue-153",
+      headRefOid: "sha-159",
+      reviewDecision: "APPROVED",
+      mergeStateStatus: "CLEAN",
+      isAutoMergeEnabled: false,
+    });
+    const gh = new FakeGitHub({
+      prs: [pr],
+      checksBySha: {
+        "sha-159": [
+          {
+            name: "Test",
+            status: "completed",
+            conclusion: "success",
+            startedAt: "2026-01-01T00:00:00Z",
+            createdAt: null,
+          },
+        ],
+      },
+      reviewsByPr: {
+        159: [
+          {
+            state: "APPROVED",
+            body: "lgtm",
+            commitId: "sha-159",
+            user: "caretta-ai[bot]",
+          },
+        ],
+      },
+    });
+    exec.stdout = JSON.stringify([]);
+
+    await executeAutopilot(gh, exec, makeConfig(), workEval, fakeInstallDeps);
+
+    expect(gh.enableAutoMergeCalls).toContain(159);
+  });
+
+  // Guard against the side effect of enabling auto-merge on a stacked PR.
+  // PR #162 in the 2026-05-21 wedge has base=`agent/issue-155` (a still-alive
+  // post-squash-merge branch). Enabling auto-merge directly via the API would
+  // cause GitHub to merge #156's work into the dead `agent/issue-155` branch
+  // — orphaning it off of main. The JS-direct path must enable auto-merge
+  // only when `baseRefName === defaultBranch`; stacked PRs need their base
+  // repaired (rebase + retarget) before they're safe to merge.
+  test("guard: does NOT enable auto-merge on PRs whose base is not the default branch (stacked PRs)", async () => {
+    const stackedPr = makePR({
+      number: 162,
+      headRefName: "agent/issue-156",
+      headRefOid: "sha-162",
+      baseRefName: "agent/issue-155",
+      reviewDecision: "APPROVED",
+      mergeStateStatus: "CLEAN",
+      isAutoMergeEnabled: false,
+    });
+    const gh = new FakeGitHub({
+      prs: [stackedPr],
+      checksBySha: {
+        "sha-162": [
+          {
+            name: "Test",
+            status: "completed",
+            conclusion: "success",
+            startedAt: "2026-01-01T00:00:00Z",
+            createdAt: null,
+          },
+        ],
+      },
+      reviewsByPr: {
+        162: [
+          {
+            state: "APPROVED",
+            body: "lgtm",
+            commitId: "sha-162",
+            user: "caretta-ai[bot]",
+          },
+        ],
+      },
+    });
+    exec.stdout = JSON.stringify([]);
+
+    await executeAutopilot(gh, exec, makeConfig(), workEval, fakeInstallDeps);
+
+    expect(gh.enableAutoMergeCalls).not.toContain(162);
+  });
+
   test("empty tracker-matrix: CI gate breaks early and resolveTrackerScopedPrs falls back to any agent-branch PR", async () => {
     const gh = new FakeGitHub({
       prs: [makePR({ number: 401, headRefName: "agent/issue-401" })],

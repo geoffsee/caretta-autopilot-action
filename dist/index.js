@@ -24090,6 +24090,7 @@ class OctokitClient {
         url: pr.html_url,
         headRefName: pr.head.ref,
         headRefOid: pr.head.sha,
+        baseRefName: pr.base.ref,
         mergeStateStatus: detail.repository.pullRequest.mergeStateStatus,
         isAutoMergeEnabled: !!detail.repository.pullRequest.autoMergeRequest
       });
@@ -24279,6 +24280,18 @@ class OctokitClient {
       description,
       target_url: targetUrl
     });
+  }
+  async enableAutoMerge(prNumber) {
+    const { data } = await this.octokit.rest.pulls.get({
+      owner: this.owner,
+      repo: this.repo,
+      pull_number: prNumber
+    });
+    await this.octokit.graphql(`mutation($prId: ID!) {
+        enablePullRequestAutoMerge(input: { pullRequestId: $prId, mergeMethod: SQUASH }) {
+          clientMutationId
+        }
+      }`, { prId: data.node_id });
   }
 }
 var core2, github;
@@ -45362,6 +45375,21 @@ class CarettaRunner {
     });
     const needsAutomerge = queuedPrs.some((pr) => !pr.isAutoMergeEnabled);
     if (needsAutomerge) {
+      const defaultBranch = await this.gh.getDefaultBranch();
+      for (const pr of queuedPrs) {
+        if (pr.isAutoMergeEnabled)
+          continue;
+        if (pr.baseRefName !== defaultBranch) {
+          core8.info(`Skipping auto-merge enable for PR #${pr.number}: base '${pr.baseRefName}' is not the default branch '${defaultBranch}' (stacked PR needs rebase+retarget first).`);
+          continue;
+        }
+        try {
+          await this.gh.enableAutoMerge(pr.number);
+          core8.info(`Enabled auto-merge on PR #${pr.number}.`);
+        } catch (err) {
+          core8.warning(`Failed to enable auto-merge on PR #${pr.number}: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
       await this.runCaretta("auto-merge", [
         "--tracker",
         tracker,
@@ -45734,4 +45762,4 @@ main().catch((error) => {
   core9.setFailed(message);
 });
 
-//# debugId=B3C7692A75FBF42D64756E2164756E21
+//# debugId=FA1777D5CDC7046D64756E2164756E21

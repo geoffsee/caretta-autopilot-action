@@ -338,7 +338,42 @@ class CarettaRunner {
     const needsAutomerge = queuedPrs.some((pr) => !pr.isAutoMergeEnabled);
 
     if (needsAutomerge) {
-      // 14. prepare-automerge
+      // 14a. Enable auto-merge directly via the GitHub API for each merge-ready
+      // PR that lacks it. Caretta's `--automerge-queue` (called below) is the
+      // legacy path and does additional useful work (per-PR `update-branch`,
+      // base retargeting), but its lineage resolution shares the same parser
+      // path as `tracker-matrix` and silently bails with "nothing scheduled"
+      // when the parser leaks `(blocked by #X)` into the completed set —
+      // exactly the wedge observed on 2026-05-21 (post-mortem:
+      // .dev/docs/post-mortems/2026-05-21-stuck-prs-tracker-matrix-empty-and-stacked-pr-retarget-failure.md).
+      // Enabling here, before calling caretta, makes the autopilot resilient
+      // to that class of empty-lineage failure regardless of root cause.
+      //
+      // Skip stacked PRs (base != default branch): enabling auto-merge would
+      // cause GitHub to merge into the parent agent branch, orphaning the
+      // work off main. Stacked PRs need rebase+retarget first (caretta's
+      // path or manual operator action).
+      const defaultBranch = await this.gh.getDefaultBranch();
+      for (const pr of queuedPrs) {
+        if (pr.isAutoMergeEnabled) continue;
+        if (pr.baseRefName !== defaultBranch) {
+          core.info(
+            `Skipping auto-merge enable for PR #${pr.number}: base '${pr.baseRefName}' is not the default branch '${defaultBranch}' (stacked PR needs rebase+retarget first).`,
+          );
+          continue;
+        }
+        try {
+          await this.gh.enableAutoMerge(pr.number);
+          core.info(`Enabled auto-merge on PR #${pr.number}.`);
+        } catch (err) {
+          core.warning(
+            `Failed to enable auto-merge on PR #${pr.number}: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
+      }
+
+      // 14b. prepare-automerge (caretta path — still useful for branch updates
+      // and base retargeting on stacked PRs when the lineage resolves).
       await this.runCaretta("auto-merge", [
         "--tracker",
         tracker,

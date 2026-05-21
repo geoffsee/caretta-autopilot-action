@@ -94,6 +94,7 @@ export class FakeGitHub implements GitHubClient {
   readonly updatedIssueBodies: UpdateIssueBodyCall[] = [];
   readonly reRunCalls: number[] = [];
   readonly createdStatuses: StatusCall[] = [];
+  readonly enableAutoMergeCalls: number[] = [];
   private commitStatusFailsRemaining = 0;
   private readonly issueBodies: Record<number, string>;
 
@@ -242,6 +243,16 @@ export class FakeGitHub implements GitHubClient {
     }
     this.createdStatuses.push({ sha, state, context, description, targetUrl });
   }
+
+  async enableAutoMerge(prNumber: number): Promise<void> {
+    this.enableAutoMergeCalls.push(prNumber);
+    // Mirror realistic semantics: subsequent reads see the PR with
+    // auto-merge enabled.
+    const pr = (this.data.prs ?? []).find((p) => p.number === prNumber);
+    if (pr) {
+      (pr as { isAutoMergeEnabled: boolean }).isAutoMergeEnabled = true;
+    }
+  }
 }
 
 export function makeIssue(partial: Partial<Issue> & { number: number }): Issue {
@@ -266,6 +277,7 @@ export function makePR(
     url: partial.url ?? `https://example/pull/${partial.number}`,
     headRefName: partial.headRefName ?? `agent/issue-${partial.number}`,
     headRefOid: partial.headRefOid ?? `sha-${partial.number}`,
+    baseRefName: partial.baseRefName ?? "main",
     mergeStateStatus: partial.mergeStateStatus ?? "CLEAN",
     isAutoMergeEnabled: partial.isAutoMergeEnabled ?? false,
   };

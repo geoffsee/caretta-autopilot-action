@@ -111,6 +111,7 @@ export function makeMainHarness(
     async dispatchWorkflow() {},
     async reRunWorkflowFailedJobs() {},
     async createCommitStatus() {},
+    async enableAutoMerge() {},
   };
   const fakeExec: ExecClient = {
     async exec() {
