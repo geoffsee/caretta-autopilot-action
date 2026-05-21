@@ -195,6 +195,7 @@ function makeHarness(
     async reRunWorkflowFailedJobs() {},
     async createCommitStatus() {},
     async enableAutoMerge() {},
+    async mergePullRequest() {},
   };
   const fakeExec: ExecClient = {
     async exec() {

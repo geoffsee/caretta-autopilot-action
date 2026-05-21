@@ -44560,6 +44560,15 @@ class OctokitClient {
         }
       }`, { prId: data.node_id });
   }
+  async mergePullRequest(prNumber, method) {
+    const restMethod = { SQUASH: "squash", MERGE: "merge", REBASE: "rebase" }[method];
+    await this.octokit.rest.pulls.merge({
+      owner: this.owner,
+      repo: this.repo,
+      pull_number: prNumber,
+      merge_method: restMethod
+    });
+  }
 }
 var core3, github;
 var init_github_client = __esm(() => {
@@ -44701,4 +44710,4 @@ main().catch((error) => {
   core5.setFailed(message);
 });
 
-//# debugId=D83655ECA319E19364756E2164756E21
+//# debugId=A53BC87DF693BD5264756E2164756E21

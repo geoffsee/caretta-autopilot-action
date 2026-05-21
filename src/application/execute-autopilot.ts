@@ -362,12 +362,48 @@ class CarettaRunner {
           );
           continue;
         }
+        // If the PR is already in CLEAN merge state, `enablePullRequestAutoMerge`
+        // rejects with "Pull request is in clean status" because GitHub has
+        // nothing left to wait on. Merge directly in that case. See post-mortem
+        // .dev/docs/post-mortems/2026-05-21-stuck-prs-tracker-matrix-empty-and-stacked-pr-retarget-failure.md
+        // § "Manual unstick of PR #159".
+        if (pr.mergeStateStatus === "CLEAN") {
+          try {
+            await this.gh.mergePullRequest(pr.number, "SQUASH");
+            core.info(
+              `Merged PR #${pr.number} directly (mergeStateStatus=CLEAN; auto-merge has nothing to wait on).`,
+            );
+          } catch (err) {
+            core.warning(
+              `Failed to merge PR #${pr.number}: ${err instanceof Error ? err.message : String(err)}`,
+            );
+          }
+          continue;
+        }
         try {
           await this.gh.enableAutoMerge(pr.number);
           core.info(`Enabled auto-merge on PR #${pr.number}.`);
         } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          // Belt-and-suspenders: if the PR's mergeStateStatus stale-read missed
+          // the CLEAN transition between `listOpenPullRequests` and the mutation
+          // firing, fall back to a direct merge.
+          if (/clean status/i.test(msg)) {
+            try {
+              await this.gh.mergePullRequest(pr.number, "SQUASH");
+              core.info(
+                `Merged PR #${pr.number} directly after enableAutoMerge reported clean status.`,
+              );
+              continue;
+            } catch (mergeErr) {
+              core.warning(
+                `Failed to merge PR #${pr.number} after enableAutoMerge clean-status fallback: ${mergeErr instanceof Error ? mergeErr.message : String(mergeErr)}`,
+              );
+              continue;
+            }
+          }
           core.warning(
-            `Failed to enable auto-merge on PR #${pr.number}: ${err instanceof Error ? err.message : String(err)}`,
+            `Failed to enable auto-merge on PR #${pr.number}: ${msg}`,
           );
         }
       }

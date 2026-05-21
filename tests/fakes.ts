@@ -95,6 +95,14 @@ export class FakeGitHub implements GitHubClient {
   readonly reRunCalls: number[] = [];
   readonly createdStatuses: StatusCall[] = [];
   readonly enableAutoMergeCalls: number[] = [];
+  readonly mergedPrs: { prNumber: number; method: string }[] = [];
+  /**
+   * When set, `enableAutoMerge` throws an error containing this message
+   * the first time it's called for the matching PR number. Subsequent calls
+   * succeed. Used to simulate GitHub's "Pull request is in clean status"
+   * rejection.
+   */
+  enableAutoMergeErrorForPr?: { prNumber: number; message: string };
   private commitStatusFailsRemaining = 0;
   private readonly issueBodies: Record<number, string>;
 
@@ -246,12 +254,28 @@ export class FakeGitHub implements GitHubClient {
 
   async enableAutoMerge(prNumber: number): Promise<void> {
     this.enableAutoMergeCalls.push(prNumber);
+    if (
+      this.enableAutoMergeErrorForPr &&
+      this.enableAutoMergeErrorForPr.prNumber === prNumber
+    ) {
+      const msg = this.enableAutoMergeErrorForPr.message;
+      // Consume so subsequent calls succeed.
+      this.enableAutoMergeErrorForPr = undefined;
+      throw new Error(msg);
+    }
     // Mirror realistic semantics: subsequent reads see the PR with
     // auto-merge enabled.
     const pr = (this.data.prs ?? []).find((p) => p.number === prNumber);
     if (pr) {
       (pr as { isAutoMergeEnabled: boolean }).isAutoMergeEnabled = true;
     }
+  }
+
+  async mergePullRequest(
+    prNumber: number,
+    method: "SQUASH" | "MERGE" | "REBASE",
+  ): Promise<void> {
+    this.mergedPrs.push({ prNumber, method });
   }
 }
 

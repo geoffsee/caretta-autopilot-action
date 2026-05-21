@@ -84,6 +84,7 @@ const fakeGh: GitHubClient = {
   async reRunWorkflowFailedJobs() {},
   async createCommitStatus() {},
   async enableAutoMerge() {},
+  async mergePullRequest() {},
 };
 
 const fakeExec: ExecClient = {

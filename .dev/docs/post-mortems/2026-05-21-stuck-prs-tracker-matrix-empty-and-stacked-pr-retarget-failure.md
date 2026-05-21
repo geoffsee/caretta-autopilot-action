@@ -348,11 +348,28 @@ PR #162: {"number":162, "state":"OPEN", "baseRefName":"agent/issue-155",
 
 Both PRs unchanged from the post-mortem's original "now" snapshot. The wedge persists; the autopilot has shipped *observability* but not *forward motion*. PR #159 can be unstuck by a single `gh pr merge 159 --squash` invocation against the example repo (no rebase, no review, no CI wait needed — everything is green); PR #162 still needs the manual rebase-and-retarget recipe documented in the original Action Items.
 
+## Manual unstick of PR #159 (2026-05-21 14:43Z)
+
+After confirming the `d5e1b40` fix could not unstick PR #159 on its own (the `enablePullRequestAutoMerge` mutation rejects merge-ready PRs with `Pull request Pull request is in clean status`), the operator force-resolved #159 by direct squash-merge:
+
+```
+gh pr merge 159 --repo geoffsee/autopilot-example-project --squash
+```
+
+State change observed (verified via `gh pr view` / `gh issue view` immediately after):
+
+- **PR #159** — `MERGED` at `2026-05-21T14:43:13Z`, merge commit `5b40746be5d26d9240b96fe347e6442b87fdc5f9`.
+- **Issue #153** — `CLOSED` at `2026-05-21T14:43:15Z` (auto-closed by the `Closes #153` link in PR #159's body; the close-on-merge path shipped in `2f01ad3` is working correctly — same fix that landed on 2026-05-20).
+- **Tracker #157** — still `OPEN`. Body checklist row `- [ ] #153 …` should auto-tick on the next autopilot tick via `closeIssuesForMergedPrs`'s `updateTrackerChecklist` path; the table-section "Status" column will remain stale until the tracker auto-close work (see `2026-05-20-issues-not-closed-on-main-merge-trigger-duplicate-prs.md` action items) extends to table re-rendering.
+- **PR #162** — still `OPEN`, still wedged. Base `agent/issue-155` now reports `{ahead: 2, behind: 2, status: "diverged"}` against `main` (was `2 ahead, 1 behind` pre-#159-merge — the new squash on `main` for #159 pushed `behind` by one). The stacked-base problem is structurally unchanged; #162 still needs the manual rebase-and-retarget recipe from the original Action Items table.
+
+The manual merge demonstrates that PR #159 was structurally ready the entire time — no review changes needed, no CI re-run, no branch update. The wedge was purely an automation gap. The follow-up code fix below converts this manual recipe into the autopilot's default behavior.
+
 ## New action item arising from this verification
 
 | Action | Owner | Due | Status |
 |--------|-------|-----|--------|
-| In `src/application/execute-autopilot.ts:14a` (the new direct-enable loop), detect the `Pull request is in clean status` error class from `enablePullRequestAutoMerge` and fall back to `mergePullRequest` (squash) for that PR. Equivalent precondition without the error round-trip: when `pr.mergeStateStatus === "CLEAN"` and `pr.reviewDecision === "APPROVED"` and the required-checks set is satisfied, prefer `mergePullRequest` first; otherwise prefer `enablePullRequestAutoMerge`. Add a new `mergePullRequest(prNumber, method)` method to `GitHubClient` that wraps the GraphQL mutation, and extend the tests in `tests/execute.test.ts` so the merge-ready-PR scenario asserts `mergePullRequest` is called (not just `enableAutoMerge`). This is the fix that converts the §2 work in `d5e1b40` from "observable no-op on already-ready PRs" to "actually merges". | TODO | TODO | Open. **Highest-priority follow-up — the wedge will not clear without this.** |
+| In `src/application/execute-autopilot.ts:14a` (the new direct-enable loop), detect the `Pull request is in clean status` error class from `enablePullRequestAutoMerge` and fall back to `mergePullRequest` (squash) for that PR. Equivalent precondition without the error round-trip: when `pr.mergeStateStatus === "CLEAN"` and `pr.reviewDecision === "APPROVED"` and the required-checks set is satisfied, prefer `mergePullRequest` first; otherwise prefer `enablePullRequestAutoMerge`. Add a new `mergePullRequest(prNumber, method)` method to `GitHubClient` that wraps the GraphQL mutation, and extend the tests in `tests/execute.test.ts` so the merge-ready-PR scenario asserts `mergePullRequest` is called (not just `enableAutoMerge`). This is the fix that converts the §2 work in `d5e1b40` from "observable no-op on already-ready PRs" to "actually merges". | Geoff | 2026-05-21 | **Shipped on branch `fix/direct-merge-fallback-for-clean-prs`** — added `mergePullRequest(prNumber, method)` to `GitHubClient` (uses REST `pulls.merge`, not GraphQL — simpler primitive and avoids the extra `pulls.get` for the node id). Direct-enable loop now (a) calls `mergePullRequest(pr.number, "SQUASH")` when `pr.mergeStateStatus === "CLEAN"`, (b) calls `enableAutoMerge` otherwise, and (c) catches `Pull request is in clean status` from `enableAutoMerge` as a belt-and-suspenders race fallback. Three new tests in `tests/execute.test.ts`: CLEAN path → `mergedPrs` contains the PR; non-CLEAN path → `enableAutoMergeCalls` contains the PR; race fallback → both are called for the same PR. All 266 tests pass. PR pending. |
 
 ## Lessons (revised, 2026-05-21 post-verification)
 

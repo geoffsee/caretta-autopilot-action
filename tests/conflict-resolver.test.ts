@@ -36,6 +36,7 @@ function harness(snapshots: PullRequest[][]): Harness {
     reRunWorkflowFailedJobs: async () => {},
     createCommitStatus: async () => {},
     enableAutoMerge: async () => {},
+    mergePullRequest: async () => {},
   };
   return {
     gh,

@@ -24293,6 +24293,15 @@ class OctokitClient {
         }
       }`, { prId: data.node_id });
   }
+  async mergePullRequest(prNumber, method) {
+    const restMethod = { SQUASH: "squash", MERGE: "merge", REBASE: "rebase" }[method];
+    await this.octokit.rest.pulls.merge({
+      owner: this.owner,
+      repo: this.repo,
+      pull_number: prNumber,
+      merge_method: restMethod
+    });
+  }
 }
 var core2, github;
 var init_github_client = __esm(() => {
@@ -45383,11 +45392,31 @@ class CarettaRunner {
           core8.info(`Skipping auto-merge enable for PR #${pr.number}: base '${pr.baseRefName}' is not the default branch '${defaultBranch}' (stacked PR needs rebase+retarget first).`);
           continue;
         }
+        if (pr.mergeStateStatus === "CLEAN") {
+          try {
+            await this.gh.mergePullRequest(pr.number, "SQUASH");
+            core8.info(`Merged PR #${pr.number} directly (mergeStateStatus=CLEAN; auto-merge has nothing to wait on).`);
+          } catch (err) {
+            core8.warning(`Failed to merge PR #${pr.number}: ${err instanceof Error ? err.message : String(err)}`);
+          }
+          continue;
+        }
         try {
           await this.gh.enableAutoMerge(pr.number);
           core8.info(`Enabled auto-merge on PR #${pr.number}.`);
         } catch (err) {
-          core8.warning(`Failed to enable auto-merge on PR #${pr.number}: ${err instanceof Error ? err.message : String(err)}`);
+          const msg = err instanceof Error ? err.message : String(err);
+          if (/clean status/i.test(msg)) {
+            try {
+              await this.gh.mergePullRequest(pr.number, "SQUASH");
+              core8.info(`Merged PR #${pr.number} directly after enableAutoMerge reported clean status.`);
+              continue;
+            } catch (mergeErr) {
+              core8.warning(`Failed to merge PR #${pr.number} after enableAutoMerge clean-status fallback: ${mergeErr instanceof Error ? mergeErr.message : String(mergeErr)}`);
+              continue;
+            }
+          }
+          core8.warning(`Failed to enable auto-merge on PR #${pr.number}: ${msg}`);
         }
       }
       await this.runCaretta("auto-merge", [
@@ -45762,4 +45791,4 @@ main().catch((error) => {
   core9.setFailed(message);
 });
 
-//# debugId=FA1777D5CDC7046D64756E2164756E21
+//# debugId=E60E6654F3F355A764756E2164756E21
