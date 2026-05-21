@@ -274,7 +274,25 @@ export class FakeGitHub implements GitHubClient {
   async mergePullRequest(
     prNumber: number,
     method: "SQUASH" | "MERGE" | "REBASE",
+    _expectedHeadOid: string,
   ): Promise<void> {
+    const prs = (this.data.prs ?? []) as PullRequest[];
+    const merged = (this.data.mergedPrs ?? []) as MergedPullRequest[];
+    const idx = prs.findIndex((p) => p.number === prNumber);
+    if (idx >= 0) {
+      const pr = prs[idx] as PullRequest;
+      (pr as { isAutoMergeEnabled: boolean }).isAutoMergeEnabled = false;
+      prs.splice(idx, 1);
+      merged.push({
+        number: pr.number,
+        title: pr.title,
+        body: "",
+        headRefName: pr.headRefName,
+        baseRefName: pr.baseRefName,
+        mergedAt: "2026-01-01T00:00:00Z",
+        url: pr.url,
+      });
+    }
     this.mergedPrs.push({ prNumber, method });
   }
 }

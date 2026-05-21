@@ -60,18 +60,21 @@ export interface GitHubClient {
    */
   enableAutoMerge(prNumber: number): Promise<void>;
   /**
-   * Merge the given PR directly using the specified method. Required as a
-   * companion to `enableAutoMerge` because GitHub's `enablePullRequestAutoMerge`
-   * mutation rejects PRs with `mergeStateStatus: CLEAN` (no pending conditions
-   * to wait on). The autopilot's automerge gate calls this when the PR is
-   * already merge-ready right now; `enableAutoMerge` only makes sense when
-   * something is still pending. See post-mortem
+   * Merge the given PR directly using the specified method. `expectedHeadOid`
+   * is passed as a merge precondition (`sha`) so GitHub rejects the merge if
+   * the PR advanced after evaluation. Required as a companion to
+   * `enableAutoMerge` because GitHub's `enablePullRequestAutoMerge` mutation
+   * rejects PRs with `mergeStateStatus: CLEAN` (no pending conditions to wait
+   * on). The autopilot's automerge gate calls this when the PR is already
+   * merge-ready right now; `enableAutoMerge` only makes sense when something
+   * is still pending. See post-mortem
    * 2026-05-21-stuck-prs-tracker-matrix-empty-and-stacked-pr-retarget-failure.md
    * § "Manual unstick of PR #159".
    */
   mergePullRequest(
     prNumber: number,
     method: "SQUASH" | "MERGE" | "REBASE",
+    expectedHeadOid: string,
   ): Promise<void>;
 }
 
@@ -422,6 +425,7 @@ class OctokitClient implements GitHubClient {
   async mergePullRequest(
     prNumber: number,
     method: "SQUASH" | "MERGE" | "REBASE",
+    expectedHeadOid: string,
   ): Promise<void> {
     const restMethod = (
       { SQUASH: "squash", MERGE: "merge", REBASE: "rebase" } as const
@@ -430,6 +434,7 @@ class OctokitClient implements GitHubClient {
       owner: this.owner,
       repo: this.repo,
       pull_number: prNumber,
+      sha: expectedHeadOid,
       merge_method: restMethod,
     });
   }

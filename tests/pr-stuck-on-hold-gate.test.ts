@@ -88,6 +88,7 @@ describe("agent PR work-dispatch stuck behind hold-on-active-CI", () => {
       headRefName: "agent/issue-135",
       headRefOid: "sha-141",
       reviewDecision: "APPROVED",
+      mergeStateStatus: "BLOCKED",
     });
     const gh = new FakeGitHub({
       issues: [makeIssue({ number: 50, labels: [{ name: "sprint" }] })],

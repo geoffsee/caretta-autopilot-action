@@ -24293,12 +24293,13 @@ class OctokitClient {
         }
       }`, { prId: data.node_id });
   }
-  async mergePullRequest(prNumber, method) {
+  async mergePullRequest(prNumber, method, expectedHeadOid) {
     const restMethod = { SQUASH: "squash", MERGE: "merge", REBASE: "rebase" }[method];
     await this.octokit.rest.pulls.merge({
       owner: this.owner,
       repo: this.repo,
       pull_number: prNumber,
+      sha: expectedHeadOid,
       merge_method: restMethod
     });
   }
@@ -45394,7 +45395,7 @@ class CarettaRunner {
         }
         if (pr.mergeStateStatus === "CLEAN") {
           try {
-            await this.gh.mergePullRequest(pr.number, "SQUASH");
+            await this.gh.mergePullRequest(pr.number, "SQUASH", pr.headRefOid);
             core8.info(`Merged PR #${pr.number} directly (mergeStateStatus=CLEAN; auto-merge has nothing to wait on).`);
           } catch (err) {
             core8.warning(`Failed to merge PR #${pr.number}: ${err instanceof Error ? err.message : String(err)}`);
@@ -45408,7 +45409,7 @@ class CarettaRunner {
           const msg = err instanceof Error ? err.message : String(err);
           if (/clean status/i.test(msg)) {
             try {
-              await this.gh.mergePullRequest(pr.number, "SQUASH");
+              await this.gh.mergePullRequest(pr.number, "SQUASH", pr.headRefOid);
               core8.info(`Merged PR #${pr.number} directly after enableAutoMerge reported clean status.`);
               continue;
             } catch (mergeErr) {
@@ -45791,4 +45792,4 @@ main().catch((error) => {
   core9.setFailed(message);
 });
 
-//# debugId=E60E6654F3F355A764756E2164756E21
+//# debugId=383706F8647DD52964756E2164756E21

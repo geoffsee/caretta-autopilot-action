@@ -369,7 +369,7 @@ class CarettaRunner {
         // § "Manual unstick of PR #159".
         if (pr.mergeStateStatus === "CLEAN") {
           try {
-            await this.gh.mergePullRequest(pr.number, "SQUASH");
+            await this.gh.mergePullRequest(pr.number, "SQUASH", pr.headRefOid);
             core.info(
               `Merged PR #${pr.number} directly (mergeStateStatus=CLEAN; auto-merge has nothing to wait on).`,
             );
@@ -390,7 +390,11 @@ class CarettaRunner {
           // firing, fall back to a direct merge.
           if (/clean status/i.test(msg)) {
             try {
-              await this.gh.mergePullRequest(pr.number, "SQUASH");
+              await this.gh.mergePullRequest(
+                pr.number,
+                "SQUASH",
+                pr.headRefOid,
+              );
               core.info(
                 `Merged PR #${pr.number} directly after enableAutoMerge reported clean status.`,
               );

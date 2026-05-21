@@ -460,6 +460,7 @@ describe("executeAutopilot", () => {
       number: 501,
       headRefName: "agent/issue-501",
       headRefOid: "sha-501-original",
+      mergeStateStatus: "BLOCKED",
     });
     const passingTest = {
       name: "Test",
@@ -809,7 +810,7 @@ describe("executeAutopilot", () => {
     });
     gh.enableAutoMergeErrorForPr = {
       prNumber: 300,
-      message: "Pull request Pull request is in clean status",
+      message: "Pull request is in clean status",
     };
     exec.stdout = JSON.stringify([]);
 
