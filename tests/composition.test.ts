@@ -89,6 +89,7 @@ const fakeGh: GitHubClient = {
     _method: "SQUASH" | "MERGE" | "REBASE",
     _expectedHeadOid: string,
   ) {},
+  async retargetPullRequest() {},
 };
 
 const fakeExec: ExecClient = {

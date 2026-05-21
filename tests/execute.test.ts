@@ -9,6 +9,7 @@ import {
   FakeGitHub,
   makeConfig,
   makeIssue,
+  makeMergedPR,
   makePR,
 } from "./fakes.js";
 
@@ -867,6 +868,257 @@ describe("executeAutopilot", () => {
 
     expect(gh.enableAutoMergeCalls).not.toContain(162);
     expect(gh.mergedPrs.map((m) => m.prNumber)).not.toContain(162);
+  });
+
+  // Auto-rebase action item from
+  // .dev/docs/post-mortems/2026-05-21-stuck-prs-tracker-matrix-empty-and-stacked-pr-retarget-failure.md
+  // and 2026-05-21-branches-stale-from-missing-post-merge-deletion.md.
+  //
+  // A stacked agent PR whose parent has already squash-merged into the default
+  // branch is the wedge shape PR #162 ended up in: its base ref points at a
+  // branch that no longer matches anything reachable from main, so caretta's
+  // retarget fails ("unable to align base to 'main'") and there is no
+  // automated path back. The fix: when we detect this shape (parent
+  // headRefName present in `listRecentlyMergedPullRequests` with baseRefName ==
+  // defaultBranch), rebase the head onto main, force-push with lease, and
+  // retarget the PR via the GitHub API. After that the PR is just a normal
+  // default-branch PR and the existing enableAutoMerge path picks it up.
+  test("auto-rebase: stacked PR whose parent merged into default → rebase, force-push, retarget, then enable auto-merge", async () => {
+    const stackedPr = makePR({
+      number: 162,
+      headRefName: "agent/issue-156",
+      headRefOid: "sha-162",
+      baseRefName: "agent/issue-155",
+      reviewDecision: "APPROVED",
+      mergeStateStatus: "CLEAN",
+      isAutoMergeEnabled: false,
+    });
+    const parentMerged = makeMergedPR({
+      number: 161,
+      headRefName: "agent/issue-155",
+      baseRefName: "main",
+      body: "Closes #155",
+    });
+    const gh = new FakeGitHub({
+      prs: [stackedPr],
+      mergedPrs: [parentMerged],
+      checksBySha: {
+        "sha-162": [
+          {
+            name: "Test",
+            status: "completed",
+            conclusion: "success",
+            startedAt: "2026-01-01T00:00:00Z",
+            createdAt: null,
+          },
+        ],
+      },
+      reviewsByPr: {
+        162: [
+          {
+            state: "APPROVED",
+            body: "lgtm",
+            commitId: "sha-162",
+            user: "caretta-ai[bot]",
+          },
+        ],
+      },
+    });
+    exec.stdout = JSON.stringify([]);
+
+    await executeAutopilot(gh, exec, makeConfig(), workEval, fakeInstallDeps);
+
+    const gitCalls = exec.calls.filter((c) => c.command === "git");
+    const args = gitCalls.map((c) => c.args.join(" "));
+    expect(args.some((a) => a.startsWith("fetch origin main"))).toBe(true);
+    expect(args).toContain("switch agent/issue-156");
+    expect(args).toContain("rebase origin/main");
+    expect(
+      args.some(
+        (a) =>
+          a.includes("push") &&
+          a.includes("--force-with-lease") &&
+          a.endsWith("agent/issue-156"),
+      ),
+    ).toBe(true);
+    expect(gh.retargetCalls).toEqual([{ prNumber: 162, newBaseRef: "main" }]);
+    expect(gh.enableAutoMergeCalls).toContain(162);
+  });
+
+  // Counterpart to the auto-rebase test. Today the example repo has stacked
+  // PRs #189/#190/#191 whose parents (#187/#188) are still open. Retargeting
+  // those children to main now would orphan the parents' work. The eligibility
+  // gate is "parent appears in listRecentlyMergedPullRequests targeting the
+  // default branch" — without that, we must NOT touch the stacked PR.
+  test("auto-rebase: stacked PR whose parent is still open → no rebase, no retarget, no enable", async () => {
+    const stackedPr = makePR({
+      number: 189,
+      headRefName: "agent/issue-182",
+      headRefOid: "sha-189",
+      baseRefName: "agent/issue-180",
+      reviewDecision: "APPROVED",
+      mergeStateStatus: "CLEAN",
+      isAutoMergeEnabled: false,
+    });
+    const gh = new FakeGitHub({
+      prs: [stackedPr],
+      mergedPrs: [], // parent not merged
+      checksBySha: {
+        "sha-189": [
+          {
+            name: "Test",
+            status: "completed",
+            conclusion: "success",
+            startedAt: "2026-01-01T00:00:00Z",
+            createdAt: null,
+          },
+        ],
+      },
+      reviewsByPr: {
+        189: [
+          {
+            state: "APPROVED",
+            body: "lgtm",
+            commitId: "sha-189",
+            user: "caretta-ai[bot]",
+          },
+        ],
+      },
+    });
+    exec.stdout = JSON.stringify([]);
+
+    await executeAutopilot(gh, exec, makeConfig(), workEval, fakeInstallDeps);
+
+    expect(exec.calls.some((c) => c.command === "git")).toBe(false);
+    expect(gh.retargetCalls).toEqual([]);
+    expect(gh.enableAutoMergeCalls).not.toContain(189);
+  });
+
+  // Conflict path: if `git rebase` fails (non-zero exit), the autopilot must
+  // run `git rebase --abort` to leave the working tree clean, emit a warning,
+  // skip the retarget, and NOT enable auto-merge. Mirrors the manual-rebase
+  // exit recipe documented in the post-mortem.
+  test("auto-rebase: rebase conflict → abort, no retarget, no enable", async () => {
+    const stackedPr = makePR({
+      number: 162,
+      headRefName: "agent/issue-156",
+      headRefOid: "sha-162",
+      baseRefName: "agent/issue-155",
+      reviewDecision: "APPROVED",
+      mergeStateStatus: "CLEAN",
+      isAutoMergeEnabled: false,
+    });
+    const parentMerged = makeMergedPR({
+      number: 161,
+      headRefName: "agent/issue-155",
+      baseRefName: "main",
+      body: "Closes #155",
+    });
+    const gh = new FakeGitHub({
+      prs: [stackedPr],
+      mergedPrs: [parentMerged],
+      checksBySha: {
+        "sha-162": [
+          {
+            name: "Test",
+            status: "completed",
+            conclusion: "success",
+            startedAt: "2026-01-01T00:00:00Z",
+            createdAt: null,
+          },
+        ],
+      },
+      reviewsByPr: {
+        162: [
+          {
+            state: "APPROVED",
+            body: "lgtm",
+            commitId: "sha-162",
+            user: "caretta-ai[bot]",
+          },
+        ],
+      },
+    });
+    exec.stdout = JSON.stringify([]);
+    // Make `git rebase origin/main` (NOT --abort) return non-zero.
+    exec.execHandler = (cmd, args) => {
+      if (cmd !== "git") return 0;
+      if (args[0] === "rebase" && args[1] === "origin/main") return 1;
+      return 0;
+    };
+
+    await executeAutopilot(gh, exec, makeConfig(), workEval, fakeInstallDeps);
+
+    const gitArgs = exec.calls
+      .filter((c) => c.command === "git")
+      .map((c) => c.args.join(" "));
+    expect(gitArgs).toContain("rebase --abort");
+    expect(
+      gitArgs.some(
+        (a) => a.includes("push") && a.includes("--force-with-lease"),
+      ),
+    ).toBe(false);
+    expect(gh.retargetCalls).toEqual([]);
+    expect(gh.enableAutoMergeCalls).not.toContain(162);
+  });
+
+  // Dry-run gate: the action item explicitly says auto-rebase must be gated
+  // on `dryRun`. In dry-run mode we observe but never mutate; the rebase path
+  // would force-push and retarget, both of which are write operations.
+  test("auto-rebase: dryRun=true → no git ops, no retarget, no enable on stacked PR", async () => {
+    const stackedPr = makePR({
+      number: 162,
+      headRefName: "agent/issue-156",
+      headRefOid: "sha-162",
+      baseRefName: "agent/issue-155",
+      reviewDecision: "APPROVED",
+      mergeStateStatus: "CLEAN",
+      isAutoMergeEnabled: false,
+    });
+    const parentMerged = makeMergedPR({
+      number: 161,
+      headRefName: "agent/issue-155",
+      baseRefName: "main",
+      body: "Closes #155",
+    });
+    const gh = new FakeGitHub({
+      prs: [stackedPr],
+      mergedPrs: [parentMerged],
+      checksBySha: {
+        "sha-162": [
+          {
+            name: "Test",
+            status: "completed",
+            conclusion: "success",
+            startedAt: "2026-01-01T00:00:00Z",
+            createdAt: null,
+          },
+        ],
+      },
+      reviewsByPr: {
+        162: [
+          {
+            state: "APPROVED",
+            body: "lgtm",
+            commitId: "sha-162",
+            user: "caretta-ai[bot]",
+          },
+        ],
+      },
+    });
+    exec.stdout = JSON.stringify([]);
+
+    await executeAutopilot(
+      gh,
+      exec,
+      makeConfig({ dryRun: true }),
+      workEval,
+      fakeInstallDeps,
+    );
+
+    expect(exec.calls.some((c) => c.command === "git")).toBe(false);
+    expect(gh.retargetCalls).toEqual([]);
+    expect(gh.enableAutoMergeCalls).not.toContain(162);
   });
 
   test("empty tracker-matrix: CI gate breaks early and resolveTrackerScopedPrs falls back to any agent-branch PR", async () => {

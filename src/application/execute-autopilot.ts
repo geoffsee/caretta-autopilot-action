@@ -351,23 +351,37 @@ class CarettaRunner {
       //
       // Skip stacked PRs (base != default branch): enabling auto-merge would
       // cause GitHub to merge into the parent agent branch, orphaning the
-      // work off main. Stacked PRs need rebase+retarget first (caretta's
-      // path or manual operator action).
+      // work off main. For stacked PRs whose parent has already merged into
+      // the default branch, attempt an auto-rebase + retarget so the PR can
+      // proceed; otherwise skip and wait for the parent to land first.
       const defaultBranch = await this.gh.getDefaultBranch();
       for (const pr of queuedPrs) {
         if (pr.isAutoMergeEnabled) continue;
+        let justRebased = false;
         if (pr.baseRefName !== defaultBranch) {
-          core.info(
-            `Skipping auto-merge enable for PR #${pr.number}: base '${pr.baseRefName}' is not the default branch '${defaultBranch}' (stacked PR needs rebase+retarget first).`,
+          const rebased = await this.tryRebaseStackedPrToDefault(
+            pr,
+            defaultBranch,
           );
-          continue;
+          if (!rebased) {
+            core.info(
+              `Skipping auto-merge enable for PR #${pr.number}: base '${pr.baseRefName}' is not the default branch '${defaultBranch}' (stacked PR needs rebase+retarget first).`,
+            );
+            continue;
+          }
+          justRebased = true;
         }
         // If the PR is already in CLEAN merge state, `enablePullRequestAutoMerge`
         // rejects with "Pull request is in clean status" because GitHub has
         // nothing left to wait on. Merge directly in that case. See post-mortem
         // .dev/docs/post-mortems/2026-05-21-stuck-prs-tracker-matrix-empty-and-stacked-pr-retarget-failure.md
         // § "Manual unstick of PR #159".
-        if (pr.mergeStateStatus === "CLEAN") {
+        //
+        // Skip the fast-path when we just rebased — the in-memory
+        // mergeStateStatus and headRefOid are pre-rebase reads and would feed
+        // a stale `sha` precondition to `pulls.merge`. The next tick picks up
+        // the freshly-rebased PR with accurate state.
+        if (!justRebased && pr.mergeStateStatus === "CLEAN") {
           try {
             await this.gh.mergePullRequest(pr.number, "SQUASH", pr.headRefOid);
             core.info(
@@ -461,6 +475,100 @@ class CarettaRunner {
 
     // 6. sprint-planning
     await this.runCaretta("run", ["sprint-planning"]);
+  }
+
+  /**
+   * Rebase a stacked agent PR's head onto the default branch and retarget the
+   * PR. Eligible only when the PR's current base ref matches a recently merged
+   * PR's head ref against the default branch — i.e., the parent has actually
+   * shipped to main. Without that guard we would orphan work off a still-open
+   * parent. See post-mortem
+   * 2026-05-21-stuck-prs-tracker-matrix-empty-and-stacked-pr-retarget-failure.md
+   * action item "Code, stacked-PR special case".
+   */
+  private async tryRebaseStackedPrToDefault(
+    pr: PullRequest,
+    defaultBranch: string,
+  ): Promise<boolean> {
+    if (this.config.dryRun) return false;
+    if (!this.config.agentBranchPattern.test(pr.headRefName)) return false;
+    if (pr.mergeStateStatus === "DIRTY") return false;
+
+    const mergedPrs = await this.gh.listRecentlyMergedPullRequests();
+    const parent = mergedPrs.find(
+      (m) =>
+        m.headRefName === pr.baseRefName && m.baseRefName === defaultBranch,
+    );
+    if (!parent) return false;
+
+    core.info(
+      `Auto-rebase: PR #${pr.number} base '${pr.baseRefName}' was merged into '${defaultBranch}' via PR #${parent.number}; rebasing head onto '${defaultBranch}' and retargeting.`,
+    );
+
+    const gitOpts = { env: this.env, ignoreReturnCode: true };
+
+    const fetchCode = await this.exec.exec(
+      "git",
+      ["fetch", "origin", defaultBranch, pr.headRefName],
+      gitOpts,
+    );
+    if (fetchCode !== 0) {
+      core.warning(
+        `Auto-rebase: git fetch failed for PR #${pr.number} (exit ${fetchCode}); skipping.`,
+      );
+      return false;
+    }
+
+    const switchCode = await this.exec.exec(
+      "git",
+      ["switch", pr.headRefName],
+      gitOpts,
+    );
+    if (switchCode !== 0) {
+      core.warning(
+        `Auto-rebase: git switch ${pr.headRefName} failed for PR #${pr.number} (exit ${switchCode}); skipping.`,
+      );
+      return false;
+    }
+
+    const rebaseCode = await this.exec.exec(
+      "git",
+      ["rebase", `origin/${defaultBranch}`],
+      gitOpts,
+    );
+    if (rebaseCode !== 0) {
+      await this.exec.exec("git", ["rebase", "--abort"], gitOpts);
+      core.warning(
+        `Auto-rebase: rebase onto origin/${defaultBranch} failed for PR #${pr.number} (likely conflicts); aborted. Manual rebase needed.`,
+      );
+      return false;
+    }
+
+    const pushCode = await this.exec.exec(
+      "git",
+      ["push", "--force-with-lease", "origin", pr.headRefName],
+      gitOpts,
+    );
+    if (pushCode !== 0) {
+      core.warning(
+        `Auto-rebase: force-push failed for PR #${pr.number} (exit ${pushCode}); skipping retarget.`,
+      );
+      return false;
+    }
+
+    try {
+      await this.gh.retargetPullRequest(pr.number, defaultBranch);
+    } catch (err) {
+      core.warning(
+        `Auto-rebase: retarget failed for PR #${pr.number}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return false;
+    }
+
+    core.info(
+      `Auto-rebase: PR #${pr.number} rebased onto '${defaultBranch}' and retargeted.`,
+    );
+    return true;
   }
 
   private async fixConflicts(): Promise<void> {

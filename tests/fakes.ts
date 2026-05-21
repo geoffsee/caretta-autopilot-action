@@ -21,6 +21,8 @@ export interface ExecCall {
 export class FakeExec implements ExecClient {
   readonly calls: ExecCall[] = [];
   stdout = "";
+  /** Optional override: return a non-zero exit code for specific calls. */
+  execHandler?: (commandLine: string, args: string[]) => number;
 
   async exec(
     commandLine: string,
@@ -28,7 +30,7 @@ export class FakeExec implements ExecClient {
     options?: exec.ExecOptions,
   ): Promise<number> {
     this.calls.push({ command: commandLine, args: args ?? [], options });
-    return 0;
+    return this.execHandler?.(commandLine, args ?? []) ?? 0;
   }
 
   async getExecOutput(
@@ -103,6 +105,7 @@ export class FakeGitHub implements GitHubClient {
    * rejection.
    */
   enableAutoMergeErrorForPr?: { prNumber: number; message: string };
+  readonly retargetCalls: Array<{ prNumber: number; newBaseRef: string }> = [];
   private commitStatusFailsRemaining = 0;
   private readonly issueBodies: Record<number, string>;
 
@@ -294,6 +297,17 @@ export class FakeGitHub implements GitHubClient {
       });
     }
     this.mergedPrs.push({ prNumber, method });
+  }
+
+  async retargetPullRequest(
+    prNumber: number,
+    newBaseRef: string,
+  ): Promise<void> {
+    this.retargetCalls.push({ prNumber, newBaseRef });
+    const pr = (this.data.prs ?? []).find((p) => p.number === prNumber);
+    if (pr) {
+      (pr as { baseRefName: string }).baseRefName = newBaseRef;
+    }
   }
 }
 

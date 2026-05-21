@@ -24303,6 +24303,14 @@ class OctokitClient {
       merge_method: restMethod
     });
   }
+  async retargetPullRequest(prNumber, newBaseRef) {
+    await this.octokit.rest.pulls.update({
+      owner: this.owner,
+      repo: this.repo,
+      pull_number: prNumber,
+      base: newBaseRef
+    });
+  }
 }
 var core2, github;
 var init_github_client = __esm(() => {
@@ -45389,11 +45397,16 @@ class CarettaRunner {
       for (const pr of queuedPrs) {
         if (pr.isAutoMergeEnabled)
           continue;
+        let justRebased = false;
         if (pr.baseRefName !== defaultBranch) {
-          core8.info(`Skipping auto-merge enable for PR #${pr.number}: base '${pr.baseRefName}' is not the default branch '${defaultBranch}' (stacked PR needs rebase+retarget first).`);
-          continue;
+          const rebased = await this.tryRebaseStackedPrToDefault(pr, defaultBranch);
+          if (!rebased) {
+            core8.info(`Skipping auto-merge enable for PR #${pr.number}: base '${pr.baseRefName}' is not the default branch '${defaultBranch}' (stacked PR needs rebase+retarget first).`);
+            continue;
+          }
+          justRebased = true;
         }
-        if (pr.mergeStateStatus === "CLEAN") {
+        if (!justRebased && pr.mergeStateStatus === "CLEAN") {
           try {
             await this.gh.mergePullRequest(pr.number, "SQUASH", pr.headRefOid);
             core8.info(`Merged PR #${pr.number} directly (mergeStateStatus=CLEAN; auto-merge has nothing to wait on).`);
@@ -45443,6 +45456,49 @@ class CarettaRunner {
     await this.runCaretta("run", ["report-research"]);
     await this.runCaretta("run", ["strategic-review"]);
     await this.runCaretta("run", ["sprint-planning"]);
+  }
+  async tryRebaseStackedPrToDefault(pr, defaultBranch) {
+    if (this.config.dryRun)
+      return false;
+    if (!this.config.agentBranchPattern.test(pr.headRefName))
+      return false;
+    if (pr.mergeStateStatus === "DIRTY")
+      return false;
+    const mergedPrs = await this.gh.listRecentlyMergedPullRequests();
+    const parent = mergedPrs.find((m) => m.headRefName === pr.baseRefName && m.baseRefName === defaultBranch);
+    if (!parent)
+      return false;
+    core8.info(`Auto-rebase: PR #${pr.number} base '${pr.baseRefName}' was merged into '${defaultBranch}' via PR #${parent.number}; rebasing head onto '${defaultBranch}' and retargeting.`);
+    const gitOpts = { env: this.env, ignoreReturnCode: true };
+    const fetchCode = await this.exec.exec("git", ["fetch", "origin", defaultBranch, pr.headRefName], gitOpts);
+    if (fetchCode !== 0) {
+      core8.warning(`Auto-rebase: git fetch failed for PR #${pr.number} (exit ${fetchCode}); skipping.`);
+      return false;
+    }
+    const switchCode = await this.exec.exec("git", ["switch", pr.headRefName], gitOpts);
+    if (switchCode !== 0) {
+      core8.warning(`Auto-rebase: git switch ${pr.headRefName} failed for PR #${pr.number} (exit ${switchCode}); skipping.`);
+      return false;
+    }
+    const rebaseCode = await this.exec.exec("git", ["rebase", `origin/${defaultBranch}`], gitOpts);
+    if (rebaseCode !== 0) {
+      await this.exec.exec("git", ["rebase", "--abort"], gitOpts);
+      core8.warning(`Auto-rebase: rebase onto origin/${defaultBranch} failed for PR #${pr.number} (likely conflicts); aborted. Manual rebase needed.`);
+      return false;
+    }
+    const pushCode = await this.exec.exec("git", ["push", "--force-with-lease", "origin", pr.headRefName], gitOpts);
+    if (pushCode !== 0) {
+      core8.warning(`Auto-rebase: force-push failed for PR #${pr.number} (exit ${pushCode}); skipping retarget.`);
+      return false;
+    }
+    try {
+      await this.gh.retargetPullRequest(pr.number, defaultBranch);
+    } catch (err) {
+      core8.warning(`Auto-rebase: retarget failed for PR #${pr.number}: ${err instanceof Error ? err.message : String(err)}`);
+      return false;
+    }
+    core8.info(`Auto-rebase: PR #${pr.number} rebased onto '${defaultBranch}' and retargeted.`);
+    return true;
   }
   async fixConflicts() {
     const resolver = ConflictResolver.withCaretta(this.gh, this.config, this.binaryPath, this.env, this.exec, this.deps.conflictResolverOptions ?? {});
@@ -45792,4 +45848,4 @@ main().catch((error) => {
   core9.setFailed(message);
 });
 
-//# debugId=383706F8647DD52964756E2164756E21
+//# debugId=75C5B60D68BFDED064756E2164756E21

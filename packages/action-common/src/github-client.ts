@@ -76,6 +76,12 @@ export interface GitHubClient {
     method: "SQUASH" | "MERGE" | "REBASE",
     expectedHeadOid: string,
   ): Promise<void>;
+  /**
+   * Change a PR's base branch. Used after auto-rebasing a stacked agent PR
+   * whose parent has merged into the default branch, so the PR can then be
+   * picked up by the normal default-branch auto-merge path.
+   */
+  retargetPullRequest(prNumber: number, newBaseRef: string): Promise<void>;
 }
 
 type Octokit = ReturnType<typeof github.getOctokit>;
@@ -436,6 +442,18 @@ class OctokitClient implements GitHubClient {
       pull_number: prNumber,
       sha: expectedHeadOid,
       merge_method: restMethod,
+    });
+  }
+
+  async retargetPullRequest(
+    prNumber: number,
+    newBaseRef: string,
+  ): Promise<void> {
+    await this.octokit.rest.pulls.update({
+      owner: this.owner,
+      repo: this.repo,
+      pull_number: prNumber,
+      base: newBaseRef,
     });
   }
 }

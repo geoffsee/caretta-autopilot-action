@@ -117,6 +117,7 @@ export function makeMainHarness(
       _method: "SQUASH" | "MERGE" | "REBASE",
       _expectedHeadOid: string,
     ) {},
+    async retargetPullRequest() {},
   };
   const fakeExec: ExecClient = {
     async exec() {

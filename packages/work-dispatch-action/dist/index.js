@@ -44576,6 +44576,14 @@ class OctokitClient {
       merge_method: restMethod
     });
   }
+  async retargetPullRequest(prNumber, newBaseRef) {
+    await this.octokit.rest.pulls.update({
+      owner: this.owner,
+      repo: this.repo,
+      pull_number: prNumber,
+      base: newBaseRef
+    });
+  }
 }
 var core3, github;
 var init_github_client = __esm(() => {
@@ -44842,4 +44850,4 @@ main().catch((error) => {
   core5.setFailed(message);
 });
 
-//# debugId=5DC6FC30456C767864756E2164756E21
+//# debugId=80ED0FAC63343BFE64756E2164756E21

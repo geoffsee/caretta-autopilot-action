@@ -41,6 +41,7 @@ function harness(snapshots: PullRequest[][]): Harness {
       _method: "SQUASH" | "MERGE" | "REBASE",
       _expectedHeadOid: string,
     ) => {},
+    retargetPullRequest: async () => {},
   };
   return {
     gh,
