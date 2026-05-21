@@ -361,4 +361,4 @@ The original five lessons stand. Adding one:
 6. **GitHub's `enablePullRequestAutoMerge` is the wrong primitive for "the PR is ready *right now*".** The mutation is, by design, "queue this PR to merge once its outstanding conditions are satisfied" — and it errors out when there are no outstanding conditions to satisfy. The correct primitive when `mergeStateStatus: CLEAN` and `reviewDecision: APPROVED` is `mergePullRequest`. Any automation that thinks of "enable auto-merge" as a generic "make this PR eventually merge" needs the two-call pattern: prefer `mergePullRequest` when the PR is fully ready; fall back to `enablePullRequestAutoMerge` when it isn't. Conflating the two is the same shape of empty-set-is-not-inert bug as the original §2 — `enablePullRequestAutoMerge` treats "the conditions-to-wait-on set is empty" as a hard error, not as "merge it now".
 
 ---
-*Blameless: this document examines systems and processes, not individuals.*
+Note: The issues in here were almost all caused by missing assets that were expected to be temporarily materialized by caretta, but were missing in v0.11.12-0.11.13. Changes were made that were compensory to the misalignment.
