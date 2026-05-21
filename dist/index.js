@@ -45354,7 +45354,11 @@ class CarettaRunner {
     const issueStringsAfterFix = issues.map(String);
     const queuedPrs = prsAfterFix.filter((pr) => {
       const match = pr.headRefName.match(/^agent\/issue-([0-9]+)(?:-.*)?$/);
-      return match && issueStringsAfterFix.includes(match[1]);
+      if (!match)
+        return false;
+      if (issueStringsAfterFix.length === 0)
+        return true;
+      return issueStringsAfterFix.includes(match[1]);
     });
     const needsAutomerge = queuedPrs.some((pr) => !pr.isAutoMergeEnabled);
     if (needsAutomerge) {
@@ -45730,4 +45734,4 @@ main().catch((error) => {
   core9.setFailed(message);
 });
 
-//# debugId=E9FFC6E44D90535064756E2164756E21
+//# debugId=B3C7692A75FBF42D64756E2164756E21

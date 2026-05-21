@@ -535,6 +535,134 @@ describe("executeAutopilot", () => {
     expect(automergeQueueIdx).toBe(-1); // Should not have been called
   });
 
+  // Regression: 2026-05-21 wedge on geoffsee/autopilot-example-project where
+  // PRs #159 and #162 sat APPROVED + CLEAN + Test:SUCCESS for ~22 hours with
+  // `autoMergeRequest: null`. Root cause: `tracker-matrix` returned `[]`
+  // (caretta parser regression upstream), and runWorkDispatch gated the
+  // automerge-queue invocation on `issueStringsAfterFix.length > 0`, so
+  // `queuedPrs` collapsed to `[]` and `needsAutomerge` was vacuously false.
+  // The autopilot logged "All tracker-scoped PRs already have auto-merge
+  // enabled. Skipping automerge-queue." every tick (false on the facts, true
+  // on the empty-set logic) and never enabled auto-merge.
+  //
+  // The fix shape: when `tracker-matrix` returns `[]`, the automerge gate
+  // must still consider all open agent-branch PRs (same fallback as
+  // `resolveTrackerScopedPrs`), and invoke `--automerge-queue` whenever any
+  // open agent PR lacks `isAutoMergeEnabled`. The post-mortem lives at
+  // .dev/docs/post-mortems/2026-05-21-stuck-prs-tracker-matrix-empty-and-stacked-pr-retarget-failure.md.
+  test("regression: empty tracker-matrix with a merge-ready agent PR lacking auto-merge → still invokes --automerge-queue", async () => {
+    const pr = makePR({
+      number: 159,
+      headRefName: "agent/issue-153",
+      headRefOid: "sha-159",
+      reviewDecision: "APPROVED",
+      mergeStateStatus: "CLEAN",
+      isAutoMergeEnabled: false,
+    });
+    const gh = new FakeGitHub({
+      prs: [pr],
+      checksBySha: {
+        "sha-159": [
+          {
+            name: "Test",
+            status: "completed",
+            conclusion: "success",
+            startedAt: "2026-01-01T00:00:00Z",
+            createdAt: null,
+          },
+        ],
+      },
+      // Match the production state: caretta-ai[bot] has already APPROVED the
+      // current head SHA, so `agentPrNeedsReviewOrFix` returns false and the
+      // review/fix loop is skipped. The only remaining step that can unstick
+      // the PR is the automerge-queue invocation.
+      reviewsByPr: {
+        159: [
+          {
+            state: "APPROVED",
+            body: "lgtm",
+            commitId: "sha-159",
+            user: "caretta-ai[bot]",
+          },
+        ],
+      },
+    });
+    exec.stdout = JSON.stringify([]); // tracker-matrix returns no pending issues
+
+    await executeAutopilot(gh, exec, makeConfig(), workEval, fakeInstallDeps);
+
+    const automergeQueueIdx = exec.calls.findIndex(
+      (c) =>
+        c.args.includes("auto-merge") && c.args.includes("--automerge-queue"),
+    );
+    expect(automergeQueueIdx).toBeGreaterThanOrEqual(0);
+  });
+
+  // Companion to the regression above: even when ONE of the open agent PRs
+  // already has auto-merge enabled, the autopilot must still call
+  // `--automerge-queue` if at least one other open agent PR needs it. This
+  // pins the "needsAutomerge = any open agent PR lacks auto-merge"
+  // semantics, not "every queued PR was already enabled."
+  test("regression: empty tracker-matrix with mixed auto-merge state → still invokes --automerge-queue when at least one PR lacks it", async () => {
+    const prAlreadyEnabled = makePR({
+      number: 159,
+      headRefName: "agent/issue-153",
+      headRefOid: "sha-159",
+      reviewDecision: "APPROVED",
+      mergeStateStatus: "CLEAN",
+      isAutoMergeEnabled: true,
+    });
+    const prNeedsEnable = makePR({
+      number: 162,
+      headRefName: "agent/issue-156",
+      headRefOid: "sha-162",
+      reviewDecision: "APPROVED",
+      mergeStateStatus: "CLEAN",
+      isAutoMergeEnabled: false,
+    });
+    const passingTest = {
+      name: "Test",
+      status: "completed" as const,
+      conclusion: "success" as const,
+      startedAt: "2026-01-01T00:00:00Z",
+      createdAt: null,
+    };
+    const gh = new FakeGitHub({
+      prs: [prAlreadyEnabled, prNeedsEnable],
+      checksBySha: {
+        "sha-159": [passingTest],
+        "sha-162": [passingTest],
+      },
+      reviewsByPr: {
+        159: [
+          {
+            state: "APPROVED",
+            body: "lgtm",
+            commitId: "sha-159",
+            user: "caretta-ai[bot]",
+          },
+        ],
+        162: [
+          {
+            state: "APPROVED",
+            body: "lgtm",
+            commitId: "sha-162",
+            user: "caretta-ai[bot]",
+          },
+        ],
+      },
+    });
+    exec.stdout = JSON.stringify([]);
+
+    await executeAutopilot(gh, exec, makeConfig(), workEval, fakeInstallDeps);
+
+    const automergeQueueIdx = exec.calls.findIndex(
+      (c) =>
+        c.args.includes("auto-merge") && c.args.includes("--automerge-queue"),
+    );
+    expect(automergeQueueIdx).toBeGreaterThanOrEqual(0);
+  });
+
   test("empty tracker-matrix: CI gate breaks early and resolveTrackerScopedPrs falls back to any agent-branch PR", async () => {
     const gh = new FakeGitHub({
       prs: [makePR({ number: 401, headRefName: "agent/issue-401" })],

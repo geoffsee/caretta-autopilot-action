@@ -324,9 +324,15 @@ class CarettaRunner {
 
     const prsAfterFix = await this.gh.listOpenPullRequests();
     const issueStringsAfterFix = issues.map(String);
+    // When `tracker-matrix` returns no pending issues (sprint finished, or an
+    // upstream parser regression like the 2026-05-21 wedge), fall back to
+    // "all open agent PRs" so auto-merge still gets enabled on merge-ready
+    // PRs. Mirrors the same fallback shape as `resolveTrackerScopedPrs`.
     const queuedPrs = prsAfterFix.filter((pr) => {
       const match = pr.headRefName.match(/^agent\/issue-([0-9]+)(?:-.*)?$/);
-      return match && issueStringsAfterFix.includes(match[1]);
+      if (!match) return false;
+      if (issueStringsAfterFix.length === 0) return true;
+      return issueStringsAfterFix.includes(match[1]);
     });
 
     const needsAutomerge = queuedPrs.some((pr) => !pr.isAutoMergeEnabled);
