@@ -1,7 +1,7 @@
 ---
 title: Post-mortem — PRs #159 and #162 wedged for ~22 hours because tracker-matrix returns 0, autopilot mis-logs auto-merge as enabled, and #162's squash-merged base branch cannot be retargeted
 date: 2026-05-21
-status: Diagnosed — no fix shipped yet. Three independent defects stack into the wedge; the cheapest fix (tracker-parser bug in `caretta`) is a one-line change in `parse_completed` but lives in the parent `caretta` crate, not in this package. The autopilot-action automerge-gate bug (`queuedPrs` keyed on `issueStringsAfterFix`) is fixable here in ~5 lines. The base-misalignment branch (PR #162) needs operator triage and the still-open branch-cleanup action item from `2026-05-20-issues-not-closed-on-main-merge-trigger-duplicate-prs.md`.
+status: Partial fix shipped, wedge NOT cleared. Commit `d5e1b40` on `geoffsee/caretta-autopilot-action@main` decoupled the §2 automerge gate from `tracker-matrix` (the `queuedPrs` filter now falls back to "all agent PRs" when `issueStringsAfterFix` is empty) and added a direct `enablePullRequestAutoMerge` call with a §3 safety skip for stacked PRs. Verified live in run `26231855013` (job `77194174209`, workflow_dispatch, 2026-05-21 14:19Z): the new path fires on both PRs, correctly skips PR #162 (`base 'agent/issue-155' is not the default branch 'main'`), and attempts to enable auto-merge on PR #159 — but GitHub's `enablePullRequestAutoMerge` mutation rejects #159 with `Pull request Pull request is in clean status` because the PR has no pending conditions to wait on (all checks green, approved, branch up-to-date). The direct-enable path has no fallback to `mergePullRequest`, so #159 stays wedged. The run then dies on a transient GitHub HTML 5xx ("Unicorn!" page) after `dispatchMissingCi`, marking the job as `failure` for the first time in the wedge sequence — but no state change. Net: both PRs still OPEN, MERGEABLE, CLEAN, `autoMergeRequest: null`. The §1 upstream `caretta` parser bug is still unfixed (`Found 0 issues in tracker matrix.` and `auto-merge (lineage): nothing scheduled after deterministic ordering filtered to open PR rows.` continue to fire), and the §3 stacked-base divergence on #162 remains. New defect surfaced: `enableAutoMerge` is a no-op against the most-ready PRs because GitHub's mutation requires at least one pending gate.
 ---
 
 # Post-mortem: PRs #159 (`agent/issue-153`) and #162 (`agent/issue-156`) sit `APPROVED + MERGEABLE + CLEAN + Test:SUCCESS` for ~22 hours with auto-merge never enabled; every autopilot tick logs "all tracker-scoped PRs already have auto-merge enabled. Skipping automerge-queue." while the GraphQL API reports `autoMergeRequest: null` on both
@@ -235,9 +235,9 @@ The log line `All tracker-scoped PRs already have auto-merge enabled. Skipping a
 | Action | Owner | Due | Status |
 |--------|-------|-----|--------|
 | In the parent `caretta` repo, `crates/cli/src/agent/tracker/mod.rs:138-148`, take only the first `#N` reference from non-table `[x]` lines (mirror the table-row heuristic). Add a regression test in `crates/cli/src/agent/tracker/tests.rs` (or wherever the tracker tests live) using the live tracker `#157` body shape: `- [x] #154 (blocked by #153)` → `parse_completed` returns `{154}`, *not* `{153, 154}`. | TODO | TODO | Open. Out of this package's scope; needs a PR in `geoffsee/caretta`. |
-| In `src/application/execute-autopilot.ts:325-353`, decouple the automerge-queue invocation from `issueStringsAfterFix`. Either (a) reuse `resolveTrackerScopedPrs(issues, false)` to get the same fallback semantics ("all agent PRs when issueStrings is empty"), or (b) inline the same `issueStrings.length === 0 ? "all" : "filter"` branch into the `queuedPrs` filter. The post-fix invariant is: "if any open agent PR matching the configured pattern has `isAutoMergeEnabled === false`, enable auto-merge on it, regardless of whether tracker-matrix found new work this tick." | TODO | TODO | Open. |
+| In `src/application/execute-autopilot.ts:325-353`, decouple the automerge-queue invocation from `issueStringsAfterFix`. Either (a) reuse `resolveTrackerScopedPrs(issues, false)` to get the same fallback semantics ("all agent PRs when issueStrings is empty"), or (b) inline the same `issueStrings.length === 0 ? "all" : "filter"` branch into the `queuedPrs` filter. The post-fix invariant is: "if any open agent PR matching the configured pattern has `isAutoMergeEnabled === false`, enable auto-merge on it, regardless of whether tracker-matrix found new work this tick." | Geoff | 2026-05-21 | **Shipped in `d5e1b40`** — `queuedPrs` now falls back to "all open agent PRs" when `issueStringsAfterFix.length === 0` (mirrors `resolveTrackerScopedPrs`). Plus a new direct `enablePullRequestAutoMerge` call per merge-ready PR (skips stacked PRs whose base ≠ default branch). Verified firing in run `26231855013` — both PRs entered the new code path; #162 correctly skipped on the stacked-PR safety check; **#159 failed with `Pull request Pull request is in clean status`** because GitHub's mutation requires a pending gate. Follow-up action below. |
 | Replace the misleading log line `All tracker-scoped PRs already have auto-merge enabled. Skipping automerge-queue.` with a state-aware emit: `core.info("No tracker-scoped agent PRs found this tick; skipping automerge-queue check.")` when `queuedPrs.length === 0`, and the current message when `queuedPrs.length > 0 && needsAutomerge === false`. The two cases are operationally distinct — one is "the queue is empty" and the other is "the queue is full of already-enabled PRs" — and conflating them in the log was the diagnostic time-sink in this incident. | TODO | TODO | Open. |
-| Add an integration test in `tests/run.test.ts` for the steady-state regression: `mockExec` returns `"[]"` from `caretta tracker-matrix`, `gh.listOpenPullRequests()` returns two agent PRs in merge-ready state with `isAutoMergeEnabled: false`, and the assertion is that `runWorkDispatch` invokes `caretta auto-merge --tracker N --automerge-queue` (i.e. calls `runCaretta("auto-merge", ["--tracker", "N", "--automerge-queue"])`) and that `mockExec`'s recorded arguments contain the `--automerge-queue` flag. The current code fails this test. | TODO | TODO | Open. |
+| Add an integration test in `tests/run.test.ts` for the steady-state regression: `mockExec` returns `"[]"` from `caretta tracker-matrix`, `gh.listOpenPullRequests()` returns two agent PRs in merge-ready state with `isAutoMergeEnabled: false`, and the assertion is that `runWorkDispatch` invokes `caretta auto-merge --tracker N --automerge-queue` (i.e. calls `runCaretta("auto-merge", ["--tracker", "N", "--automerge-queue"])`) and that `mockExec`'s recorded arguments contain the `--automerge-queue` flag. The current code fails this test. | Geoff | 2026-05-21 | **Shipped in `d5e1b40`** — `tests/execute.test.ts` gained +99 lines covering the empty-tracker-matrix-plus-open-PRs scenario and the stacked-PR safety skip. `tests/fakes.ts` gained a `baseRefName` field on the fake PR shape and an `enableAutoMerge` recorder on the fake GitHub client. |
 | Reconcile the live state on the example repo immediately by hand: enable auto-merge on `#159` (which will merge it inside a minute given the green ruleset). For `#162`, the manual path is to (a) on a local clone, `git fetch && git checkout agent/issue-156 && git rebase main && git push --force-with-lease`, (b) `gh pr edit 162 --base main`, (c) re-request a bot review (the head SHA will change post-rebase, invalidating the existing APPROVED review under `require_last_push_approval`), (d) once approved again, enable auto-merge. After both PRs merge, delete `agent/issue-153`, `agent/issue-154`, `agent/issue-155`, `agent/issue-156` via `gh api -X DELETE repos/geoffsee/autopilot-example-project/git/refs/heads/agent/issue-N`. The tracker `#157` body will need its checklist `- [ ] #153` ticked manually (the autopilot's `updateTrackerChecklist` runs inside `closeIssuesForMergedPrs`, which will fire when `#159` merges with `Closes #153`, so this may auto-correct). | TODO | TODO | Open. |
 | Add a tracker-vs-PR consistency check at the end of `runWorkDispatch` (or in `decideExecution`): if `tracker-matrix` returns `[]` but the open-PR list contains any `agent/issue-N` PRs where `N` is referenced in the tracker body (regardless of checkbox state), emit `core.warning("Tracker-PR drift: tracker #T returns 0 pending issues but PR #N (agent/issue-N) is open in tracker scope.")`. This is the consistency invariant that, if it had existed, would have caught this regression on the first wedged tick. Same shape as the "tracker drift sweep" action item still open from 2026-05-20-issues-not-closed-on-main-merge-trigger-duplicate-prs.md. | TODO | TODO | Open. |
 | Upgrade the retarget-failure log from `core.info` ("Giving up on PR #N (#M): unable to align base to 'X'.") to `core.warning`, so the GitHub Actions annotation panel surfaces the stuck stacked PR. The text should also name the suspected base branch and suggest the manual rebase recipe ("base branch <X> has diverged from main; consider rebasing #M onto main and re-pointing the PR base"). Lives in `caretta` (parent crate) since that's where the log is emitted. | TODO | TODO | Open. |
@@ -263,6 +263,102 @@ The log line `All tracker-scoped PRs already have auto-merge enabled. Skipping a
     The pattern is identical and the right fix is structural: a first-class "did the previous tick's stated work actually happen, and is the open-PR set consistent with the tracker state?" reconciliation pass at the start (or end) of every tick. Each individual incident's targeted fix is cheap and worth doing, but the *meta-fix* is the consistency sweep — and every additional incident in this shape is more evidence that it pays for itself.
 
 5. **A wedge in production that produces no log noise is more dangerous than a wedge that produces obvious errors.** This incident's run logs all show `conclusion: success`. The GitHub Actions UI shows five green checkmarks in a row. Nothing about the surface presentation suggests anything is wrong; the PRs are open and have green checks; the autopilot runs every 6 hours without errors. Only a human (or a sufficiently-attentive operator) noticing "those PRs have been open longer than usual" would surface the regression. **The autopilot has no notion of expected SLOs** ("PRs in tracker scope should reach merged state within N ticks of becoming merge-ready"), and absent an SLO, the wedge is invisible to any automated alarm. Defining and emitting that SLO violation as a `core.warning` would convert this class of regression from "operator notices after hours/days" to "operator notices at the next tick." The cost is ~10 lines of code plus a tracker-issue or sticky note where the SLO state lives between ticks.
+
+## Fixes applied (commit `d5e1b40`, 2026-05-21 ~14:18Z)
+
+Source changes (autopilot-action only — the upstream `caretta` parser regression in §1 and the retarget-log-level upgrade in `caretta` are still untouched):
+
+- **`src/application/execute-autopilot.ts:325-380`** — `queuedPrs` filter now falls back to "all open agent PRs matching `^agent/issue-([0-9]+)`" when `issueStringsAfterFix.length === 0`, mirroring the same fallback shape already present in `resolveTrackerScopedPrs`. With the fallback, the §2 gate no longer collapses to a no-op when `tracker-matrix` returns `[]` (which it still does on every tick — root cause §1 is unfixed).
+- **`src/application/execute-autopilot.ts:338-373` (new "14a" block)** — before the existing caretta `--automerge-queue` call, the autopilot now iterates `queuedPrs` and calls `this.gh.enableAutoMerge(pr.number)` on each PR that lacks auto-merge. Stacked PRs (base ≠ default branch) are explicitly skipped with a `core.info` log so the §3 silent-retarget hazard is converted into an observable skip rather than an attempted GraphQL retarget. Errors from the mutation are caught and logged via `core.warning` (this is the catch-site that emitted `Failed to enable auto-merge on PR #159: Pull request Pull request is in clean status` in the verification run — see below).
+- **`packages/action-common/src/github-client.ts:53-59,141,388-407`** — new `enableAutoMerge(prNumber)` method on `GitHubClient` (fetches the PR's GraphQL node id via REST, then runs the `enablePullRequestAutoMerge` mutation with `mergeMethod: SQUASH`). Plus `baseRefName` is now populated on the PR shape returned by `listOpenPullRequests` so the stacked-PR safety check has the data it needs.
+- **`packages/action-common/src/types.ts`** — `baseRefName: string` added to the `PullRequest` type (and to the fake shape in `tests/fakes.ts`).
+- **`tests/execute.test.ts` (+99 lines)** — new test cases for: (a) `runWorkDispatch` calling `enableAutoMerge` on merge-ready default-branch agent PRs when `tracker-matrix` returns `[]`; (b) the stacked-PR safety skip (base ≠ default branch ⇒ `enableAutoMerge` NOT called); (c) `enableAutoMerge` errors are caught and logged as warnings, not thrown.
+- **`dist/index.js` and the per-action `packages/*-action/dist/index.js` bundles** — rebuilt to ship the source change to GitHub Actions runners (the `@main` SHA the example repo pulls is `d5e1b40` for the verification run).
+
+What this fix is designed to handle:
+
+| Scenario | Before `d5e1b40` | After `d5e1b40` |
+|----------|------------------|-----------------|
+| `tracker-matrix` returns `N` issues; some matching agent PRs lack auto-merge | Calls caretta `--automerge-queue` (legacy path). | Same — `queuedPrs` filter matches `N`; both the new direct-enable loop and the legacy caretta call fire. |
+| `tracker-matrix` returns `[]`; no open agent PRs in tracker scope | Skipped (correct). | Skipped (correct — `queuedPrs = []`; `needsAutomerge = false`). |
+| `tracker-matrix` returns `[]`; open agent PRs exist needing auto-merge (this incident's wedge) | **Skipped with the misleading "All tracker-scoped PRs already have auto-merge enabled" log line** (wrong). | `queuedPrs` falls back to all agent PRs; direct-enable loop fires per-PR (subject to the new defect below). |
+| Stacked PR whose base has been squash-merged into `main` (this incident's PR #162) | Caretta retargets and emits `Giving up on PR …` at `core.info`; no autopilot-side handling. | Direct-enable loop **skips with `core.info("Skipping auto-merge enable for PR #N: base '…' is not the default branch '…' (stacked PR needs rebase+retarget first).")`** — observable, named, safe (does not orphan the stacked work onto a dead base). |
+| Merge-ready PR with `mergeStateStatus: CLEAN` and zero pending conditions | n/a (path didn't exist). | **NEW DEFECT** — GitHub's `enablePullRequestAutoMerge` mutation rejects with `Pull request Pull request is in clean status`; the warning is logged but the PR is left untouched. |
+
+## State of run `26231855013` (job `77194174209`, 2026-05-21 14:19:43Z, workflow_dispatch) — partial unstick, both PRs remain wedged
+
+URL: https://github.com/geoffsee/autopilot-example-project/actions/runs/26231855013/job/77194174209
+Action SHA: `d5e1b40eec427d4937ce48ec9d8928100b7cf28d` (the fix commit; confirmed via `Download action repository 'geoffsee/caretta-autopilot-action@main' (SHA:d5e1b40…)` in setup log).
+Caretta version: `0.11.14` (unchanged from previous runs — §1 parser bug still present upstream).
+Job conclusion: **`failure`** (first non-success conclusion in the wedge sequence; cause is a transient GitHub HTML 5xx after `dispatchMissingCi`, not the fix path itself).
+Runtime: 1m22s.
+
+### Observed log sequence (UTC, abridged; full log in run artifacts)
+
+```
+14:20:32  Starting work dispatch for #157
+14:20:32  Found 0 issues in tracker matrix.                                                  ← §1 parser bug, still unfixed in caretta v0.11.14
+14:20:32  auto-merge (sync (update branches)): trunk base 'main'
+14:20:34  auto-merge (lineage): sequence (issue #): 153 → 156                                ← caretta still computes lineage from tracker text
+14:20:36  Merging latest base into PR #159 (`gh pr update-branch`)…
+14:20:40  Retargeting PR #162 to merge into 'main'…
+14:20:42  GraphQL: Something went wrong while executing your query on 2026-05-21T14:20:42Z…  ← transient (same retarget hiccup as 12:52Z, not load-bearing)
+14:20:42  Giving up on PR #162 (#156): unable to align base to 'main'.                       ← §3 base-misalignment still present (caretta path)
+14:20:42  auto-merge (sync (update branches)): pass complete.
+14:20:48  dispatchMissingCi: PR #162 already has a successful "Test" check.
+14:20:49  dispatchMissingCi: PR #159 already has a successful "Test" check.
+14:20:52  runCiGate: PR #162 … completed (success).
+14:20:53  runCiGate: PR #159 … completed (success).
+14:20:54  All CI runs completed.
+14:20:58  Skipping PR #159: already reviewed for 1e51666… or CI not actionable
+14:21:00  Skipping auto-merge enable for PR #162: base 'agent/issue-155' is not the         ← NEW §3 safety check firing as designed
+          default branch 'main' (stacked PR needs rebase+retarget first).
+14:21:01  ##[warning]Failed to enable auto-merge on PR #159: Request failed due to          ← NEW §2 direct-enable firing,
+          following response errors: - Pull request Pull request is in clean status          but failing on the very PR it's
+                                                                                              meant to unstick
+14:21:01  Running: caretta auto-merge --tracker 157 --automerge-queue
+14:21:03  auto-merge (lineage): sequence (issue #):                                          ← caretta lineage empty (§1)
+14:21:03  auto-merge (lineage): nothing scheduled after deterministic ordering
+          filtered to open PR rows.
+14:21:06  dispatchMissingCi: found 2 total open PRs
+14:21:13  ##[error]<!DOCTYPE html> … <title>Unicorn! &middot; GitHub</title> …               ← transient GitHub 5xx; kills the job
+```
+
+### What the run proves
+
+- **§2 (gate decoupling, `queuedPrs` fallback) works.** Both PR #159 and PR #162 entered the new direct-enable loop despite `tracker-matrix` returning `[]`. Before the fix, this set would have been empty and the loop never would have run.
+- **§3 stacked-PR safety works as designed.** PR #162's base is `agent/issue-155` (not the default branch), so the autopilot logged `Skipping auto-merge enable for PR #162: base 'agent/issue-155' is not the default branch 'main' (stacked PR needs rebase+retarget first).` and moved on without calling `enableAutoMerge`. No silent retarget, no orphaning of #156 onto a dead base. The skip is now an observable structured log line, not an `info`-buried "giving up" from caretta.
+- **§1 (caretta parser) is still broken upstream.** `Found 0 issues in tracker matrix.` and `auto-merge (lineage): nothing scheduled after deterministic ordering filtered to open PR rows.` both fire — the parent crate's `parse_completed` still leaks `(blocked by #X)` references. Out of this package's scope; needs a PR in `geoffsee/caretta`.
+- **NEW DEFECT discovered: `enableAutoMerge` is a no-op against PRs that are already merge-ready.** PR #159 is `mergeable: MERGEABLE, mergeStateStatus: CLEAN, reviewDecision: APPROVED, Test: SUCCESS, autoMergeRequest: null`. There are no pending gates for GitHub to "wait" on, so the `enablePullRequestAutoMerge` mutation rejects with `Pull request Pull request is in clean status`. The autopilot catches the error as a `core.warning` and continues — but the PR stays open. The very PRs the §2 fix was written to unstick are exactly the PRs the GitHub API refuses to enable auto-merge on. The correct fallback in this state is `mergePullRequest` (direct squash), not `enablePullRequestAutoMerge`.
+- **Transient GitHub 5xx terminated the run.** After `dispatchMissingCi` enumerated the two PRs (~14:21:08Z), the action exited with `##[error]<!DOCTYPE html>… Unicorn!…` — a GitHub-side 5xx page returned as the body of an API call. This is the first `conclusion: failure` in the wedge sequence (all prior ticks reported `success`); the error is not caused by the fix path and is unlikely to recur on every tick. **The failure status is, however, finally a signal an operator can alert on** — five preceding ticks had been reporting `success` while doing nothing useful, so any "alert on first failure" sees this run.
+
+### Current live state (verified via `gh pr view` post-run, 2026-05-21 ~14:25Z)
+
+```json
+PR #159: {"number":159, "state":"OPEN", "baseRefName":"main",
+          "headRefName":"agent/issue-153", "mergeable":"MERGEABLE",
+          "mergeStateStatus":"CLEAN", "reviewDecision":"APPROVED",
+          "autoMergeRequest":null, "isDraft":false}
+
+PR #162: {"number":162, "state":"OPEN", "baseRefName":"agent/issue-155",
+          "headRefName":"agent/issue-156", "mergeable":"MERGEABLE",
+          "mergeStateStatus":"CLEAN", "reviewDecision":"APPROVED",
+          "autoMergeRequest":null, "isDraft":false}
+```
+
+Both PRs unchanged from the post-mortem's original "now" snapshot. The wedge persists; the autopilot has shipped *observability* but not *forward motion*. PR #159 can be unstuck by a single `gh pr merge 159 --squash` invocation against the example repo (no rebase, no review, no CI wait needed — everything is green); PR #162 still needs the manual rebase-and-retarget recipe documented in the original Action Items.
+
+## New action item arising from this verification
+
+| Action | Owner | Due | Status |
+|--------|-------|-----|--------|
+| In `src/application/execute-autopilot.ts:14a` (the new direct-enable loop), detect the `Pull request is in clean status` error class from `enablePullRequestAutoMerge` and fall back to `mergePullRequest` (squash) for that PR. Equivalent precondition without the error round-trip: when `pr.mergeStateStatus === "CLEAN"` and `pr.reviewDecision === "APPROVED"` and the required-checks set is satisfied, prefer `mergePullRequest` first; otherwise prefer `enablePullRequestAutoMerge`. Add a new `mergePullRequest(prNumber, method)` method to `GitHubClient` that wraps the GraphQL mutation, and extend the tests in `tests/execute.test.ts` so the merge-ready-PR scenario asserts `mergePullRequest` is called (not just `enableAutoMerge`). This is the fix that converts the §2 work in `d5e1b40` from "observable no-op on already-ready PRs" to "actually merges". | TODO | TODO | Open. **Highest-priority follow-up — the wedge will not clear without this.** |
+
+## Lessons (revised, 2026-05-21 post-verification)
+
+The original five lessons stand. Adding one:
+
+6. **GitHub's `enablePullRequestAutoMerge` is the wrong primitive for "the PR is ready *right now*".** The mutation is, by design, "queue this PR to merge once its outstanding conditions are satisfied" — and it errors out when there are no outstanding conditions to satisfy. The correct primitive when `mergeStateStatus: CLEAN` and `reviewDecision: APPROVED` is `mergePullRequest`. Any automation that thinks of "enable auto-merge" as a generic "make this PR eventually merge" needs the two-call pattern: prefer `mergePullRequest` when the PR is fully ready; fall back to `enablePullRequestAutoMerge` when it isn't. Conflating the two is the same shape of empty-set-is-not-inert bug as the original §2 — `enablePullRequestAutoMerge` treats "the conditions-to-wait-on set is empty" as a hard error, not as "merge it now".
 
 ---
 *Blameless: this document examines systems and processes, not individuals.*
