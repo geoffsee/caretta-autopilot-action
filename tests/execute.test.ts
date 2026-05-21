@@ -460,6 +460,7 @@ describe("executeAutopilot", () => {
       number: 501,
       headRefName: "agent/issue-501",
       headRefOid: "sha-501-original",
+      mergeStateStatus: "BLOCKED",
     });
     const passingTest = {
       name: "Test",
@@ -674,7 +675,14 @@ describe("executeAutopilot", () => {
   // via the GitHub API for merge-ready agent PRs, bypassing caretta's
   // broken lineage. See post-mortem
   // .dev/docs/post-mortems/2026-05-21-stuck-prs-tracker-matrix-empty-and-stacked-pr-retarget-failure.md.
-  test("regression: empty tracker-matrix with merge-ready agent PR → autopilot enables auto-merge directly on the PR", async () => {
+  //
+  // Third-order regression discovered after the direct `enableAutoMerge` call
+  // shipped: GitHub's `enablePullRequestAutoMerge` mutation rejects PRs in
+  // `mergeStateStatus: CLEAN` with "Pull request is in clean status" because
+  // it requires at least one pending condition to wait on. Run `26231855013`
+  // emitted the rejection as a warning and left PR #159 wedged. The autopilot
+  // must merge such PRs directly instead.
+  test("regression: empty tracker-matrix with merge-ready CLEAN agent PR → autopilot calls mergePullRequest, not enableAutoMerge", async () => {
     const pr = makePR({
       number: 159,
       headRefName: "agent/issue-153",
@@ -711,7 +719,105 @@ describe("executeAutopilot", () => {
 
     await executeAutopilot(gh, exec, makeConfig(), workEval, fakeInstallDeps);
 
-    expect(gh.enableAutoMergeCalls).toContain(159);
+    expect(gh.mergedPrs.map((m) => m.prNumber)).toContain(159);
+    expect(gh.mergedPrs.find((m) => m.prNumber === 159)?.method).toBe("SQUASH");
+    expect(gh.enableAutoMergeCalls).not.toContain(159);
+  });
+
+  // When the PR is still waiting on something (mergeStateStatus !== CLEAN),
+  // `enableAutoMerge` is correct — GitHub will hold the merge until the
+  // outstanding condition clears. Direct merge would error in that state.
+  test("non-CLEAN merge-ready agent PR → autopilot calls enableAutoMerge (not mergePullRequest)", async () => {
+    const pr = makePR({
+      number: 200,
+      headRefName: "agent/issue-200",
+      headRefOid: "sha-200",
+      reviewDecision: "APPROVED",
+      mergeStateStatus: "BLOCKED",
+      isAutoMergeEnabled: false,
+    });
+    const gh = new FakeGitHub({
+      prs: [pr],
+      checksBySha: {
+        "sha-200": [
+          {
+            name: "Test",
+            status: "completed",
+            conclusion: "success",
+            startedAt: "2026-01-01T00:00:00Z",
+            createdAt: null,
+          },
+        ],
+      },
+      reviewsByPr: {
+        200: [
+          {
+            state: "APPROVED",
+            body: "lgtm",
+            commitId: "sha-200",
+            user: "caretta-ai[bot]",
+          },
+        ],
+      },
+    });
+    exec.stdout = JSON.stringify([]);
+
+    await executeAutopilot(gh, exec, makeConfig(), workEval, fakeInstallDeps);
+
+    expect(gh.enableAutoMergeCalls).toContain(200);
+    expect(gh.mergedPrs.map((m) => m.prNumber)).not.toContain(200);
+  });
+
+  // Belt-and-suspenders: if `listOpenPullRequests` returned a stale
+  // mergeStateStatus and the PR transitioned to CLEAN between the read and
+  // the mutation, `enableAutoMerge` will reject with "Pull request is in
+  // clean status". The autopilot must catch that specific error and fall
+  // back to mergePullRequest rather than leaving the PR wedged.
+  test("enableAutoMerge clean-status race → autopilot falls back to mergePullRequest", async () => {
+    const pr = makePR({
+      number: 300,
+      headRefName: "agent/issue-300",
+      headRefOid: "sha-300",
+      reviewDecision: "APPROVED",
+      // Read as BLOCKED; mutation will reject because the live state flipped
+      // to CLEAN before the API call fired.
+      mergeStateStatus: "BLOCKED",
+      isAutoMergeEnabled: false,
+    });
+    const gh = new FakeGitHub({
+      prs: [pr],
+      checksBySha: {
+        "sha-300": [
+          {
+            name: "Test",
+            status: "completed",
+            conclusion: "success",
+            startedAt: "2026-01-01T00:00:00Z",
+            createdAt: null,
+          },
+        ],
+      },
+      reviewsByPr: {
+        300: [
+          {
+            state: "APPROVED",
+            body: "lgtm",
+            commitId: "sha-300",
+            user: "caretta-ai[bot]",
+          },
+        ],
+      },
+    });
+    gh.enableAutoMergeErrorForPr = {
+      prNumber: 300,
+      message: "Pull request is in clean status",
+    };
+    exec.stdout = JSON.stringify([]);
+
+    await executeAutopilot(gh, exec, makeConfig(), workEval, fakeInstallDeps);
+
+    expect(gh.enableAutoMergeCalls).toContain(300);
+    expect(gh.mergedPrs.map((m) => m.prNumber)).toContain(300);
   });
 
   // Guard against the side effect of enabling auto-merge on a stacked PR.
@@ -760,6 +866,7 @@ describe("executeAutopilot", () => {
     await executeAutopilot(gh, exec, makeConfig(), workEval, fakeInstallDeps);
 
     expect(gh.enableAutoMergeCalls).not.toContain(162);
+    expect(gh.mergedPrs.map((m) => m.prNumber)).not.toContain(162);
   });
 
   test("empty tracker-matrix: CI gate breaks early and resolveTrackerScopedPrs falls back to any agent-branch PR", async () => {

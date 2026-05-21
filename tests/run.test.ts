@@ -102,7 +102,7 @@ describe("runAutopilot", () => {
   test("PR with Test check is current → no CI dispatch, work dispatch executes", async () => {
     const gh = new FakeGitHub({
       issues: [makeIssue({ number: 50, labels: [{ name: "sprint" }] })],
-      prs: [makePR({ number: 101 })],
+      prs: [makePR({ number: 101, mergeStateStatus: "BLOCKED" })],
       checksBySha: {
         "sha-101": [
           {
