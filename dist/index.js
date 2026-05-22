@@ -45541,10 +45541,22 @@ class CarettaRunner {
       core8.warning(`Auto-rebase: git switch ${pr.headRefName} failed for PR #${pr.number} (exit ${switchCode}); skipping.`);
       return false;
     }
-    const rebaseCode = await this.exec.exec("git", ["rebase", `origin/${defaultBranch}`], gitOpts);
+    const baseRemoteRef = `origin/${pr.baseRefName}`;
+    const baseRefExistsCode = await this.exec.exec("git", ["rev-parse", "--verify", baseRemoteRef], gitOpts);
+    const rebaseArgs = baseRefExistsCode === 0 ? ["rebase", "--onto", `origin/${defaultBranch}`, baseRemoteRef] : ["rebase", `origin/${defaultBranch}`];
+    if (baseRefExistsCode !== 0) {
+      core8.warning(`Auto-rebase: ${baseRemoteRef} missing for PR #${pr.number}; falling back to full rebase onto origin/${defaultBranch}.`);
+    }
+    const rebaseCode = await this.exec.exec("git", rebaseArgs, gitOpts);
     if (rebaseCode !== 0) {
       await this.exec.exec("git", ["rebase", "--abort"], gitOpts);
-      core8.warning(`Auto-rebase: rebase onto origin/${defaultBranch} failed for PR #${pr.number} (likely conflicts); aborted. Manual rebase needed.`);
+      core8.warning(`Auto-rebase: rebase onto origin/${defaultBranch} failed for PR #${pr.number} (likely conflicts); aborted.`);
+      try {
+        await this.gh.retargetPullRequest(pr.number, defaultBranch);
+        core8.warning(`Auto-rebase: fallback retargeted PR #${pr.number} to '${defaultBranch}' after rebase conflict; automated conflict handling will continue on subsequent ticks.`);
+      } catch (err) {
+        core8.warning(`Auto-rebase: fallback retarget failed for PR #${pr.number}: ${err instanceof Error ? err.message : String(err)}`);
+      }
       return false;
     }
     const pushCode = await this.exec.exec("git", ["push", "--force-with-lease", "origin", pr.headRefName], gitOpts);
@@ -45915,4 +45927,4 @@ main().catch((error) => {
   core9.setFailed(message);
 });
 
-//# debugId=615F86C45A9AFA5564756E2164756E21
+//# debugId=CA814BAC7CD2937E64756E2164756E21

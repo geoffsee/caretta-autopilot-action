@@ -1209,9 +1209,10 @@ describe("executeAutopilot", () => {
   // retarget fails ("unable to align base to 'main'") and there is no
   // automated path back. The fix: when we detect this shape (parent
   // headRefName present in `listRecentlyMergedPullRequests` with baseRefName ==
-  // defaultBranch), rebase the head onto main, force-push with lease, and
-  // retarget the PR via the GitHub API. After that the PR is just a normal
-  // default-branch PR and the existing enableAutoMerge path picks it up.
+  // defaultBranch), rebase the head onto main, replaying only commits above the
+  // stacked base (`--onto origin/main origin/<baseRef>`), force-push with
+  // lease, and retarget the PR via the GitHub API. After that the PR is just a
+  // normal default-branch PR and the existing enableAutoMerge path picks it up.
   test("auto-rebase: stacked PR whose parent merged into default → rebase, force-push, retarget, then enable auto-merge", async () => {
     const stackedPr = makePR({
       number: 162,
@@ -1261,7 +1262,8 @@ describe("executeAutopilot", () => {
     const args = gitCalls.map((c) => c.args.join(" "));
     expect(args.some((a) => a.startsWith("fetch origin main"))).toBe(true);
     expect(args).toContain("switch agent/issue-156");
-    expect(args).toContain("rebase origin/main");
+    expect(args).toContain("rev-parse --verify origin/agent/issue-155");
+    expect(args).toContain("rebase --onto origin/main origin/agent/issue-155");
     expect(
       args.some(
         (a) =>
@@ -1350,10 +1352,9 @@ describe("executeAutopilot", () => {
   });
 
   // Conflict path: if `git rebase` fails (non-zero exit), the autopilot must
-  // run `git rebase --abort` to leave the working tree clean, emit a warning,
-  // skip the retarget, and NOT enable auto-merge. Mirrors the manual-rebase
-  // exit recipe documented in the post-mortem.
-  test("auto-rebase: rebase conflict → abort, no retarget, no enable", async () => {
+  // run `git rebase --abort` and fall back to API retarget so automation can
+  // continue without a manual-rebase requirement.
+  test("auto-rebase: rebase conflict → abort, fallback retarget, no enable this tick", async () => {
     const stackedPr = makePR({
       number: 162,
       headRefName: "agent/issue-156",
@@ -1395,10 +1396,18 @@ describe("executeAutopilot", () => {
       },
     });
     exec.stdout = JSON.stringify([]);
-    // Make `git rebase origin/main` (NOT --abort) return non-zero.
+    // Make `git rebase --onto origin/main origin/<base>` (NOT --abort)
+    // return non-zero.
     exec.execHandler = (cmd, args) => {
       if (cmd !== "git") return 0;
-      if (args[0] === "rebase" && args[1] === "origin/main") return 1;
+      if (
+        args[0] === "rebase" &&
+        args[1] === "--onto" &&
+        args[2] === "origin/main" &&
+        args[3] === "origin/agent/issue-155"
+      ) {
+        return 1;
+      }
       return 0;
     };
 
@@ -1413,7 +1422,7 @@ describe("executeAutopilot", () => {
         (a) => a.includes("push") && a.includes("--force-with-lease"),
       ),
     ).toBe(false);
-    expect(gh.retargetCalls).toEqual([]);
+    expect(gh.retargetCalls).toEqual([{ prNumber: 162, newBaseRef: "main" }]);
     expect(gh.enableAutoMergeCalls).not.toContain(162);
   });
 
