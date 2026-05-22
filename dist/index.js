@@ -24683,6 +24683,18 @@ function isChecklistComplete(body) {
     return false;
   return !CHECKBOX_UNTICKED_RE.test(body);
 }
+function extractChecklistIssueRefs(body) {
+  if (!body)
+    return [];
+  const out = [];
+  CHECKLIST_ROW_ISSUE_RE.lastIndex = 0;
+  for (const match of body.matchAll(CHECKLIST_ROW_ISSUE_RE)) {
+    const n = Number(match[1]);
+    if (Number.isFinite(n) && n > 0)
+      out.push(n);
+  }
+  return out;
+}
 async function closeIssuesForMergedPrs(gh, openIssueNumbers, trackerNumber, deps = {}) {
   const info4 = deps.logInfo ?? ((m) => core3.info(m));
   const warn = deps.logWarning ?? ((m) => core3.warning(m));
@@ -24717,12 +24729,18 @@ async function closeIssuesForMergedPrs(gh, openIssueNumbers, trackerNumber, deps
         info4(`updated tracker #${trackerNumber} checklist for ${closed.length} closed issue(s)`);
       }
       if (isChecklistComplete(next)) {
-        try {
-          await gh.closeIssueWithComment(trackerNumber, "All sprint items shipped. Closing tracker as completed so the next autopilot tick routes to the factory cycle and plans the next sprint.");
-          trackerCompleted = true;
-          info4(`closed completed tracker #${trackerNumber}`);
-        } catch (err) {
-          warn(`failed to close completed tracker #${trackerNumber}: ${err instanceof Error ? err.message : String(err)}`);
+        const closedInPass = new Set(closed);
+        const stillOpenRefs = extractChecklistIssueRefs(next).filter((n) => openIssueNumbers.has(n) && !closedInPass.has(n));
+        if (stillOpenRefs.length > 0) {
+          warn(`tracker #${trackerNumber} checklist appears complete but still references open issue(s): ${stillOpenRefs.map((n) => `#${n}`).join(", ")}; leaving tracker open`);
+        } else {
+          try {
+            await gh.closeIssueWithComment(trackerNumber, "All sprint items shipped. Closing tracker as completed so the next autopilot tick routes to the factory cycle and plans the next sprint.");
+            trackerCompleted = true;
+            info4(`closed completed tracker #${trackerNumber}`);
+          } catch (err) {
+            warn(`failed to close completed tracker #${trackerNumber}: ${err instanceof Error ? err.message : String(err)}`);
+          }
         }
       }
     } catch (err) {
@@ -24731,12 +24749,13 @@ async function closeIssuesForMergedPrs(gh, openIssueNumbers, trackerNumber, deps
   }
   return { closed, skipped, trackerUpdated, trackerCompleted };
 }
-var core3, CLOSING_KEYWORD_RE, CHECKBOX_TICKED_RE, CHECKBOX_UNTICKED_RE;
+var core3, CLOSING_KEYWORD_RE, CHECKBOX_TICKED_RE, CHECKBOX_UNTICKED_RE, CHECKLIST_ROW_ISSUE_RE;
 var init_close_on_merge = __esm(() => {
   core3 = __toESM(require_core(), 1);
   CLOSING_KEYWORD_RE = /\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\b\s*:?\s*#(\d+)/gi;
   CHECKBOX_TICKED_RE = /^\s*[-*]\s+\[[xX]\]/m;
   CHECKBOX_UNTICKED_RE = /^\s*[-*]\s+\[\s\]/m;
+  CHECKLIST_ROW_ISSUE_RE = /^\s*[-*]\s+\[[ xX]\]\s+[^\n#]*?#(\d+)\b/gm;
 });
 
 // node_modules/@actions/tool-cache/node_modules/@actions/core/lib/utils.js
@@ -45874,4 +45893,4 @@ main().catch((error) => {
   core9.setFailed(message);
 });
 
-//# debugId=26F7CB5E0BC6A55C64756E2164756E21
+//# debugId=62BD2C9F93CE1E4164756E2164756E21

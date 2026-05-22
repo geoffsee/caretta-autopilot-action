@@ -108,6 +108,7 @@ export function updateTrackerChecklist(
 
 const CHECKBOX_TICKED_RE = /^\s*[-*]\s+\[[xX]\]/m;
 const CHECKBOX_UNTICKED_RE = /^\s*[-*]\s+\[\s\]/m;
+const CHECKLIST_ROW_ISSUE_RE = /^\s*[-*]\s+\[[ xX]\]\s+[^\n#]*?#(\d+)\b/gm;
 
 /**
  * True when `body` contains at least one ticked checkbox row and zero
@@ -122,6 +123,29 @@ export function isChecklistComplete(body: string): boolean {
   if (!body) return false;
   if (!CHECKBOX_TICKED_RE.test(body)) return false;
   return !CHECKBOX_UNTICKED_RE.test(body);
+}
+
+/**
+ * Return the leading `#N` issue reference from each checklist row in
+ * `body`, in document order. Annotations like "(blocked by #180)" further
+ * along the same row are ignored — only the first `#N` is the primary
+ * referent.
+ *
+ * Why: a ticked checkbox is a claim that the linked issue is done, but
+ * any prior pass (a draft, a retro, a stale `updateTrackerChecklist`
+ * call) can set that claim prematurely. Cross-referencing the actual
+ * open-issue set against these refs is what keeps `closeIssuesForMergedPrs`
+ * from closing a tracker on a lie.
+ */
+export function extractChecklistIssueRefs(body: string): number[] {
+  if (!body) return [];
+  const out: number[] = [];
+  CHECKLIST_ROW_ISSUE_RE.lastIndex = 0;
+  for (const match of body.matchAll(CHECKLIST_ROW_ISSUE_RE)) {
+    const n = Number(match[1]);
+    if (Number.isFinite(n) && n > 0) out.push(n);
+  }
+  return out;
 }
 
 export interface CloseOnMergeDeps {
@@ -190,19 +214,31 @@ export async function closeIssuesForMergedPrs(
         );
       }
       if (isChecklistComplete(next)) {
-        try {
-          await gh.closeIssueWithComment(
-            trackerNumber,
-            "All sprint items shipped. Closing tracker as completed so the next autopilot tick routes to the factory cycle and plans the next sprint.",
-          );
-          trackerCompleted = true;
-          info(`closed completed tracker #${trackerNumber}`);
-        } catch (err) {
+        const closedInPass = new Set(closed);
+        const stillOpenRefs = extractChecklistIssueRefs(next).filter(
+          (n) => openIssueNumbers.has(n) && !closedInPass.has(n),
+        );
+        if (stillOpenRefs.length > 0) {
           warn(
-            `failed to close completed tracker #${trackerNumber}: ${
-              err instanceof Error ? err.message : String(err)
-            }`,
+            `tracker #${trackerNumber} checklist appears complete but still references open issue(s): ${stillOpenRefs
+              .map((n) => `#${n}`)
+              .join(", ")}; leaving tracker open`,
           );
+        } else {
+          try {
+            await gh.closeIssueWithComment(
+              trackerNumber,
+              "All sprint items shipped. Closing tracker as completed so the next autopilot tick routes to the factory cycle and plans the next sprint.",
+            );
+            trackerCompleted = true;
+            info(`closed completed tracker #${trackerNumber}`);
+          } catch (err) {
+            warn(
+              `failed to close completed tracker #${trackerNumber}: ${
+                err instanceof Error ? err.message : String(err)
+              }`,
+            );
+          }
         }
       }
     } catch (err) {

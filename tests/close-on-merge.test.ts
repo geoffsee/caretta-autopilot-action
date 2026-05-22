@@ -492,4 +492,69 @@ describe("closeIssuesForMergedPrs", () => {
     // tick.
     expect(gh.closedIssues.map((c) => c.issueNumber)).toContain(140);
   });
+
+  test("regression (sprint #185): does NOT close the tracker when a ticked checklist row references an issue that is still open", async () => {
+    // Reproduces autopilot-example-project run 26301331534
+    // (https://github.com/geoffsee/autopilot-example-project/actions/runs/26301331534).
+    //
+    // Sprint #185's body arrived at this pass with #182/#183/#184 already
+    // marked `- [x]` even though their implementation issues were still
+    // open and their PRs (#189/#190/#191) were still in review. (Likely
+    // cause: a prior pass pre-ticked them — for instance, the
+    // sprint-planning draft, an over-eager retro, or an earlier
+    // `updateTrackerChecklist` call against a stale `closed` list.) When
+    // PR #188 (closing #181, the only remaining `- [ ]` row) merged, this
+    // pass ticked #181, leaving every checkbox `[x]` — and
+    // `isChecklistComplete` returned true purely from body markers, so
+    // tracker #185 was closed at 13:13:33Z while #182/#183/#184 (and
+    // #189/#190/#191) were still open. The next autopilot tick then saw
+    // no `sprint`-labelled issue, routed to `factory`, and ran
+    // sprint-planning, creating tracker #203 mid-flight.
+    //
+    // The invariant: completion must be grounded in real issue state, not
+    // in checkbox markers that any prior pass could have set
+    // prematurely. If a `[x]` row references an issue that is still in
+    // `openIssueNumbers`, the tracker is not actually done.
+    const gh = new FakeGitHub({
+      mergedPrs: [
+        makeMergedPR({
+          number: 188,
+          body: "Closes #181\n\nAutomated PR opened by caretta issue runner.",
+          headRefName: "agent/issue-181",
+          baseRefName: "main",
+        }),
+      ],
+      defaultBranch: "main",
+      issueBodies: {
+        185:
+          "## Checklist\n\n" +
+          "- [x] #179 implement F5: CI latency baseline\n" +
+          "- [x] #180 implement C7: Counter reset\n" +
+          "- [ ] #181 implement F7: RBAC (read vs write tokens)\n" +
+          "- [x] #182 implement C6: Webhook notifications\n" +
+          "- [x] #183 implement C8: Counter aggregation\n" +
+          "- [x] #184 implement F8: Audit log\n",
+      },
+    });
+
+    // #181 just merged. #182/#183/#184 are still open (PRs #189/#190/#191
+    // in review). The tracker #185 is the sprint tracker.
+    const result = await closeIssuesForMergedPrs(
+      gh,
+      new Set([181, 182, 183, 184]),
+      185,
+    );
+
+    // Sanity: the merge tick lands on the correct row.
+    expect(result.closed).toEqual([181]);
+    expect(result.trackerUpdated).toBe(true);
+    expect(gh.updatedIssueBodies[0].body).toContain("- [x] #181");
+
+    // The bug: every checkbox is now `[x]` so the body looks "complete",
+    // and the tracker gets closed even though #182/#183/#184 are still
+    // open. The tracker should remain open until its real children
+    // actually close.
+    expect(result.trackerCompleted).toBe(false);
+    expect(gh.closedIssues.map((c) => c.issueNumber)).not.toContain(185);
+  });
 });
