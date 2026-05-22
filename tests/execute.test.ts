@@ -1,5 +1,8 @@
 import { beforeEach, describe, expect, test } from "bun:test";
-import type { EvaluationResult } from "../packages/action-common/src/types.js";
+import type {
+  EvaluationResult,
+  PullRequestReview,
+} from "../packages/action-common/src/types.js";
 import {
   type ExecuteDeps,
   executeAutopilot,
@@ -190,7 +193,7 @@ describe("executeAutopilot", () => {
     expect(exec.calls.some((c) => c.args.includes("fix-pr"))).toBe(false);
   });
 
-  test("work dispatch includes code-review/fix-pr even if CI failed", async () => {
+  test("work dispatch runs fix-pr (not code-review) when CI failed", async () => {
     const gh = new FakeGitHub({
       prs: [makePR({ number: 301, headRefName: "agent/issue-301" })],
       checksBySha: {
@@ -215,11 +218,13 @@ describe("executeAutopilot", () => {
       fakeInstallDeps,
     );
 
-    expect(exec.calls.some((c) => c.args.includes("code-review"))).toBe(true);
     expect(exec.calls.some((c) => c.args.includes("fix-pr"))).toBe(true);
+    expect(exec.calls.some((c) => c.args.includes("code-review"))).toBe(false);
   });
 
-  test("work dispatch does not skip code-review/fix-pr if CI failed, even if a valid review exists", async () => {
+  test("work dispatch runs fix-pr (not code-review) when CI failed, even if a stale bot review exists", async () => {
+    // The stale review is irrelevant; failing CI is its own remediation signal
+    // and reviewing broken code makes no sense.
     const gh = new FakeGitHub({
       prs: [
         makePR({
@@ -260,8 +265,8 @@ describe("executeAutopilot", () => {
       fakeInstallDeps,
     );
 
-    expect(exec.calls.some((c) => c.args.includes("code-review"))).toBe(true);
     expect(exec.calls.some((c) => c.args.includes("fix-pr"))).toBe(true);
+    expect(exec.calls.some((c) => c.args.includes("code-review"))).toBe(false);
   });
 
   test("runCiGate waits if ANY check is active, even if a completed one exists", async () => {
@@ -417,7 +422,154 @@ describe("executeAutopilot", () => {
     expect(syncCalls.length).toBe(1); // Only the pre-review sync should run
   });
 
-  test("work dispatch does not skip code-review/fix-pr if the existing review is DISMISSED", async () => {
+  test("failing CI invokes fix-pr only — never code-review on broken code", async () => {
+    // Reviewing failing code is pointless: there's nothing to approve. The
+    // action must run fix-pr (to remediate) and NOT code-review (which on
+    // current SHAs would either be wasted compute or — worse — produce an
+    // APPROVED review on broken code).
+    const gh = new FakeGitHub({
+      prs: [
+        makePR({
+          number: 401,
+          headRefName: "agent/issue-401",
+          headRefOid: "sha-401",
+        }),
+      ],
+      checksBySha: {
+        "sha-401": [
+          {
+            name: "Test",
+            status: "completed",
+            conclusion: "failure",
+            startedAt: "2026-01-01T00:00:00Z",
+            createdAt: null,
+          },
+        ],
+      },
+    });
+    exec.stdout = JSON.stringify([401]);
+
+    await executeAutopilot(
+      gh,
+      exec,
+      makeConfig({ enableDispatch: false }),
+      workEval,
+      fakeInstallDeps,
+    );
+
+    expect(
+      exec.calls.some(
+        (c) => c.args.includes("fix-pr") && c.args.includes("401"),
+      ),
+    ).toBe(true);
+    expect(
+      exec.calls.some(
+        (c) => c.args.includes("code-review") && c.args.includes("401"),
+      ),
+    ).toBe(false);
+  });
+
+  test("passing CI with no fresh review invokes code-review only — fix-pr has nothing to fix", async () => {
+    // The other half of the contract. With green CI and no review on the
+    // head SHA, the action's job is to post a review so auto-merge can
+    // proceed. Running fix-pr here pushes a commit for no reason and
+    // dismisses any approval the very same tick would have produced —
+    // the approval-invalidation loop observed on
+    // geoffsee/autopilot-example-project PR #189.
+    const reviewsByPr: Record<number, PullRequestReview[]> = { 402: [] };
+    const gh = new FakeGitHub({
+      prs: [
+        makePR({
+          number: 402,
+          headRefName: "agent/issue-402",
+          headRefOid: "sha-402",
+        }),
+      ],
+      checksBySha: {
+        "sha-402": [
+          {
+            name: "Test",
+            status: "completed",
+            conclusion: "success",
+            startedAt: "2026-01-01T00:00:00Z",
+            createdAt: null,
+          },
+        ],
+      },
+      reviewsByPr,
+    });
+    exec.stdout = JSON.stringify([402]);
+
+    await executeAutopilot(gh, exec, makeConfig(), workEval, fakeInstallDeps);
+
+    expect(
+      exec.calls.some(
+        (c) => c.args.includes("code-review") && c.args.includes("402"),
+      ),
+    ).toBe(true);
+    expect(
+      exec.calls.some(
+        (c) => c.args.includes("fix-pr") && c.args.includes("402"),
+      ),
+    ).toBe(false);
+  });
+
+  test("passing CI + CHANGES_REQUESTED at head SHA invokes fix-pr only", async () => {
+    // CHANGES_REQUESTED is the explicit "remediation needed" signal even
+    // when CI is green. fix-pr addresses the requested changes; code-review
+    // doesn't run because the just-completed review's verdict already
+    // stands at the head SHA — re-reviewing now would either no-op or
+    // produce a contradicting verdict.
+    const gh = new FakeGitHub({
+      prs: [
+        makePR({
+          number: 403,
+          headRefName: "agent/issue-403",
+          headRefOid: "sha-403",
+        }),
+      ],
+      checksBySha: {
+        "sha-403": [
+          {
+            name: "Test",
+            status: "completed",
+            conclusion: "success",
+            startedAt: "2026-01-01T00:00:00Z",
+            createdAt: null,
+          },
+        ],
+      },
+      reviewsByPr: {
+        403: [
+          {
+            state: "CHANGES_REQUESTED",
+            body: "Please address the SSRF bypass",
+            commitId: "sha-403",
+            user: "caretta-autopilot[bot]",
+          },
+        ],
+      },
+    });
+    exec.stdout = JSON.stringify([403]);
+
+    await executeAutopilot(gh, exec, makeConfig(), workEval, fakeInstallDeps);
+
+    expect(
+      exec.calls.some(
+        (c) => c.args.includes("fix-pr") && c.args.includes("403"),
+      ),
+    ).toBe(true);
+    expect(
+      exec.calls.some(
+        (c) => c.args.includes("code-review") && c.args.includes("403"),
+      ),
+    ).toBe(false);
+  });
+
+  test("DISMISSED review counts as no review at head SHA — code-review runs, fix-pr does not", async () => {
+    // DISMISSED reviews are filtered out of the head-SHA review check, so the
+    // PR looks unreviewed. Passing CI + no fresh review → code-review only.
+    // fix-pr has no remediation signal (no failing CI, no CHANGES_REQUESTED).
     const gh = new FakeGitHub({
       prs: [
         makePR({
@@ -453,7 +605,7 @@ describe("executeAutopilot", () => {
     await executeAutopilot(gh, exec, makeConfig(), workEval, fakeInstallDeps);
 
     expect(exec.calls.some((c) => c.args.includes("code-review"))).toBe(true);
-    expect(exec.calls.some((c) => c.args.includes("fix-pr"))).toBe(true);
+    expect(exec.calls.some((c) => c.args.includes("fix-pr"))).toBe(false);
   });
 
   test("work dispatch fires CI after automerge-queue advances the branch tip", async () => {
@@ -575,9 +727,9 @@ describe("executeAutopilot", () => {
         ],
       },
       // Match the production state: caretta-ai[bot] has already APPROVED the
-      // current head SHA, so `agentPrNeedsReviewOrFix` returns false and the
-      // review/fix loop is skipped. The only remaining step that can unstick
-      // the PR is the automerge-queue invocation.
+      // current head SHA, so neither shouldRunCodeReview nor shouldRunFixPr
+      // fires and the review/fix loop is skipped. The only remaining step
+      // that can unstick the PR is the automerge-queue invocation.
       reviewsByPr: {
         159: [
           {
@@ -1349,7 +1501,8 @@ describe("executeAutopilot", () => {
         (c) => c.args.includes("issue") && c.args.includes("--tracker"),
       ),
     ).toBe(false);
-    // Fallback finds the agent-branch PR with passing CI → code-review and fix-pr called
+    // Fallback finds the agent-branch PR with passing CI and no review →
+    // code-review runs; fix-pr has no remediation signal.
     expect(
       exec.calls.some(
         (c) => c.args.includes("code-review") && c.args.includes("401"),
@@ -1359,7 +1512,7 @@ describe("executeAutopilot", () => {
       exec.calls.some(
         (c) => c.args.includes("fix-pr") && c.args.includes("401"),
       ),
-    ).toBe(true);
+    ).toBe(false);
   });
 
   // The BLOCKED-on-self-approval bug observed in production was caused by

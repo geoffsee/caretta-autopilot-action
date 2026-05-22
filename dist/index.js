@@ -45269,7 +45269,18 @@ async function setupCarettaRuntime(config, deps = defaultExecuteDeps) {
   await deps.configureGitIdentity(config.gitUserName, config.gitUserEmail);
   return { binaryPath, env };
 }
-async function agentPrNeedsReviewOrFix(gh, config, pr) {
+async function shouldRunCodeReview(gh, config, pr) {
+  const checks = await gh.listCheckRuns(pr.headRefOid);
+  const latestCheck = latestNamedCheck(checks, config.testCheckName);
+  if (!latestCheck || latestCheck.status !== "completed")
+    return false;
+  if (latestCheck.conclusion !== "success")
+    return false;
+  const reviews = await gh.listReviews(pr.number);
+  const lastBotReview = reviews.filter((r) => r.user.includes("[bot]") && r.state !== "PENDING" && r.state !== "DISMISSED" && r.body.trim().length > 0).pop();
+  return !lastBotReview || lastBotReview.commitId !== pr.headRefOid;
+}
+async function shouldRunFixPr(gh, config, pr) {
   const checks = await gh.listCheckRuns(pr.headRefOid);
   const latestCheck = latestNamedCheck(checks, config.testCheckName);
   if (!latestCheck || latestCheck.status !== "completed")
@@ -45279,9 +45290,8 @@ async function agentPrNeedsReviewOrFix(gh, config, pr) {
   if (latestCheck.conclusion !== "success")
     return false;
   const reviews = await gh.listReviews(pr.number);
-  const lastBotReview = reviews.filter((r) => r.user.includes("[bot]")).pop();
-  const alreadyReviewed = !!lastBotReview && lastBotReview.state !== "PENDING" && lastBotReview.state !== "DISMISSED" && lastBotReview.body.trim().length > 0 && lastBotReview.commitId === pr.headRefOid;
-  return !alreadyReviewed;
+  const lastBotReview = reviews.filter((r) => r.user.includes("[bot]") && r.state !== "PENDING" && r.state !== "DISMISSED" && r.body.trim().length > 0).pop();
+  return !!lastBotReview && lastBotReview.commitId === pr.headRefOid && lastBotReview.state === "CHANGES_REQUESTED";
 }
 async function reviewAndFixAgentPRs(gh, exec2, config, prs, deps = defaultExecuteDeps) {
   if (config.dryRun || !config.enableDispatch)
@@ -45289,19 +45299,23 @@ async function reviewAndFixAgentPRs(gh, exec2, config, prs, deps = defaultExecut
   const candidates = prs.filter((pr) => !pr.isDraft && pr.mergeStateStatus !== "DIRTY" && config.agentBranchPattern.test(pr.headRefName));
   if (candidates.length === 0)
     return false;
-  const needsAction = [];
+  const plan = [];
   for (const pr of candidates) {
-    if (await agentPrNeedsReviewOrFix(gh, config, pr))
-      needsAction.push(pr);
+    const fix = await shouldRunFixPr(gh, config, pr);
+    const review = await shouldRunCodeReview(gh, config, pr);
+    if (fix || review)
+      plan.push({ pr, fix, review });
   }
-  if (needsAction.length === 0)
+  if (plan.length === 0)
     return false;
-  core8.info(`reviewAndFixAgentPRs: ${needsAction.length} agent PR(s) need review/fix: ${needsAction.map((p) => `#${p.number}`).join(", ")}`);
+  core8.info(`reviewAndFixAgentPRs: ${plan.length} agent PR(s) need action: ${plan.map(({ pr, fix, review }) => `#${pr.number}[${[fix && "fix-pr", review && "code-review"].filter(Boolean).join("+") || "none"}]`).join(", ")}`);
   const { binaryPath, env } = await setupCarettaRuntime(config, deps);
   const runner = new CarettaRunner(binaryPath, env, exec2, gh, config, deps);
-  for (const pr of needsAction) {
-    await runner.runCaretta("code-review", [String(pr.number)]);
-    await runner.runCaretta("fix-pr", [String(pr.number)]);
+  for (const { pr, fix, review } of plan) {
+    if (fix)
+      await runner.runCaretta("fix-pr", [String(pr.number)]);
+    if (review)
+      await runner.runCaretta("code-review", [String(pr.number)]);
   }
   return true;
 }
@@ -45385,12 +45399,14 @@ class CarettaRunner {
     await this.fixConflicts();
     await dispatchMissingCi(this.gh, this.config);
     await this.runCiGate(issues);
-    const prsForReview = await this.resolveTrackerScopedPrs(issues, true);
-    for (const pr of prsForReview) {
-      await this.runCaretta("code-review", [String(pr)]);
-      await this.runCaretta("fix-pr", [String(pr)]);
+    const prActions = await this.resolveTrackerScopedPrs(issues, true);
+    for (const { number, fix, review } of prActions) {
+      if (fix)
+        await this.runCaretta("fix-pr", [String(number)]);
+      if (review)
+        await this.runCaretta("code-review", [String(number)]);
     }
-    if (prsForReview.length > 0) {
+    if (prActions.length > 0) {
       await this.runCaretta("auto-merge", [
         "--tracker",
         tracker,
@@ -45565,15 +45581,21 @@ class CarettaRunner {
       return !!match;
     });
     if (!requirePassingCi) {
-      return candidates.map((pr) => pr.number);
+      return candidates.map((pr) => ({
+        number: pr.number,
+        fix: false,
+        review: true
+      }));
     }
     const results = [];
     for (const pr of candidates) {
-      if (await agentPrNeedsReviewOrFix(this.gh, this.config, pr)) {
-        results.push(pr.number);
-      } else {
-        core8.info(`Skipping PR #${pr.number}: already reviewed for ${pr.headRefOid} or CI not actionable`);
+      const fix = await shouldRunFixPr(this.gh, this.config, pr);
+      const review = await shouldRunCodeReview(this.gh, this.config, pr);
+      if (!fix && !review) {
+        core8.info(`Skipping PR #${pr.number}: nothing to do at ${pr.headRefOid} (CI in flight or review already settled)`);
+        continue;
       }
+      results.push({ number: pr.number, fix, review });
     }
     return results;
   }
@@ -45893,4 +45915,4 @@ main().catch((error) => {
   core9.setFailed(message);
 });
 
-//# debugId=62BD2C9F93CE1E4164756E2164756E21
+//# debugId=615F86C45A9AFA5564756E2164756E21

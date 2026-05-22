@@ -167,6 +167,8 @@ describe("runAutopilot", () => {
     expect(issueCalls).toHaveLength(1);
     expect(issueCalls[0].args).toContain("101");
 
+    // Passing CI, no review at head SHA → code-review runs. fix-pr has no
+    // remediation signal (see shouldRunFixPr / shouldRunCodeReview).
     expect(
       exec.calls.some(
         (c) => c.args.includes("code-review") && c.args.includes("101"),
@@ -176,7 +178,7 @@ describe("runAutopilot", () => {
       exec.calls.some(
         (c) => c.args.includes("fix-pr") && c.args.includes("101"),
       ),
-    ).toBe(true);
+    ).toBe(false);
     expect(
       exec.calls.some(
         (c) =>

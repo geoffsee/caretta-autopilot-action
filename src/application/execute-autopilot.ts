@@ -79,17 +79,54 @@ export async function setupCarettaRuntime(
 }
 
 /**
- * Decides whether an agent PR needs caretta to run `code-review` / `fix-pr`.
- * Shared by the `reviewAndFixAgentPRs` pre-pass and `CarettaRunner`'s
- * tracker-scoped review step so both stay in lockstep.
+ * `code-review` and `fix-pr` are independent — each has its own preconditions
+ * and is dispatched on its own merits.
  *
- * Returns true when the latest `Test` check is completed AND either
- *   (a) `failure` (always needs another pass), or
- *   (b) `success` without a valid bot review on the current SHA.
- * Returns false when CI is in-flight/missing or a valid bot review already
- * covers the current SHA with passing CI.
+ * Running the pair back-to-back on the same SHA is what produced the
+ * approval-invalidation loop on geoffsee/autopilot-example-project PR #189:
+ * `code-review` posted APPROVED, then `fix-pr` pushed a follow-up commit for
+ * a nit thread, dismissing the approval under
+ * `require_last_push_approval=true`. Evaluating each predicate separately —
+ * and never reviewing failing code, never fixing what has no remediation
+ * signal — breaks that loop.
  */
-async function agentPrNeedsReviewOrFix(
+
+/**
+ * code-review gates merging with a fresh bot review. It runs only when CI is
+ * green at the head SHA and no valid bot review already covers that SHA.
+ * Reviewing failing code is pointless (and producing an APPROVED review on
+ * broken code is actively harmful).
+ */
+async function shouldRunCodeReview(
+  gh: GitHubClient,
+  config: AutopilotConfig,
+  pr: PullRequest,
+): Promise<boolean> {
+  const checks = await gh.listCheckRuns(pr.headRefOid);
+  const latestCheck = latestNamedCheck(checks, config.testCheckName);
+  if (!latestCheck || latestCheck.status !== "completed") return false;
+  if (latestCheck.conclusion !== "success") return false;
+
+  const reviews = await gh.listReviews(pr.number);
+  const lastBotReview = reviews
+    .filter(
+      (r) =>
+        r.user.includes("[bot]") &&
+        r.state !== "PENDING" &&
+        r.state !== "DISMISSED" &&
+        r.body.trim().length > 0,
+    )
+    .pop();
+  return !lastBotReview || lastBotReview.commitId !== pr.headRefOid;
+}
+
+/**
+ * fix-pr remediates failure signals: a red Test check, or a CHANGES_REQUESTED
+ * review at the head SHA. Without a remediation signal there's nothing for
+ * fix-pr to fix — running it would push a no-op commit and (worst case)
+ * dismiss a fresh approval.
+ */
+async function shouldRunFixPr(
   gh: GitHubClient,
   config: AutopilotConfig,
   pr: PullRequest,
@@ -101,14 +138,20 @@ async function agentPrNeedsReviewOrFix(
   if (latestCheck.conclusion !== "success") return false;
 
   const reviews = await gh.listReviews(pr.number);
-  const lastBotReview = reviews.filter((r) => r.user.includes("[bot]")).pop();
-  const alreadyReviewed =
+  const lastBotReview = reviews
+    .filter(
+      (r) =>
+        r.user.includes("[bot]") &&
+        r.state !== "PENDING" &&
+        r.state !== "DISMISSED" &&
+        r.body.trim().length > 0,
+    )
+    .pop();
+  return (
     !!lastBotReview &&
-    lastBotReview.state !== "PENDING" &&
-    lastBotReview.state !== "DISMISSED" &&
-    lastBotReview.body.trim().length > 0 &&
-    lastBotReview.commitId === pr.headRefOid;
-  return !alreadyReviewed;
+    lastBotReview.commitId === pr.headRefOid &&
+    lastBotReview.state === "CHANGES_REQUESTED"
+  );
 }
 
 /**
@@ -139,22 +182,34 @@ export async function reviewAndFixAgentPRs(
   );
   if (candidates.length === 0) return false;
 
-  const needsAction: PullRequest[] = [];
+  const plan: Array<{
+    pr: PullRequest;
+    fix: boolean;
+    review: boolean;
+  }> = [];
   for (const pr of candidates) {
-    if (await agentPrNeedsReviewOrFix(gh, config, pr)) needsAction.push(pr);
+    const fix = await shouldRunFixPr(gh, config, pr);
+    const review = await shouldRunCodeReview(gh, config, pr);
+    if (fix || review) plan.push({ pr, fix, review });
   }
-  if (needsAction.length === 0) return false;
+  if (plan.length === 0) return false;
 
   core.info(
-    `reviewAndFixAgentPRs: ${needsAction.length} agent PR(s) need review/fix: ${needsAction
-      .map((p) => `#${p.number}`)
+    `reviewAndFixAgentPRs: ${plan.length} agent PR(s) need action: ${plan
+      .map(
+        ({ pr, fix, review }) =>
+          `#${pr.number}[${[fix && "fix-pr", review && "code-review"].filter(Boolean).join("+") || "none"}]`,
+      )
       .join(", ")}`,
   );
   const { binaryPath, env } = await setupCarettaRuntime(config, deps);
   const runner = new CarettaRunner(binaryPath, env, exec, gh, config, deps);
-  for (const pr of needsAction) {
-    await runner.runCaretta("code-review", [String(pr.number)]);
-    await runner.runCaretta("fix-pr", [String(pr.number)]);
+  for (const { pr, fix, review } of plan) {
+    // fix-pr first: it's the only step that pushes, so any subsequent
+    // code-review will land on the freshly-pushed SHA — no approval-then-push
+    // ordering that branch protection would dismiss.
+    if (fix) await runner.runCaretta("fix-pr", [String(pr.number)]);
+    if (review) await runner.runCaretta("code-review", [String(pr.number)]);
   }
   return true;
 }
@@ -300,14 +355,18 @@ class CarettaRunner {
     // 6. CI before review
     await this.runCiGate(issues);
 
-    // 7, 8 & 9. Code Review and Fix PR
-    const prsForReview = await this.resolveTrackerScopedPrs(issues, true);
-    for (const pr of prsForReview) {
-      await this.runCaretta("code-review", [String(pr)]);
-      await this.runCaretta("fix-pr", [String(pr)]);
+    // 7, 8 & 9. fix-pr and code-review — evaluated independently per PR.
+    // `shouldRunFixPr` and `shouldRunCodeReview` each have their own
+    // preconditions (see their docstrings); the action runs whichever apply.
+    // fix-pr always runs first so any subsequent review lands on the
+    // freshly-pushed SHA.
+    const prActions = await this.resolveTrackerScopedPrs(issues, true);
+    for (const { number, fix, review } of prActions) {
+      if (fix) await this.runCaretta("fix-pr", [String(number)]);
+      if (review) await this.runCaretta("code-review", [String(number)]);
     }
 
-    if (prsForReview.length > 0) {
+    if (prActions.length > 0) {
       // 10. sync-branches (after fix)
       await this.runCaretta("auto-merge", [
         "--tracker",
@@ -635,7 +694,7 @@ class CarettaRunner {
   private async resolveTrackerScopedPrs(
     issues: number[],
     requirePassingCi: boolean,
-  ): Promise<number[]> {
+  ): Promise<Array<{ number: number; fix: boolean; review: boolean }>> {
     const prs = await this.gh.listOpenPullRequests();
     const issueStrings = issues.map(String);
 
@@ -649,18 +708,25 @@ class CarettaRunner {
     });
 
     if (!requirePassingCi) {
-      return candidates.map((pr) => pr.number);
+      return candidates.map((pr) => ({
+        number: pr.number,
+        fix: false,
+        review: true,
+      }));
     }
 
-    const results: number[] = [];
+    const results: Array<{ number: number; fix: boolean; review: boolean }> =
+      [];
     for (const pr of candidates) {
-      if (await agentPrNeedsReviewOrFix(this.gh, this.config, pr)) {
-        results.push(pr.number);
-      } else {
+      const fix = await shouldRunFixPr(this.gh, this.config, pr);
+      const review = await shouldRunCodeReview(this.gh, this.config, pr);
+      if (!fix && !review) {
         core.info(
-          `Skipping PR #${pr.number}: already reviewed for ${pr.headRefOid} or CI not actionable`,
+          `Skipping PR #${pr.number}: nothing to do at ${pr.headRefOid} (CI in flight or review already settled)`,
         );
+        continue;
       }
+      results.push({ number: pr.number, fix, review });
     }
     return results;
   }
