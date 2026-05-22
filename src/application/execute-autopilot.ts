@@ -654,18 +654,8 @@ class CarettaRunner {
     if (rebaseCode !== 0) {
       await this.exec.exec("git", ["rebase", "--abort"], gitOpts);
       core.warning(
-        `Auto-rebase: rebase onto origin/${defaultBranch} failed for PR #${pr.number} (likely conflicts); aborted.`,
+        `Auto-rebase: rebase onto origin/${defaultBranch} failed for PR #${pr.number} (likely conflicts); aborted and leaving base unchanged.`,
       );
-      try {
-        await this.gh.retargetPullRequest(pr.number, defaultBranch);
-        core.warning(
-          `Auto-rebase: fallback retargeted PR #${pr.number} to '${defaultBranch}' after rebase conflict; automated conflict handling will continue on subsequent ticks.`,
-        );
-      } catch (err) {
-        core.warning(
-          `Auto-rebase: fallback retarget failed for PR #${pr.number}: ${err instanceof Error ? err.message : String(err)}`,
-        );
-      }
       return false;
     }
 

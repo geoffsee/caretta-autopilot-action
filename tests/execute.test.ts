@@ -1352,9 +1352,9 @@ describe("executeAutopilot", () => {
   });
 
   // Conflict path: if `git rebase` fails (non-zero exit), the autopilot must
-  // run `git rebase --abort` and fall back to API retarget so automation can
-  // continue without a manual-rebase requirement.
-  test("auto-rebase: rebase conflict → abort, fallback retarget, no enable this tick", async () => {
+  // run `git rebase --abort`, keep the stacked base unchanged (no retarget),
+  // and avoid enabling auto-merge in that tick.
+  test("auto-rebase: rebase conflict → abort, no retarget, no enable", async () => {
     const stackedPr = makePR({
       number: 162,
       headRefName: "agent/issue-156",
@@ -1422,7 +1422,7 @@ describe("executeAutopilot", () => {
         (a) => a.includes("push") && a.includes("--force-with-lease"),
       ),
     ).toBe(false);
-    expect(gh.retargetCalls).toEqual([{ prNumber: 162, newBaseRef: "main" }]);
+    expect(gh.retargetCalls).toEqual([]);
     expect(gh.enableAutoMergeCalls).not.toContain(162);
   });
 
