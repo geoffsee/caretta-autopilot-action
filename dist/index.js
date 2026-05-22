@@ -45394,17 +45394,43 @@ class CarettaRunner {
     const needsAutomerge = queuedPrs.some((pr) => !pr.isAutoMergeEnabled);
     if (needsAutomerge) {
       const defaultBranch = await this.gh.getDefaultBranch();
+      const mergedSnapshot = await this.gh.listRecentlyMergedPullRequests();
+      const blockedParentNumbers = new Set;
+      for (const child2 of queuedPrs) {
+        const parentPr = queuedPrs.find((p) => p.headRefName === child2.baseRefName);
+        if (parentPr)
+          blockedParentNumbers.add(parentPr.number);
+      }
+      const openPrsSnapshot = prsAfterFix;
       for (const pr of queuedPrs) {
         if (pr.isAutoMergeEnabled)
           continue;
+        if (blockedParentNumbers.has(pr.number)) {
+          const child2 = queuedPrs.find((c) => c.baseRefName === pr.headRefName);
+          if (child2) {
+            core8.info(`Holding auto-merge on parent PR #${pr.number} this tick: child PR #${child2.number} (base=${child2.baseRefName}) must merge first to preserve stack.`);
+          }
+          continue;
+        }
         let justRebased = false;
         if (pr.baseRefName !== defaultBranch) {
-          const rebased = await this.tryRebaseStackedPrToDefault(pr, defaultBranch);
-          if (!rebased) {
-            core8.info(`Skipping auto-merge enable for PR #${pr.number}: base '${pr.baseRefName}' is not the default branch '${defaultBranch}' (stacked PR needs rebase+retarget first).`);
-            continue;
+          const openParent = openPrsSnapshot.find((p) => p.headRefName === pr.baseRefName);
+          if (!openParent) {
+            const stackedParentMerged = mergedSnapshot.some((m) => m.headRefName === pr.baseRefName && m.baseRefName === defaultBranch);
+            if (!stackedParentMerged) {
+              core8.warning(`Stacked PR #${pr.number} has base '${pr.baseRefName}' with no matching open pull request head and no merged PR that shipped that ref from '${defaultBranch}' (orphan stack state); skipping.`);
+              continue;
+            }
+            const rebased = await this.tryRebaseStackedPrToDefault(pr, defaultBranch, mergedSnapshot);
+            if (!rebased) {
+              continue;
+            }
+            justRebased = true;
           }
-          justRebased = true;
+        }
+        if (this.config.dryRun) {
+          core8.info(`Skipping merge/auto-merge enable for PR #${pr.number} (dryRun).`);
+          continue;
         }
         if (!justRebased && pr.mergeStateStatus === "CLEAN") {
           try {
@@ -45457,14 +45483,14 @@ class CarettaRunner {
     await this.runCaretta("run", ["strategic-review"]);
     await this.runCaretta("run", ["sprint-planning"]);
   }
-  async tryRebaseStackedPrToDefault(pr, defaultBranch) {
+  async tryRebaseStackedPrToDefault(pr, defaultBranch, mergedCandidates) {
     if (this.config.dryRun)
       return false;
     if (!this.config.agentBranchPattern.test(pr.headRefName))
       return false;
     if (pr.mergeStateStatus === "DIRTY")
       return false;
-    const mergedPrs = await this.gh.listRecentlyMergedPullRequests();
+    const mergedPrs = mergedCandidates ?? await this.gh.listRecentlyMergedPullRequests();
     const parent = mergedPrs.find((m) => m.headRefName === pr.baseRefName && m.baseRefName === defaultBranch);
     if (!parent)
       return false;
@@ -45848,4 +45874,4 @@ main().catch((error) => {
   core9.setFailed(message);
 });
 
-//# debugId=75C5B60D68BFDED064756E2164756E21
+//# debugId=26F7CB5E0BC6A55C64756E2164756E21

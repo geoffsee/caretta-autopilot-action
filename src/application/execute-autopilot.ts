@@ -11,6 +11,7 @@ import type { GitHubClient } from "../../packages/action-common/src/github-clien
 import type {
   AutopilotConfig,
   EvaluationResult,
+  MergedPullRequest,
   PullRequest,
 } from "../../packages/action-common/src/types.js";
 import { reconcileGateCommitStatus } from "./ci-dispatch-core.js";
@@ -349,28 +350,69 @@ class CarettaRunner {
       // Enabling here, before calling caretta, makes the autopilot resilient
       // to that class of empty-lineage failure regardless of root cause.
       //
-      // Skip stacked PRs (base != default branch): enabling auto-merge would
-      // cause GitHub to merge into the parent agent branch, orphaning the
-      // work off main. For stacked PRs whose parent has already merged into
-      // the default branch, attempt an auto-rebase + retarget so the PR can
-      // proceed; otherwise skip and wait for the parent to land first.
+      // Stacked agent PRs: hold any parent branch that still has a queued open
+      // child (merge deepest leaf against its stacked base first). When base ≠
+      // default, resolve parents via open vs recently-merged refs before merge.
       const defaultBranch = await this.gh.getDefaultBranch();
+      const mergedSnapshot = await this.gh.listRecentlyMergedPullRequests();
+      const blockedParentNumbers = new Set<number>();
+      for (const child of queuedPrs) {
+        const parentPr = queuedPrs.find(
+          (p) => p.headRefName === child.baseRefName,
+        );
+        if (parentPr) blockedParentNumbers.add(parentPr.number);
+      }
+      const openPrsSnapshot = prsAfterFix;
       for (const pr of queuedPrs) {
         if (pr.isAutoMergeEnabled) continue;
+
+        if (blockedParentNumbers.has(pr.number)) {
+          const child = queuedPrs.find((c) => c.baseRefName === pr.headRefName);
+          if (child) {
+            core.info(
+              `Holding auto-merge on parent PR #${pr.number} this tick: child PR #${child.number} (base=${child.baseRefName}) must merge first to preserve stack.`,
+            );
+          }
+          continue;
+        }
+
         let justRebased = false;
         if (pr.baseRefName !== defaultBranch) {
-          const rebased = await this.tryRebaseStackedPrToDefault(
-            pr,
-            defaultBranch,
+          const openParent = openPrsSnapshot.find(
+            (p) => p.headRefName === pr.baseRefName,
           );
-          if (!rebased) {
-            core.info(
-              `Skipping auto-merge enable for PR #${pr.number}: base '${pr.baseRefName}' is not the default branch '${defaultBranch}' (stacked PR needs rebase+retarget first).`,
+          if (!openParent) {
+            const stackedParentMerged = mergedSnapshot.some(
+              (m) =>
+                m.headRefName === pr.baseRefName &&
+                m.baseRefName === defaultBranch,
             );
-            continue;
+            if (!stackedParentMerged) {
+              core.warning(
+                `Stacked PR #${pr.number} has base '${pr.baseRefName}' with no matching open pull request head and no merged PR that shipped that ref from '${defaultBranch}' (orphan stack state); skipping.`,
+              );
+              continue;
+            }
+            const rebased = await this.tryRebaseStackedPrToDefault(
+              pr,
+              defaultBranch,
+              mergedSnapshot,
+            );
+            if (!rebased) {
+              continue;
+            }
+            justRebased = true;
           }
-          justRebased = true;
+          // Else: stacked base resolves to an open parent head → merge/auto into that base below.
         }
+
+        if (this.config.dryRun) {
+          core.info(
+            `Skipping merge/auto-merge enable for PR #${pr.number} (dryRun).`,
+          );
+          continue;
+        }
+
         // If the PR is already in CLEAN merge state, `enablePullRequestAutoMerge`
         // rejects with "Pull request is in clean status" because GitHub has
         // nothing left to wait on. Merge directly in that case. See post-mortem
@@ -489,12 +531,14 @@ class CarettaRunner {
   private async tryRebaseStackedPrToDefault(
     pr: PullRequest,
     defaultBranch: string,
+    mergedCandidates?: readonly MergedPullRequest[],
   ): Promise<boolean> {
     if (this.config.dryRun) return false;
     if (!this.config.agentBranchPattern.test(pr.headRefName)) return false;
     if (pr.mergeStateStatus === "DIRTY") return false;
 
-    const mergedPrs = await this.gh.listRecentlyMergedPullRequests();
+    const mergedPrs =
+      mergedCandidates ?? (await this.gh.listRecentlyMergedPullRequests());
     const parent = mergedPrs.find(
       (m) =>
         m.headRefName === pr.baseRefName && m.baseRefName === defaultBranch,

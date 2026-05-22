@@ -821,42 +821,218 @@ describe("executeAutopilot", () => {
     expect(gh.mergedPrs.map((m) => m.prNumber)).toContain(300);
   });
 
-  // Guard against the side effect of enabling auto-merge on a stacked PR.
-  // PR #162 in the 2026-05-21 wedge has base=`agent/issue-155` (a still-alive
-  // post-squash-merge branch). Enabling auto-merge directly via the API would
-  // cause GitHub to merge #156's work into the dead `agent/issue-155` branch
-  // — orphaning it off of main. The JS-direct path must enable auto-merge
-  // only when `baseRefName === defaultBranch`; stacked PRs need their base
-  // repaired (rebase + retarget) before they're safe to merge.
-  test("guard: does NOT enable auto-merge on PRs whose base is not the default branch (stacked PRs)", async () => {
-    const stackedPr = makePR({
+  // Stacked merges must progress from the deepest leaf inward. When both a
+  // parent-on-default-branch PR and a child stacked on that parent's head are
+  // queued, only the child's auto-merge fires this tick — the parent's head is
+  // still the child's merge base.
+  test("stacked queue: enables auto-merge on leaf child while holding open parent", async () => {
+    const passingTest = {
+      name: "Test",
+      status: "completed" as const,
+      conclusion: "success" as const,
+      startedAt: "2026-01-01T00:00:00Z",
+      createdAt: null,
+    };
+    const approve = (sha: string) =>
+      [
+        {
+          state: "APPROVED",
+          body: "lgtm",
+          commitId: sha,
+          user: "caretta-ai[bot]",
+        },
+      ] as const;
+    const parentPr = makePR({
+      number: 161,
+      headRefName: "agent/issue-155",
+      headRefOid: "sha-161",
+      baseRefName: "main",
+      reviewDecision: "APPROVED",
+      mergeStateStatus: "BLOCKED",
+      isAutoMergeEnabled: false,
+    });
+    const childPr = makePR({
       number: 162,
       headRefName: "agent/issue-156",
       headRefOid: "sha-162",
       baseRefName: "agent/issue-155",
       reviewDecision: "APPROVED",
+      mergeStateStatus: "BLOCKED",
+      isAutoMergeEnabled: false,
+    });
+    const gh = new FakeGitHub({
+      prs: [parentPr, childPr],
+      checksBySha: {
+        "sha-161": [passingTest],
+        "sha-162": [passingTest],
+      },
+      reviewsByPr: {
+        161: [...approve("sha-161")],
+        162: [...approve("sha-162")],
+      },
+    });
+    exec.stdout = JSON.stringify([]);
+
+    await executeAutopilot(gh, exec, makeConfig(), workEval, fakeInstallDeps);
+
+    expect(gh.enableAutoMergeCalls).not.toContain(161);
+    expect(gh.enableAutoMergeCalls).toContain(162);
+    expect(gh.mergedPrs.map((m) => m.prNumber)).not.toContain(161);
+    expect(gh.mergedPrs.map((m) => m.prNumber)).not.toContain(162);
+  });
+
+  test("stacked queue: three-deep tracker — only deepest leaf gains auto-merge this tick", async () => {
+    const passingTest = {
+      name: "Test",
+      status: "completed" as const,
+      conclusion: "success" as const,
+      startedAt: "2026-01-01T00:00:00Z",
+      createdAt: null,
+    };
+    const approve = (sha: string) =>
+      [
+        {
+          state: "APPROVED",
+          body: "lgtm",
+          commitId: sha,
+          user: "caretta-ai[bot]",
+        },
+      ] as const;
+    const bottom = makePR({
+      number: 10,
+      headRefName: "agent/issue-10",
+      headRefOid: "sha-10",
+      baseRefName: "main",
+      mergeStateStatus: "BLOCKED",
+      isAutoMergeEnabled: false,
+    });
+    const middle = makePR({
+      number: 11,
+      headRefName: "agent/issue-11",
+      headRefOid: "sha-11",
+      baseRefName: "agent/issue-10",
+      mergeStateStatus: "BLOCKED",
+      isAutoMergeEnabled: false,
+    });
+    const leaf = makePR({
+      number: 12,
+      headRefName: "agent/issue-12",
+      headRefOid: "sha-12",
+      baseRefName: "agent/issue-11",
+      mergeStateStatus: "BLOCKED",
+      isAutoMergeEnabled: false,
+    });
+    const gh = new FakeGitHub({
+      prs: [bottom, middle, leaf],
+      checksBySha: {
+        "sha-10": [passingTest],
+        "sha-11": [passingTest],
+        "sha-12": [passingTest],
+      },
+      reviewsByPr: {
+        10: [...approve("sha-10")],
+        11: [...approve("sha-11")],
+        12: [...approve("sha-12")],
+      },
+    });
+    exec.stdout = JSON.stringify([]);
+
+    await executeAutopilot(gh, exec, makeConfig(), workEval, fakeInstallDeps);
+
+    expect(new Set(gh.enableAutoMergeCalls)).toEqual(new Set([12]));
+    expect(gh.mergedPrs.map((m) => m.prNumber)).toHaveLength(0);
+  });
+
+  test("race regression: same tick enables stacked child auto-merge without touching blocked parent", async () => {
+    const passingTest = {
+      name: "Test",
+      status: "completed" as const,
+      conclusion: "success" as const,
+      startedAt: "2026-01-01T00:00:00Z",
+      createdAt: null,
+    };
+    const approve = (sha: string) =>
+      [
+        {
+          state: "APPROVED",
+          body: "lgtm",
+          commitId: sha,
+          user: "caretta-ai[bot]",
+        },
+      ] as const;
+    const parentPr = makePR({
+      number: 401,
+      headRefName: "agent/issue-400",
+      headRefOid: "sha-401p",
+      baseRefName: "main",
+      mergeStateStatus: "BLOCKED",
+      isAutoMergeEnabled: false,
+    });
+    const childPr = makePR({
+      number: 402,
+      headRefName: "agent/issue-402",
+      headRefOid: "sha-402",
+      baseRefName: "agent/issue-400",
+      mergeStateStatus: "BLOCKED",
+      isAutoMergeEnabled: false,
+    });
+    const gh = new FakeGitHub({
+      prs: [parentPr, childPr],
+      checksBySha: {
+        "sha-401p": [passingTest],
+        "sha-402": [passingTest],
+      },
+      reviewsByPr: {
+        401: [...approve("sha-401p")],
+        402: [...approve("sha-402")],
+      },
+    });
+    exec.stdout = JSON.stringify([]);
+
+    await executeAutopilot(gh, exec, makeConfig(), workEval, fakeInstallDeps);
+
+    expect(gh.enableAutoMergeCalls).toEqual([402]);
+    expect(gh.enableAutoMergeCalls).not.toContain(401);
+  });
+
+  test("stacked queue: CLEAN child with open parent → mergePullRequest, not enableAutoMerge", async () => {
+    const passingTest = {
+      name: "Test",
+      status: "completed" as const,
+      conclusion: "success" as const,
+      startedAt: "2026-01-01T00:00:00Z",
+      createdAt: null,
+    };
+    const parentPr = makePR({
+      number: 501,
+      headRefName: "agent/issue-500",
+      headRefOid: "sha-501p",
+      baseRefName: "main",
+      mergeStateStatus: "BLOCKED",
+      isAutoMergeEnabled: false,
+    });
+    const childPr = makePR({
+      number: 502,
+      headRefName: "agent/issue-502",
+      headRefOid: "sha-502",
+      baseRefName: "agent/issue-500",
+      reviewDecision: "APPROVED",
       mergeStateStatus: "CLEAN",
       isAutoMergeEnabled: false,
     });
     const gh = new FakeGitHub({
-      prs: [stackedPr],
+      prs: [parentPr, childPr],
       checksBySha: {
-        "sha-162": [
-          {
-            name: "Test",
-            status: "completed",
-            conclusion: "success",
-            startedAt: "2026-01-01T00:00:00Z",
-            createdAt: null,
-          },
-        ],
+        "sha-501p": [passingTest],
+        "sha-502": [passingTest],
       },
       reviewsByPr: {
-        162: [
+        501: [],
+        502: [
           {
             state: "APPROVED",
             body: "lgtm",
-            commitId: "sha-162",
+            commitId: "sha-502",
             user: "caretta-ai[bot]",
           },
         ],
@@ -866,8 +1042,9 @@ describe("executeAutopilot", () => {
 
     await executeAutopilot(gh, exec, makeConfig(), workEval, fakeInstallDeps);
 
-    expect(gh.enableAutoMergeCalls).not.toContain(162);
-    expect(gh.mergedPrs.map((m) => m.prNumber)).not.toContain(162);
+    expect(gh.enableAutoMergeCalls).not.toContain(502);
+    expect(gh.mergedPrs.map((m) => m.prNumber)).toContain(502);
+    expect(gh.mergedPrs.find((m) => m.prNumber === 502)?.method).toBe("SQUASH");
   });
 
   // Auto-rebase action item from
@@ -945,13 +1122,21 @@ describe("executeAutopilot", () => {
     expect(gh.enableAutoMergeCalls).toContain(162);
   });
 
-  // Counterpart to the auto-rebase test. Today the example repo has stacked
-  // PRs #189/#190/#191 whose parents (#187/#188) are still open. Retargeting
-  // those children to main now would orphan the parents' work. The eligibility
-  // gate is "parent appears in listRecentlyMergedPullRequests targeting the
-  // default branch" — without that, we must NOT touch the stacked PR.
-  test("auto-rebase: stacked PR whose parent is still open → no rebase, no retarget, no enable", async () => {
-    const stackedPr = makePR({
+  // Counterpart to the auto-rebase test: an open PR whose head matches the child's
+  // stacked base pins the child's merge destination. Until the parent's head has
+  // shipped via `main` (auto-rebase path), the autopilot merges the child into that
+  // branch — without rebasing onto `main` or retargeting.
+  test("stacked PR with open matching parent branch → merges into stacked base (no git rebase)", async () => {
+    const openParentPr = makePR({
+      number: 187,
+      headRefName: "agent/issue-180",
+      headRefOid: "sha-187",
+      baseRefName: "main",
+      reviewDecision: "APPROVED",
+      mergeStateStatus: "BLOCKED",
+      isAutoMergeEnabled: false,
+    });
+    const stackedChild = makePR({
       number: 189,
       headRefName: "agent/issue-182",
       headRefOid: "sha-189",
@@ -961,9 +1146,18 @@ describe("executeAutopilot", () => {
       isAutoMergeEnabled: false,
     });
     const gh = new FakeGitHub({
-      prs: [stackedPr],
-      mergedPrs: [], // parent not merged
+      prs: [openParentPr, stackedChild],
+      mergedPrs: [],
       checksBySha: {
+        "sha-187": [
+          {
+            name: "Test",
+            status: "completed",
+            conclusion: "success",
+            startedAt: "2026-01-01T00:00:00Z",
+            createdAt: null,
+          },
+        ],
         "sha-189": [
           {
             name: "Test",
@@ -975,6 +1169,14 @@ describe("executeAutopilot", () => {
         ],
       },
       reviewsByPr: {
+        187: [
+          {
+            state: "APPROVED",
+            body: "lgtm",
+            commitId: "sha-187",
+            user: "caretta-ai[bot]",
+          },
+        ],
         189: [
           {
             state: "APPROVED",
@@ -992,6 +1194,7 @@ describe("executeAutopilot", () => {
     expect(exec.calls.some((c) => c.command === "git")).toBe(false);
     expect(gh.retargetCalls).toEqual([]);
     expect(gh.enableAutoMergeCalls).not.toContain(189);
+    expect(gh.mergedPrs.map((m) => m.prNumber)).toContain(189);
   });
 
   // Conflict path: if `git rebase` fails (non-zero exit), the autopilot must
