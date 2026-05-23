@@ -1,10 +1,10 @@
 import * as core from "@actions/core";
-import type { ExecClient } from "../../packages/action-common/src/exec-client.js";
-import type { GitHubClient } from "../../packages/action-common/src/github-client.js";
+import type { ExecClient } from "@caretta/action-common/exec-client";
+import type { GitHubClient } from "@caretta/action-common/github-client";
 import type {
   AutopilotConfig,
   PullRequest,
-} from "../../packages/action-common/src/types.js";
+} from "@caretta/action-common/types";
 
 export interface ConflictResolverOptions {
   readonly timeoutMs?: number;

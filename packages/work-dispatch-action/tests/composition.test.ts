@@ -2,9 +2,9 @@ import { describe, expect, test } from "bun:test";
 import type {
   ActionRuntime,
   SummaryWriter,
-} from "../../action-common/src/action-runtime.js";
-import type { ExecClient } from "../../action-common/src/exec-client.js";
-import type { GitHubClient } from "../../action-common/src/github-client.js";
+} from "@caretta/action-common/action-runtime";
+import type { ExecClient } from "@caretta/action-common/exec-client";
+import type { GitHubClient } from "@caretta/action-common/github-client";
 import {
   createWorkDispatchComposition,
   runWorkDispatchAction,

@@ -1,10 +1,10 @@
-import { Container as InjectableDomainPolicy } from "di-framework/decorators";
 import type {
   AutopilotConfig,
   AutopilotDecision,
   EvaluationResult,
   PrCiResult,
-} from "../../packages/action-common/src/types.js";
+} from "@caretta/action-common/types";
+import { Container as InjectableDomainPolicy } from "di-framework/decorators";
 
 @InjectableDomainPolicy({ singleton: false })
 export class SummaryPolicy {

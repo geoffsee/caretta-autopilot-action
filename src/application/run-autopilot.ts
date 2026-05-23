@@ -1,16 +1,16 @@
-import {
-  Component as Inject,
-  Container as InjectableUseCase,
-} from "di-framework/decorators";
-import type { ExecClient } from "../../packages/action-common/src/exec-client.js";
-import type { GitHubClient } from "../../packages/action-common/src/github-client.js";
+import type { ExecClient } from "@caretta/action-common/exec-client";
+import type { GitHubClient } from "@caretta/action-common/github-client";
 import type {
   AutopilotConfig,
   AutopilotDecision,
   EvaluationResult,
   IssueCloseResult,
   PrCiResult,
-} from "../../packages/action-common/src/types.js";
+} from "@caretta/action-common/types";
+import {
+  Component as Inject,
+  Container as InjectableUseCase,
+} from "di-framework/decorators";
 import {
   AutopilotDomainLogic,
   type AutopilotDomainModel,

@@ -1,7 +1,7 @@
 import * as core from "@actions/core";
-import { latestNamedCheck } from "../../../action-common/src/check-runs.js";
-import type { ExecClient } from "../../../action-common/src/exec-client.js";
-import type { GitHubClient } from "../../../action-common/src/github-client.js";
+import { latestNamedCheck } from "@caretta/action-common/check-runs";
+import type { ExecClient } from "@caretta/action-common/exec-client";
+import type { GitHubClient } from "@caretta/action-common/github-client";
 
 export const DEFAULT_AGENT_BRANCH = /^agent\/issue-[0-9]+(?:-.*)?$/;
 export const DEFAULT_TEST_CHECK_NAME = "Test";

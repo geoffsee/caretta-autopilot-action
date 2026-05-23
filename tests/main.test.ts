@@ -2,17 +2,17 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 import {
   DefaultExecClient,
   type ExecClient,
-} from "../packages/action-common/src/exec-client.js";
+} from "@caretta/action-common/exec-client";
 import {
   createOctokitClient,
   type GitHubClient,
-} from "../packages/action-common/src/github-client.js";
+} from "@caretta/action-common/github-client";
 import type {
   AutopilotConfig,
   AutopilotDecision,
   EvaluationResult,
   PrCiResult,
-} from "../packages/action-common/src/types.js";
+} from "@caretta/action-common/types";
 import type { AutopilotRunResult } from "../src/application/run-autopilot.js";
 
 interface CoreState {

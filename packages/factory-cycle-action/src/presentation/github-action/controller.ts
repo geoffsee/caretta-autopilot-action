@@ -1,9 +1,5 @@
-import {
-  Component as Inject,
-  Container as InjectableWorkflow,
-} from "di-framework/decorators";
-import { ACTION_COMPONENTS } from "../../../../action-common/src/action-composition.js";
-import type { ActionRuntime } from "../../../../action-common/src/action-runtime.js";
+import { ACTION_COMPONENTS } from "@caretta/action-common/action-composition";
+import type { ActionRuntime } from "@caretta/action-common/action-runtime";
 import {
   type CarettaInstallDependencies,
   CarettaRuntimePreparer,
@@ -11,14 +7,18 @@ import {
   type GitHubPortDependencies,
   prepareCarettaAction,
   readCarettaRuntimeInputs,
-} from "../../../../action-common/src/action-services.js";
+} from "@caretta/action-common/action-services";
 import {
   installCaretta,
   installLinuxRuntimeDeps,
   materializeBotPrivateKey,
-} from "../../../../action-common/src/caretta-install.js";
-import { DefaultExecClient as ProductionExecClient } from "../../../../action-common/src/exec-client.js";
-import { createOctokitClient as createProductionGitHubClient } from "../../../../action-common/src/github-client.js";
+} from "@caretta/action-common/caretta-install";
+import { DefaultExecClient as ProductionExecClient } from "@caretta/action-common/exec-client";
+import { createOctokitClient as createProductionGitHubClient } from "@caretta/action-common/github-client";
+import {
+  Component as Inject,
+  Container as InjectableWorkflow,
+} from "di-framework/decorators";
 import { FactoryCycleRunner } from "../../application/factory-cycle-runner.js";
 
 export interface FactoryCycleDependencies

@@ -5,7 +5,7 @@ type AnyMock = Mock<(...args: any[]) => any>;
 
 import { describe, expect, it, mock } from "bun:test";
 import * as github from "@actions/github";
-import { createOctokitClient } from "../packages/action-common/src/github-client.js";
+import { createOctokitClient } from "@caretta/action-common/github-client";
 
 mock.module("@actions/github", () => ({
   getOctokit: mock(),

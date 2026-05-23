@@ -5,7 +5,7 @@ type AnyMock = Mock<(...args: any[]) => any>;
 
 import { describe, expect, it, mock } from "bun:test";
 import * as actionsExec from "@actions/exec";
-import { DefaultExecClient } from "../packages/action-common/src/exec-client.js";
+import { DefaultExecClient } from "@caretta/action-common/exec-client";
 
 mock.module("@actions/exec", () => ({
   exec: mock(),

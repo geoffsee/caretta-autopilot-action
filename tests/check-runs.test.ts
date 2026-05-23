@@ -4,8 +4,8 @@ import {
   latestFailedRun,
   latestNamedCheck,
   matchesGateCheckName,
-} from "../packages/action-common/src/check-runs.js";
-import type { CheckRun } from "../packages/action-common/src/types.js";
+} from "@caretta/action-common/check-runs";
+import type { CheckRun } from "@caretta/action-common/types";
 
 describe("matchesGateCheckName", () => {
   test("exact match", () => {

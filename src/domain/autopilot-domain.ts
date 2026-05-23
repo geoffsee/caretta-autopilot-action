@@ -1,7 +1,3 @@
-import {
-  Component as Inject,
-  Container as InjectableDomainModel,
-} from "di-framework/decorators";
 import type {
   AutopilotConfig,
   AutopilotDecision,
@@ -9,7 +5,11 @@ import type {
   Issue,
   PrCiResult,
   PullRequest,
-} from "../../packages/action-common/src/types.js";
+} from "@caretta/action-common/types";
+import {
+  Component as Inject,
+  Container as InjectableDomainModel,
+} from "di-framework/decorators";
 import {
   computeHoldTarget,
   decideExecution,

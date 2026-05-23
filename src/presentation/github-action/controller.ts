@@ -1,20 +1,20 @@
-import {
-  Component as Inject,
-  Container as InjectableWorkflow,
-} from "di-framework/decorators";
-import { ACTION_COMPONENTS } from "../../../packages/action-common/src/action-composition.js";
-import type { ActionRuntime } from "../../../packages/action-common/src/action-runtime.js";
+import { ACTION_COMPONENTS } from "@caretta/action-common/action-composition";
+import type { ActionRuntime } from "@caretta/action-common/action-runtime";
 import {
   GitHubActionPortFactory,
   type GitHubPortDependencies,
   type GithubActionContext,
-} from "../../../packages/action-common/src/action-services.js";
-import { DefaultExecClient as ProductionExecClient } from "../../../packages/action-common/src/exec-client.js";
-import { createOctokitClient as createProductionGitHubClient } from "../../../packages/action-common/src/github-client.js";
+} from "@caretta/action-common/action-services";
+import { DefaultExecClient as ProductionExecClient } from "@caretta/action-common/exec-client";
+import { createOctokitClient as createProductionGitHubClient } from "@caretta/action-common/github-client";
 import {
   type AutopilotConfig,
   DEFAULT_AGENT_BRANCH,
-} from "../../../packages/action-common/src/types.js";
+} from "@caretta/action-common/types";
+import {
+  Component as Inject,
+  Container as InjectableWorkflow,
+} from "di-framework/decorators";
 import {
   AutopilotUseCase,
   type RunAutopilotUseCase,

@@ -3,14 +3,14 @@ import {
   activeRun,
   latestFailedRun,
   latestNamedCheck,
-} from "../../packages/action-common/src/check-runs.js";
-import type { GitHubClient } from "../../packages/action-common/src/github-client.js";
+} from "@caretta/action-common/check-runs";
+import type { GitHubClient } from "@caretta/action-common/github-client";
 import type {
   AutopilotConfig,
   CheckRun,
   PullRequest,
   WorkflowRun,
-} from "../../packages/action-common/src/types.js";
+} from "@caretta/action-common/types";
 
 export interface PrCiSnapshot {
   readonly latestCheck?: CheckRun;

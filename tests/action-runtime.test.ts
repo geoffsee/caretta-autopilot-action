@@ -1,5 +1,5 @@
 import { describe, expect, mock, test } from "bun:test";
-import { GitHubActionsRuntime } from "../packages/action-common/src/action-runtime.js";
+import { GitHubActionsRuntime } from "@caretta/action-common/action-runtime";
 
 mock.module("@actions/core", () => ({
   getInput: mock(() => ""),

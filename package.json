@@ -5,6 +5,9 @@
   "description": "GitHub Action that evaluates repository state and dispatches the appropriate autopilot follow-up workflow.",
   "type": "module",
   "main": "dist/index.js",
+  "workspaces": [
+    "packages/*"
+  ],
   "scripts": {
     "build": "bun run .dev/scripts/build-action.ts src/index.ts dist",
     "build:all": "bun run build && (cd packages/work-dispatch-action && bun run build) && (cd packages/factory-cycle-action && bun run build)",
@@ -21,6 +24,7 @@
     "@actions/exec": "^3.0.0",
     "@actions/github": "^9.1.1",
     "@actions/tool-cache": "^4.0.0",
+    "@caretta/action-common": "workspace:*",
     "di-framework": "2.0.4"
   },
   "devDependencies": {

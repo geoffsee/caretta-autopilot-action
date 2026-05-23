@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import type {
   EvaluationResult,
   PullRequestReview,
-} from "../packages/action-common/src/types.js";
+} from "@caretta/action-common/types";
 import {
   type ExecuteDeps,
   executeAutopilot,

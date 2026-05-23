@@ -1,11 +1,11 @@
-import type { ExecClient } from "../../../packages/action-common/src/exec-client.js";
-import type { GitHubClient } from "../../../packages/action-common/src/github-client.js";
+import type { ExecClient } from "@caretta/action-common/exec-client";
+import type { GitHubClient } from "@caretta/action-common/github-client";
 import type {
   AutopilotConfig,
   AutopilotDecision,
   EvaluationResult,
   PrCiResult,
-} from "../../../packages/action-common/src/types.js";
+} from "@caretta/action-common/types";
 import type { AutopilotRunResult } from "../../../src/application/run-autopilot.js";
 import type { AutopilotDependencies } from "../../../src/presentation/github-action/controller.js";
 

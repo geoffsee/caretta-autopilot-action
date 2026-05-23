@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { DEFAULT_AGENT_BRANCH } from "../packages/action-common/src/types.js";
+import { DEFAULT_AGENT_BRANCH } from "@caretta/action-common/types";
 import { filterAgentPRs, processAgentPRs } from "../src/application/pr-ci.js";
 import { FakeGitHub, makeConfig, makePR } from "./fakes.js";
 

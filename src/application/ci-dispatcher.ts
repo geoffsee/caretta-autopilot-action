@@ -1,6 +1,6 @@
 import * as core from "@actions/core";
-import type { GitHubClient } from "../../packages/action-common/src/github-client.js";
-import type { AutopilotConfig } from "../../packages/action-common/src/types.js";
+import type { GitHubClient } from "@caretta/action-common/github-client";
+import type { AutopilotConfig } from "@caretta/action-common/types";
 import {
   dispatchOrRerunCi,
   getPrCiSnapshot,

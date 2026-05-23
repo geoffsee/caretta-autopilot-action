@@ -4,16 +4,16 @@ import {
   installCaretta,
   installLinuxRuntimeDeps,
   materializeBotPrivateKey,
-} from "../../packages/action-common/src/caretta-install.js";
-import { latestNamedCheck } from "../../packages/action-common/src/check-runs.js";
-import type { ExecClient } from "../../packages/action-common/src/exec-client.js";
-import type { GitHubClient } from "../../packages/action-common/src/github-client.js";
+} from "@caretta/action-common/caretta-install";
+import { latestNamedCheck } from "@caretta/action-common/check-runs";
+import type { ExecClient } from "@caretta/action-common/exec-client";
+import type { GitHubClient } from "@caretta/action-common/github-client";
 import type {
   AutopilotConfig,
   EvaluationResult,
   MergedPullRequest,
   PullRequest,
-} from "../../packages/action-common/src/types.js";
+} from "@caretta/action-common/types";
 import { reconcileGateCommitStatus } from "./ci-dispatch-core.js";
 import { dispatchMissingCi } from "./ci-dispatcher.js";
 import {

@@ -1,10 +1,10 @@
-import type { GitHubClient } from "../../packages/action-common/src/github-client.js";
+import type { GitHubClient } from "@caretta/action-common/github-client";
 import type {
   AutopilotConfig,
   PrCiResult,
   PrEntry,
   PullRequest,
-} from "../../packages/action-common/src/types.js";
+} from "@caretta/action-common/types";
 import {
   dispatchOrRerunCi,
   getPrCiSnapshot,

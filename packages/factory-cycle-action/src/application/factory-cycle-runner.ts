@@ -1,7 +1,7 @@
 import * as core from "@actions/core";
-import type { ExecClient } from "../../../action-common/src/exec-client.js";
-import type { GitHubClient } from "../../../action-common/src/github-client.js";
-import type { Issue } from "../../../action-common/src/types.js";
+import type { ExecClient } from "@caretta/action-common/exec-client";
+import type { GitHubClient } from "@caretta/action-common/github-client";
+import type { Issue } from "@caretta/action-common/types";
 
 export class FactoryCycleRunner {
   constructor(

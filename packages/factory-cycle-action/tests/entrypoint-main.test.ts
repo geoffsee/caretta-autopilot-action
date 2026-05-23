@@ -1,6 +1,6 @@
 import { describe, expect, mock, test } from "bun:test";
-import type { ExecClient } from "../../action-common/src/exec-client.js";
-import type { GitHubClient } from "../../action-common/src/github-client.js";
+import type { ExecClient } from "@caretta/action-common/exec-client";
+import type { GitHubClient } from "@caretta/action-common/github-client";
 
 const coreInputs: Record<string, string> = {
   "github-token": "tok",

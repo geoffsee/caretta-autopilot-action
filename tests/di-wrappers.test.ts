@@ -2,13 +2,13 @@ import { describe, expect, test } from "bun:test";
 import type {
   ActionRuntime,
   SummaryWriter,
-} from "../packages/action-common/src/action-runtime.js";
+} from "@caretta/action-common/action-runtime";
 import type {
   AutopilotConfig,
   AutopilotDecision,
   EvaluationResult,
   PrCiResult,
-} from "../packages/action-common/src/types.js";
+} from "@caretta/action-common/types";
 import { AutopilotUseCase } from "../src/application/run-autopilot.js";
 import { createAutopilotComposition } from "../src/composition/root.js";
 import {

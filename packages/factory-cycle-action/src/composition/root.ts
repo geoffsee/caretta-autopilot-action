@@ -3,9 +3,9 @@ import {
   type ActionComposition,
   createActionComposition,
   runComposedAction,
-} from "../../../action-common/src/action-composition.js";
-import type { ActionRuntime } from "../../../action-common/src/action-runtime.js";
-import type { GithubActionContext } from "../../../action-common/src/action-services.js";
+} from "@caretta/action-common/action-composition";
+import type { ActionRuntime } from "@caretta/action-common/action-runtime";
+import type { GithubActionContext } from "@caretta/action-common/action-services";
 import {
   defaultFactoryCycleDependencies,
   type FactoryCycleDependencies,

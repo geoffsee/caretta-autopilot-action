@@ -1,7 +1,7 @@
 import type * as exec from "@actions/exec";
-import { matchesGateCheckName } from "../packages/action-common/src/check-runs.js";
-import type { ExecClient } from "../packages/action-common/src/exec-client.js";
-import type { GitHubClient } from "../packages/action-common/src/github-client.js";
+import { matchesGateCheckName } from "@caretta/action-common/check-runs";
+import type { ExecClient } from "@caretta/action-common/exec-client";
+import type { GitHubClient } from "@caretta/action-common/github-client";
 import type {
   CheckRun,
   CommitStatusState,
@@ -10,7 +10,7 @@ import type {
   PullRequest,
   PullRequestReview,
   WorkflowRun,
-} from "../packages/action-common/src/types.js";
+} from "@caretta/action-common/types";
 
 export interface ExecCall {
   command: string;
@@ -220,9 +220,7 @@ export class FakeGitHub implements GitHubClient {
 
   async listReviews(
     pullNumber: number,
-  ): Promise<
-    import("../packages/action-common/src/types.js").PullRequestReview[]
-  > {
+  ): Promise<import("@caretta/action-common/types").PullRequestReview[]> {
     return [...(this.data.reviewsByPr?.[pullNumber] ?? [])];
   }
 
@@ -355,9 +353,9 @@ export function makeMergedPR(
 
 export function makeConfig(
   overrides: Partial<
-    import("../packages/action-common/src/types.js").AutopilotConfig
+    import("@caretta/action-common/types").AutopilotConfig
   > = {},
-): import("../packages/action-common/src/types.js").AutopilotConfig {
+): import("@caretta/action-common/types").AutopilotConfig {
   return {
     carettaVersion: "latest",
     agent: "claude",

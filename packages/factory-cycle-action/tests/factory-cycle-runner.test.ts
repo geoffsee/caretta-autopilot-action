@@ -1,13 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import type * as actionsExec from "@actions/exec";
-import type { ExecClient } from "../../action-common/src/exec-client.js";
-import type { GitHubClient } from "../../action-common/src/github-client.js";
+import type { ExecClient } from "@caretta/action-common/exec-client";
+import type { GitHubClient } from "@caretta/action-common/github-client";
 import type {
   CheckRun,
   Issue,
   PullRequest,
   WorkflowRun,
-} from "../../action-common/src/types.js";
+} from "@caretta/action-common/types";
 import {
   FactoryCycleRunner,
   findOpenSprint,

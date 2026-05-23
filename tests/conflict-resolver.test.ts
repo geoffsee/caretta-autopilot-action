@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import type { GitHubClient } from "../packages/action-common/src/github-client.js";
-import type { PullRequest } from "../packages/action-common/src/types.js";
+import type { GitHubClient } from "@caretta/action-common/github-client";
+import type { PullRequest } from "@caretta/action-common/types";
 import {
   ConflictResolver,
   type ConflictResolverDeps,

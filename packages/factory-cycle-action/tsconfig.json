@@ -14,8 +14,8 @@
     "declaration": false,
     "sourceMap": true,
     "outDir": "lib",
-    "rootDir": ".."
+    "rootDir": "."
   },
-  "include": ["src/**/*", "../action-common/src/**/*"],
+  "include": ["src/**/*"],
   "exclude": ["node_modules", "dist", "lib"]
 }

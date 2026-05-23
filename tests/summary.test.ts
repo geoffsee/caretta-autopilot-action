@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type {
   EvaluationResult,
   PrCiResult,
-} from "../packages/action-common/src/types.js";
+} from "@caretta/action-common/types";
 import { buildSummary } from "../src/domain/summary.js";
 import { makeConfig } from "./fakes.js";
 

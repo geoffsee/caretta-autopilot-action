@@ -13,7 +13,7 @@ import {
   installCaretta,
   installLinuxRuntimeDeps,
   materializeBotPrivateKey,
-} from "../packages/action-common/src/caretta-install.js";
+} from "@caretta/action-common/caretta-install";
 
 mock.module("node:fs", () => ({
   existsSync: mock(),
