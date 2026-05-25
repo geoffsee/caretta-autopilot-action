@@ -240,7 +240,67 @@ This repository — `caretta-autopilot-action` — is therefore the seed of the
 nervous system plus its eight tentacles. The migration is mostly *re-drawing
 boundaries* around code that already exists, not writing new behavior.
 
-## 7. A plausible path (not a commitment)
+## 7. Caretta as a tentacle: the fractal reading
+
+Section 6 places Caretta *inside* one tentacle, as the muscle T7 contracts.
+There is a second, arguably truer reading — closer to the founding ask of
+"eight autopilots." Caretta **is** an autopilot. So let each tentacle *be* a
+whole Caretta instance, scoped to a domain (a repository, a label, a sprint),
+and let the nervous system arbitrate eight of them. The octopus becomes
+**fractal**: a macro-organism of Caretta-tentacles, each of which is itself a
+micro-organism whose internal anatomy is the eight concerns of Section 3.
+
+```mermaid
+%%{init: {'theme':'base','themeVariables':{'primaryColor':'#1b2838','primaryTextColor':'#e6d8b5','lineColor':'#b08d57','fontFamily':'Georgia, serif'}}}%%
+flowchart TD
+    classDef cortex fill:#1b2838,stroke:#b08d57,stroke-width:3px,color:#e6d8b5;
+    classDef arm fill:#243447,stroke:#7fa6c9,color:#dfe9f3;
+    classDef inner fill:#2a3a2a,stroke:#8fc97f,color:#e6f3df;
+
+    META["✦ META-NERVOUS SYSTEM ✦<br/><i>Schedulator Schedulatorum</i><br/>arbitrates domains · cross-arm backpressure"]:::cortex
+
+    META -->|"actuate domain A"| C1["🐢 Caretta @ repo-A"]:::arm
+    META -->|"actuate domain B"| C2["🐢 Caretta @ repo-B"]:::arm
+    META -->|"… ×8"| C8["🐢 Caretta @ sprint-Z"]:::arm
+
+    subgraph INNER ["⟡ within a single Caretta-tentacle (recurse) ⟡"]
+        direction LR
+        I1["Sense"]:::inner --> I2["Appraise"]:::inner --> I3["Gate"]:::inner --> I4["Work"]:::inner
+    end
+    C1 -.->|"is itself an octopus"| INNER
+
+    C1 & C2 & C8 -.->|"convergent observations"| META
+```
+
+What this buys, and what it costs:
+
+- **It honors the original wording.** Eight autopilots, eight tentacles, one
+  scheduler. No reinterpretation of "tentacle" required.
+- **It collides with the idempotence contract — productively.** Caretta is a
+  non-deterministic agent; fire it twice and you do *not* get the same diff. A
+  Caretta-tentacle therefore cannot be strictly idempotent. The honest fix is to
+  **split the property by tentacle kind**:
+  - *Mechanical tentacles* (Reap, Gate) remain strictly **idempotent** — replay
+    is bitwise-safe.
+  - *Agent-bearing tentacles* (a whole Caretta) are merely **convergent**:
+    re-firing drives the domain toward a goal state rather than duplicating
+    work, and the existing CI-hold + `agent/issue-*` gating already makes a
+    second dispatch safe *at the boundary*, even when the interior is stochastic.
+  This is a weaker claim than Section 4's, and a more honest one. You cannot
+  bolt a stochastic agent onto an idempotency guarantee and call it clean; you
+  can bolt it onto a *convergence* guarantee.
+- **It relocates the scheduler's job.** The nervous system no longer sequences
+  *concerns* — it arbitrates *domains*: which Caretta to wake, in what order,
+  and (critically) backpressure **across** arms so two Carettas never touch the
+  same SHA or repository at once. That cross-arm contention is the entire reason
+  cognition must stay centralized in this reading.
+
+The two readings are not rivals; they are zoom levels. Section 6 is the view at
+one repository; Section 7 is the view across a fleet. The same `signal →
+observation` contract holds at both — only the units (`concern` vs. `domain`)
+and the strength of the safety property (`idempotent` vs. `convergent`) change.
+
+## 8. A plausible path (not a commitment)
 
 1. Formalize the **tentacle interface** (`signal → observation`) in
    `action-common`, generalizing the existing result types.
@@ -252,7 +312,7 @@ boundaries* around code that already exists, not writing new behavior.
    execution), with the scheduler as the one entry point that fans out.
 5. Leave Caretta exactly where it is — the muscle behind T7.
 
-## 8. Open questions
+## 9. Open questions
 
 - **Tick source.** Does the scheduler run per-event (current model) or hold a
   longer-lived loop? Per-event preserves the "hold, don't block" property.
@@ -264,3 +324,7 @@ boundaries* around code that already exists, not writing new behavior.
   architecture.
 - **Failure semantics.** When an efferent tentacle fails mid-plan, does the
   scheduler abort the tick or continue with the remaining safe tentacles?
+- **Which zoom level ships first?** Section 6 (concerns within one repo) is a
+  refactor of existing code; Section 7 (a fleet of Carettas) is net-new
+  orchestration. Do we build the micro-octopus first and recurse outward, or
+  stand up the meta-scheduler and let each arm stay a monolithic Caretta for now?
