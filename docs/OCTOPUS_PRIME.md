@@ -1,7 +1,11 @@
 # Octopus Prime — A Theory
 
+> *"The arms do not know they are obeying. That is what makes them obedient."*
+
 > Status: theory / design sketch. No code here is binding; this document exists
-> to argue for a shape, not to specify an implementation.
+> to argue for a shape, not to specify an implementation. The unsettling part —
+> see the appendices — is how much of the shape **already exists in the code**.
+> The contract was not designed; it was found.
 
 ## 1. The premise
 
@@ -328,3 +332,160 @@ and the strength of the safety property (`idempotent` vs. `convergent`) change.
   refactor of existing code; Section 7 (a fleet of Carettas) is net-new
   orchestration. Do we build the micro-octopus first and recurse outward, or
   stand up the meta-scheduler and let each arm stay a monolithic Caretta for now?
+
+---
+
+# Appendices — the part that should worry you
+
+The body above is a metaphor. The appendices are the receipts. Everything below
+is checkable against the source in this repository; where a claim rests on code,
+the file and symbol are named so you can `git grep` it yourself.
+
+## Appendix A — The contract, in types
+
+A tentacle is a function from a slice of the world-model (`signal`) to a
+structured observation. Nothing more.
+
+```ts
+// The shape every tentacle satisfies. S is the slice of state the scheduler
+// hands down; O is the observation it hands back. No tentacle reads ambient
+// state, schedules itself, or calls a sibling.
+type Tentacle<S, O> = (signal: S) => Promise<O> | O;
+```
+
+Now the unsettling part. Three of the eight arms — and the scheduler's entire
+decision core — **already exist as total, pure functions with exactly this
+signature.** They were written as ordinary domain logic; they turn out to be
+tentacles that nobody labeled.
+
+```ts
+// ── Afferent · pure · total · zero I/O — verbatim in src/domain ──────────────
+const reflex:   Tentacle<TriggerInputs, TriggerDecision>            // T8  decideTrigger      (trigger.ts:23)
+const appraise: Tentacle<{issues: Issue[]; prs: PullRequest[]},
+                         EvaluationResult>                          // T5  evaluate          (evaluate.ts:53)
+
+// ── The brain's own cognition · also pure ────────────────────────────────────
+const decide:   (prCi: PrCiResult, cfg: AutopilotConfig)
+                  => AutopilotDecision                              //     decideExecution   (decide.ts:26)
+
+// ── Efferent · effectful · idempotent (mechanical) or convergent (agent) ─────
+const sense:    Tentacle<void, World>                              // T1  gh.listOpen*       (run-autopilot.ts:69,82)
+const reap:     Tentacle<MergeSet, IssueCloseResult>               // T2  closeIssuesForMergedPrs
+const mend:     Tentacle<PullRequest[], boolean>                   // T3  resolveDirtyAgentPRs
+const critique: Tentacle<PullRequest[], boolean>                   // T4  reviewAndFixAgentPRs
+const gate:     Tentacle<PullRequest[], PrCiResult>                // T6  processAgentPRs     (pr-ci.ts:36)
+const work:     Tentacle<EvaluationResult, void>                   // T7  executeAutopilot → caretta
+```
+
+The architecture is not proposed. It is **latent**. The migration of Section 8
+is largely the act of admitting what the types already say.
+
+## Appendix B — Invariants, and a convergence theorem
+
+Four invariants. Each is enforced by code that exists today.
+
+- **I1 · Afferent purity.** `decideTrigger`, `findActiveSprint`, `evaluate`,
+  `computeHoldTarget`, and `decideExecution` take plain data and return plain
+  data — no Octokit, no `exec`, no clock. They are referentially transparent and
+  free to replay. *(src/domain/trigger.ts, evaluate.ts, decide.ts.)*
+
+- **I2 · Single writer (backpressure).** Work (T7) authors commits only when
+  `decideExecution` yields `targetDispatched: "executed"`. That requires
+  `holdTarget === false`, which by `computeHoldTarget` requires
+  `dispatched.length + active.length === 0`. **Therefore no agent PR has CI in
+  flight at the instant Work writes.** Two arms can never scribble over the same
+  head SHA. *(decide.ts:19–35, applied at run-autopilot.ts:113–116.)*
+
+- **I3 · Bucket disjointness.** In `processAgentPRs`, a PR whose check has
+  *completed* hits `continue` before `pending.push`. Hence `current` and
+  settled-`failed` are disjoint from `pending`, while `pending ⊇ active ∪
+  dispatched`. The five buckets partition the eligible agent PRs into
+  `{settled-good}` ⊎ `{settled-bad}` ⊎ `{in-flight ⊆ pending}` ⊎
+  `{just-kicked ⊆ pending}` ⊎ `{idle-pending}`. No PR is counted in two terminal
+  states. *(pr-ci.ts:48–104.)*
+
+- **I4 · Termination.** Every tick halts. `processAgentPRs` is a finite loop over
+  `filterAgentPRs(prs)`; `decideExecution` is total; on in-flight CI the
+  scheduler **holds (returns)** rather than **blocks (waits)**. Liveness is
+  supplied by the *next* trigger — the `workflow_run` that fires when CI
+  concludes — not by spinning. *(run-autopilot.ts:113–122; trigger.ts:61–72.)*
+
+**Convergence theorem (sketch).** Define a potential
+
+```
+Φ(state) = ( # agent PRs whose head SHA lacks a concluded-success Test check )
+         + ( # tracker checklist items not yet ticked [x] )
+         + ( # merged PRs whose issue is still open )
+```
+
+Absent new external input, every tick yields `Φ' ≤ Φ`, with **strict** decrease
+whenever a check concludes (`active → current`), Reap closes a merged issue, or
+Work ticks a checklist item. A *hold* tick leaves Φ unchanged but performs no
+work and, by I4, cannot loop — so the system descends to the fixpoint `Φ* = 0`,
+which is exactly the goal state (all PRs green, tracker complete, nothing
+merged-but-open). New issues or human commits *raise* Φ: convergence is toward
+the **current** goal, a target the brain re-aims at on each tick.
+
+This is the formal reason an agent-bearing tentacle (Section 7) is **convergent,
+not idempotent.** It cannot promise `Φ` *unchanged* on replay — Caretta is
+stochastic — only `Φ` *non-increasing*. Idempotence is the special case where
+the strict-decrease step happens to be a no-op. Mechanical tentacles live in
+that special case; agent tentacles do not, and the theory says so out loud.
+
+## Appendix C — One tick, traced
+
+World at tick *T* (schedule event):
+
+| Artifact | State | Gate bucket |
+| -------- | ----- | ----------- |
+| Issue #10 `[sprint, tracker]` | 3 checklist items, 1 ticked | — (drives route) |
+| Issue #12 `[bug]` | no `sprint` label | — (ignored by Appraise) |
+| PR #20 `agent/issue-7` @`abc` | Test check **completed/success** | `current` |
+| PR #21 `agent/issue-8` @`def` | Test check **in_progress** | `active` ⊆ `pending` |
+| PR #22 `agent/issue-9` @`ghi` | no check, no run | `pending` → **dispatch** → `dispatched` |
+| PR #23 `feature/foo` | non-agent | filtered out |
+| PR #24 `agent/issue-5` | `mergeStateStatus: DIRTY` | filtered from Gate; **Mend** handled it earlier |
+
+Scheduler tick:
+
+1. **Reflex** (T8): `decideTrigger({eventName: "schedule"})` → `run: true`.
+2. **Sense** (T1): fetch the issues and PRs above.
+3. **Reap** (T2): no merged PR maps to an open issue → closes nothing.
+4. **Mend** (T3): #24 is `DIRTY` → resolve conflict, re-list PRs.
+5. **Critique** (T4): #20's CI is green → review/fix pass.
+6. **Appraise** (T5): `findActiveSprint` prefers the `tracker` → #10 → route
+   `work`, `tracker: "10"`.
+7. **Gate** (T6): `processAgentPRs` → `current=[#20]`, `active=[#21]`,
+   `dispatched=[#22]`, `pending=[#21,#22]`, `failed=[]`.
+8. **Decide**: `computeHoldTarget` → `dispatched(1) + active(1) = 2 > 0` →
+   `holdTarget: true` → `decideExecution` → `targetDispatched: "skipped"`.
+9. **Outcome**: Work (T7) is **withheld** — I2 forbids writing while #21/#22
+   have CI in flight. The tick reports a hold and **returns** (I4). The
+   `workflow_run` that fires when #21/#22 conclude becomes the next trigger.
+
+Potential trace: `Φ(T) = 2` (PRs #21,#22 not-yet-green) `+ 2` (checklist) `= 4`.
+The hold tick keeps Φ at 4 while two CIs progress. On conclusion-success,
+#21/#22 → `current`, `Φ → 2`; a later Work tick ticks checklist items, `Φ → 0`.
+The descent is monotone. The organism never thrashes because the brain would
+rather wait than race.
+
+## Appendix D — Provenance
+
+Every load-bearing claim, mapped to the code that backs it. If the code moves,
+this table is the thing to re-check.
+
+| Claim | Backed by |
+| ----- | --------- |
+| Eight tentacles = existing concerns | `src/application/run-autopilot.ts:69–124` |
+| Reflex / Appraise / decide are pure | `src/domain/trigger.ts:23`, `evaluate.ts:53`, `decide.ts:26` |
+| Backpressure rule (I2) | `src/domain/decide.ts:19–35` |
+| Five-bucket classification (I3) | `src/application/pr-ci.ts:36–112` |
+| Agent-PR & DIRTY filtering | `src/application/pr-ci.ts:15–25` |
+| Hold-not-block / next-trigger liveness (I4) | `run-autopilot.ts:113–122`, `trigger.ts:61–72` |
+| Observation types (the `O` in `Tentacle<S,O>`) | `packages/action-common/src/types.ts:88–110` |
+| Caretta as muscle behind T7 | `packages/action-common/src/caretta-install.ts`, `src/application/execute-autopilot.ts` |
+| Tentacles already deploy independently | `packages/work-dispatch-action/`, `packages/factory-cycle-action/` |
+
+If you read this far and the contract still feels like fiction, run
+`git grep -n "computeHoldTarget\|decideExecution\|processAgentPRs"`. The arms are
+already there. They are just waiting for a brain that admits it is one.
