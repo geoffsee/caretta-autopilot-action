@@ -19,17 +19,20 @@ single straight-line pass through `runAutopilot`
 - **One nervous system** — an intelligent scheduler that holds the world-model,
   decides which tentacle to fire and when, and sequences their work.
 
-The design constraint the name encodes: **each tentacle is impotent.** A
-tentacle cannot decide to act on its own, cannot schedule itself, cannot summon
-another tentacle, and keeps no memory between actuations. All intelligence —
-all *potency* — lives in the nervous system. This deliberately inverts real
-octopus biology (where most neurons live in the arms); Octopus Prime
-centralizes cognition and leaves the limbs as reflex arcs.
+The design constraint the name encodes: **each tentacle is idempotent.** Firing
+a tentacle twice with the same signal is indistinguishable from firing it once —
+no double-closed issues, no duplicate CI dispatch, no second commit. From this
+one property the rest follows: a tentacle keeps no memory between actuations,
+cannot schedule itself, cannot summon another tentacle, and holds no judgment
+about whether it *should* run. All intelligence lives in the nervous system;
+the limbs are reflex arcs. This deliberately inverts real octopus biology
+(where most neurons live in the arms): Octopus Prime centralizes cognition and
+leaves the arms safely repeatable.
 
 Why bother? Three payoffs:
 
-1. **Testability.** An impotent tentacle is a pure-ish function: signal in,
-   observation out. No hidden scheduling, no cross-talk.
+1. **Testability.** An idempotent, stateless tentacle is a pure-ish function:
+   signal in, observation out. No hidden scheduling, no cross-talk.
 2. **Composability.** Eight small effectors recombine into behaviors the
    monolithic pass can't express (e.g. "review three PRs, then hold").
 3. **Backpressure as a first-class concept.** The CI-hold logic that's
@@ -87,15 +90,16 @@ T5, T6 and T8 are *afferent* (they sense and report); T2, T3, T4, T7 are
 *efferent* (they change the world); T1 is the proprioceptor. The scheduler only
 fires efferent tentacles once the afferent ones have built a coherent picture.
 
-### The impotence contract
+### The idempotence contract
 
-For a tentacle to be legitimately "impotent" it must satisfy:
+For a tentacle to be legitimately "idempotent" it must satisfy:
 
+- **Idempotent** — firing twice with the same signal is indistinguishable from
+  firing once; every write is safe to replay (the current `Reap`/`Gate` steps
+  already aim for this). This is the load-bearing property; the rest enforce it.
 - **Stateless** — no memory across actuations; all input arrives in the signal.
 - **Single-shot & bounded** — one job, terminates, no internal loops over the
   repo's lifecycle.
-- **Idempotent where it writes** — firing twice with the same signal must be
-  safe (the current `Reap`/`Gate` steps already aim for this).
 - **No self-scheduling** — cannot enqueue itself or any sibling.
 - **Structured observation out** — returns data the scheduler can reason over,
   never a fire-and-forget side effect with no report.
@@ -111,7 +115,7 @@ decentralized? The honest answer is that "tentacle" and "nervous system" are
 two different axes, and the right design splits them:
 
 - **Cognition: centralized.** One scheduler owns the world-model and all
-  decisions. This is what makes tentacles safely impotent and keeps the system
+  decisions. This is what lets tentacles stay reflexive and keeps the system
   reasoning-about-able. A decentralized brain (tentacles negotiating
   peer-to-peer) reintroduces exactly the hidden cross-talk we're trying to
   delete, and on GitHub's eventually-consistent API it invites races (two arms
@@ -140,7 +144,7 @@ flowchart TD
     classDef efferent fill:#3a2630,stroke:#c97f8f,color:#f3dfe6;
     classDef muscle fill:#2a3a2a,stroke:#8fc97f,color:#e6f3df;
 
-    SOMA["✦ THE NERVOUS SYSTEM ✦<br/><i>Sapiens Schedulator</i><br/>— the sole seat of potency —<br/>world-model · plan · backpressure"]:::cortex
+    SOMA["✦ THE NERVOUS SYSTEM ✦<br/><i>Sapiens Schedulator</i><br/>— the sole seat of cognition —<br/>world-model · plan · backpressure"]:::cortex
 
     SOMA -->|"actuation: <i>I command thee</i>"| T1
     SOMA --> T2 & T3 & T4 & T5 & T6 & T8
@@ -185,13 +189,13 @@ For the ASCII-inclined and the unpretentious:
       ┌────┐    ┌────┐    ┌────┐ ┌────┐ ┌────┐    ┌────┐    ┌────┐  ...×8
       │ T1 │    │ T2 │    │ T3 │ │ T4 │ │ T5 │    │ T6 │    │ T7 │
       └────┘    └────┘    └────┘ └────┘ └────┘    └────┘    └────┘
-       each: impotent · stateless · idempotent · single-shot
+       each: idempotent · stateless · single-shot · no self-scheduling
 ```
 
 ## 5. The nervous system as an intelligent scheduler
 
-The scheduler is the only potent component, and "intelligent" means it does
-more than fixed sequencing. Its responsibilities:
+The scheduler is the only stateful, decision-making component, and "intelligent"
+means it does more than fixed sequencing. Its responsibilities:
 
 1. **Build the world-model.** Fire T1 (Sense); fold the result into a snapshot:
    open issues, agent PRs, sprint/tracker, CI state per head SHA.
@@ -223,11 +227,11 @@ Caretta is the *muscle* that **T7 · Work** contracts — the installed agent
 relationship is:
 
 - **Octopus Prime (scheduler)** decides *whether and when* to act.
-- **T7 (tentacle)** is the impotent effector that *invokes* the agent.
+- **T7 (tentacle)** is the idempotent effector that *invokes* the agent.
 - **Caretta (agent)** is the intelligence-on-loan that does the open-ended
   authoring work once told to.
 
-This keeps the impotence contract intact: T7 itself holds no judgment; it just
+This keeps the idempotence contract intact: T7 itself holds no judgment; it just
 runs caretta with the context the scheduler handed it. Caretta's own
 intelligence is downstream of, and gated by, the scheduler — it never decides
 to wake itself.
@@ -240,7 +244,7 @@ boundaries* around code that already exists, not writing new behavior.
 
 1. Formalize the **tentacle interface** (`signal → observation`) in
    `action-common`, generalizing the existing result types.
-2. Wrap each of the eight existing concerns to satisfy the impotence contract
+2. Wrap each of the eight existing concerns to satisfy the idempotence contract
    (stateless, idempotent, no self-scheduling). Most already nearly do.
 3. Lift the fixed call order out of `runAutopilot` into a **scheduler** that
    derives the plan from the snapshot + the existing policy objects.
