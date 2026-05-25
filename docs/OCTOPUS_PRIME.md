@@ -126,6 +126,51 @@ So: **a centralized brain commanding decentralized reflexes** — which, fitting
 is roughly how a real octopus splits a central brain from arm-local ganglia,
 just with the autonomy dial turned down to zero on the arms.
 
+### The Cephalopod Cathedral — an architecture in eight movements
+
+> What follows is not merely a diagram. It is a *cosmogony*: the centralized
+> Logos descending into eight obedient, memoryless limbs, each a perfect
+> instrument of a will that is not its own.
+
+```mermaid
+%%{init: {'theme':'base','themeVariables':{'primaryColor':'#1b2838','primaryTextColor':'#e6d8b5','lineColor':'#b08d57','fontFamily':'Georgia, serif'}}}%%
+flowchart TD
+    classDef cortex fill:#1b2838,stroke:#b08d57,stroke-width:3px,color:#e6d8b5;
+    classDef afferent fill:#243447,stroke:#7fa6c9,color:#dfe9f3;
+    classDef efferent fill:#3a2630,stroke:#c97f8f,color:#f3dfe6;
+    classDef muscle fill:#2a3a2a,stroke:#8fc97f,color:#e6f3df;
+
+    SOMA["✦ THE NERVOUS SYSTEM ✦<br/><i>Sapiens Schedulator</i><br/>— the sole seat of potency —<br/>world-model · plan · backpressure"]:::cortex
+
+    SOMA -->|"actuation: <i>I command thee</i>"| T1
+    SOMA --> T2 & T3 & T4 & T5 & T6 & T8
+    SOMA ==>|"and only then, the labor"| T7
+
+    subgraph AFF ["⟡ The Afferent Choir (they perceive, they do not presume) ⟡"]
+        direction LR
+        T1["T1 · SENSE<br/><i>proprioception</i>"]:::afferent
+        T5["T5 · APPRAISE<br/><i>pure cognition</i>"]:::afferent
+        T6["T6 · GATE<br/><i>keeper of backpressure</i>"]:::afferent
+        T8["T8 · REFLEX<br/><i>the threshold-warden</i>"]:::afferent
+    end
+
+    subgraph EFF ["⟡ The Efferent Hand (they alter the world, never their own fate) ⟡"]
+        direction LR
+        T2["T2 · REAP<br/><i>closer of finished things</i>"]:::efferent
+        T3["T3 · MEND<br/><i>reconciler of conflict</i>"]:::efferent
+        T4["T4 · CRITIQUE<br/><i>the merciless eye</i>"]:::efferent
+        T7["T7 · WORK<br/><i>the contracting muscle</i>"]:::efferent
+    end
+
+    CARETTA(["🐢 CARETTA<br/><i>intelligence on loan</i><br/>the muscle, not the mind"]):::muscle
+    T7 -.->|"contracts"| CARETTA
+
+    T1 & T5 & T6 & T8 -.->|"observations: <i>we report, we judge not</i>"| SOMA
+    T6 -.->|"<b>HOLD</b> — stay thy hand"| SOMA
+```
+
+For the ASCII-inclined and the unpretentious:
+
 ```
                     ┌─────────────────────────────┐
                     │     NERVOUS SYSTEM           │
