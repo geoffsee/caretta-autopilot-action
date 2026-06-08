@@ -41815,6 +41815,13 @@ class OctokitClient {
       state_reason: "completed"
     });
   }
+  async deleteBranch(refName) {
+    await this.octokit.rest.git.deleteRef({
+      owner: this.owner,
+      repo: this.repo,
+      ref: `heads/${refName}`
+    });
+  }
   async listWorkflowRuns(workflow, status, branch) {
     const res = await this.octokit.rest.actions.listWorkflowRuns({
       owner: this.owner,
@@ -42354,6 +42361,49 @@ function extractChecklistIssueRefs(body) {
   }
   return out;
 }
+function normalizePattern(pattern) {
+  if (!pattern)
+    return /^agent\/issue-[0-9]+(?:-.*)?$/;
+  return pattern;
+}
+async function cleanupMergedAgentBranches(gh, mergedPrs, openPullRequests, dryRun, deps, logInfo, logWarning) {
+  if (!gh.deleteBranch) {
+    logWarning("close-on-merge: GitHub client does not support deleteBranch; skipping merged branch cleanup.");
+    return;
+  }
+  const pattern = normalizePattern(deps.agentBranchPattern);
+  const occupiedRefs = new Set;
+  for (const pr of openPullRequests) {
+    occupiedRefs.add(pr.headRefName);
+    occupiedRefs.add(pr.baseRefName);
+  }
+  const heads = new Set;
+  for (const pr of mergedPrs) {
+    if (pattern.test(pr.headRefName))
+      heads.add(pr.headRefName);
+  }
+  for (const branch of heads) {
+    if (occupiedRefs.has(branch)) {
+      logInfo(`close-on-merge: keeping merged branch '${branch}' because an open PR still uses it.`);
+      continue;
+    }
+    if (dryRun) {
+      logInfo(`close-on-merge: dry-run skip; would delete merged branch '${branch}'.`);
+      continue;
+    }
+    try {
+      await gh.deleteBranch(branch);
+      logInfo(`close-on-merge: deleted merged branch '${branch}'.`);
+    } catch (err) {
+      const status = err.status;
+      if (status === 404 || status === 422) {
+        logInfo(`close-on-merge: merged branch '${branch}' already deleted or not found (skipping).`);
+      } else {
+        logWarning(`close-on-merge: failed to delete merged branch '${branch}': ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+  }
+}
 async function closeIssuesForMergedPrs(gh, openIssueNumbers, trackerNumber, deps = {}) {
   const info4 = deps.logInfo ?? ((m) => core3.info(m));
   const warn = deps.logWarning ?? ((m) => core3.warning(m));
@@ -42361,6 +42411,8 @@ async function closeIssuesForMergedPrs(gh, openIssueNumbers, trackerNumber, deps
     gh.listRecentlyMergedPullRequests(),
     gh.getDefaultBranch()
   ]);
+  const openPullRequests = deps.openPullRequests?.length ? deps.openPullRequests : await gh.listOpenPullRequests();
+  await cleanupMergedAgentBranches(gh, mergedPrs, openPullRequests, !!deps.dryRun, deps, info4, warn);
   const { candidates, skipped } = selectCloseCandidates(mergedPrs, openIssueNumbers, defaultBranch);
   const closed = [];
   for (const { pr, issueNumber } of candidates) {
@@ -46419,14 +46471,18 @@ var init_pr_ci = __esm(() => {
 
 // src/application/run-autopilot.ts
 async function runAutopilot(gh, exec2, config, _ref, executeDeps, domain = functionalAutopilotDomainModel) {
-  const initialIssues = await gh.listOpenIssues();
-  const trackerNumber = domain.findActiveSprint(initialIssues);
-  const closeOnMerge = await closeIssuesForMergedPrs(gh, new Set(initialIssues.map((i) => i.number)), trackerNumber);
-  const closedSet = new Set(closeOnMerge.closed);
-  const [issues, initialPrs] = await Promise.all([
-    closedSet.size === 0 ? Promise.resolve(initialIssues) : Promise.resolve(initialIssues.filter((i) => !closedSet.has(i.number))),
+  const [initialIssues, initialPrs] = await Promise.all([
+    gh.listOpenIssues(),
     gh.listOpenPullRequests()
   ]);
+  const trackerNumber = domain.findActiveSprint(initialIssues);
+  const closeOnMerge = await closeIssuesForMergedPrs(gh, new Set(initialIssues.map((i) => i.number)), trackerNumber, {
+    openPullRequests: initialPrs,
+    dryRun: config.dryRun,
+    agentBranchPattern: config.agentBranchPattern
+  });
+  const closedSet = new Set(closeOnMerge.closed);
+  const issues = closedSet.size === 0 ? initialIssues : initialIssues.filter((i) => !closedSet.has(i.number));
   const dirtyResolved = await resolveDirtyAgentPRs(gh, exec2, config, initialPrs, executeDeps);
   const prsAfterDirty = dirtyResolved ? await gh.listOpenPullRequests() : initialPrs;
   const reviewed = await reviewAndFixAgentPRs(gh, exec2, config, prsAfterDirty, executeDeps);
@@ -46597,4 +46653,4 @@ main().catch((error) => {
   core9.setFailed(message);
 });
 
-//# debugId=81651C7A238B666564756E2164756E21
+//# debugId=7E3B9DD4B4B43B5264756E2164756E21

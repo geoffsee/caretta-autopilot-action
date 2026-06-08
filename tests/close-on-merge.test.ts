@@ -5,7 +5,7 @@ import {
   selectCloseCandidates,
   updateTrackerChecklist,
 } from "../src/application/close-on-merge.js";
-import { FakeGitHub, makeMergedPR } from "./fakes.js";
+import { FakeGitHub, makeMergedPR, makePR } from "./fakes.js";
 
 describe("parseClosingIssueNumbers", () => {
   test.each([
@@ -238,6 +238,122 @@ describe("updateTrackerChecklist", () => {
 });
 
 describe("closeIssuesForMergedPrs", () => {
+  test("deletes merged agent branches after merge when not referenced by open PRs", async () => {
+    const gh = new FakeGitHub({
+      mergedPrs: [
+        makeMergedPR({
+          number: 301,
+          headRefName: "agent/issue-301",
+          baseRefName: "main",
+          body: "",
+        }),
+        makeMergedPR({
+          number: 302,
+          headRefName: "agent/issue-302",
+          baseRefName: "main",
+          body: "",
+        }),
+      ],
+      defaultBranch: "main",
+    });
+
+    const result = await closeIssuesForMergedPrs(gh, new Set<number>(), null, {
+      openPullRequests: [],
+    });
+
+    expect(result.closed).toEqual([]);
+    expect(gh.deletedBranches).toEqual(["agent/issue-301", "agent/issue-302"]);
+  });
+
+  test("does not delete merged branches still used by open PRs", async () => {
+    const gh = new FakeGitHub({
+      mergedPrs: [
+        makeMergedPR({
+          number: 401,
+          headRefName: "agent/issue-401",
+          baseRefName: "main",
+          body: "",
+        }),
+        makeMergedPR({
+          number: 402,
+          headRefName: "agent/issue-402",
+          baseRefName: "main",
+          body: "",
+        }),
+        makeMergedPR({
+          number: 403,
+          headRefName: "agent/issue-403",
+          baseRefName: "main",
+          body: "",
+        }),
+      ],
+      defaultBranch: "main",
+    });
+
+    const openPullRequests = [
+      makePR({
+        number: 501,
+        headRefName: "agent/issue-401",
+        baseRefName: "main",
+      }),
+      makePR({
+        number: 502,
+        headRefName: "agent/issue-999",
+        baseRefName: "agent/issue-402",
+      }),
+    ];
+
+    const result = await closeIssuesForMergedPrs(gh, new Set<number>(), null, {
+      openPullRequests,
+    });
+
+    expect(result.closed).toEqual([]);
+    expect(gh.deletedBranches).toEqual(["agent/issue-403"]);
+  });
+
+  test("dry-run does not delete merged branches", async () => {
+    const gh = new FakeGitHub({
+      mergedPrs: [
+        makeMergedPR({
+          number: 601,
+          headRefName: "agent/issue-601",
+          baseRefName: "main",
+          body: "",
+        }),
+      ],
+      defaultBranch: "main",
+    });
+
+    const result = await closeIssuesForMergedPrs(gh, new Set<number>(), null, {
+      dryRun: true,
+    });
+
+    expect(result.closed).toEqual([]);
+    expect(gh.deletedBranches).toEqual([]);
+  });
+
+  test("ignores merged heads that do not match the agent branch pattern", async () => {
+    const gh = new FakeGitHub({
+      mergedPrs: [
+        makeMergedPR({
+          number: 602,
+          headRefName: "feature/not-an-agent-branch",
+          baseRefName: "main",
+          body: "",
+        }),
+      ],
+      defaultBranch: "main",
+    });
+
+    const result = await closeIssuesForMergedPrs(gh, new Set<number>(), null, {
+      openPullRequests: [],
+      agentBranchPattern: /^agent\/issue-[0-9]+(?:-.*)?$/,
+    });
+
+    expect(result.closed).toEqual([]);
+    expect(gh.deletedBranches).toEqual([]);
+  });
+
   test("closes issue referenced by a merged PR targeting a non-default base, and comments the back-link", async () => {
     const gh = new FakeGitHub({
       mergedPrs: [

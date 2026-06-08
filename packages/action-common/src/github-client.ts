@@ -19,6 +19,11 @@ export interface GitHubClient {
   getIssueBody(issueNumber: number): Promise<string>;
   updateIssueBody(issueNumber: number, body: string): Promise<void>;
   closeIssueWithComment(issueNumber: number, comment: string): Promise<void>;
+  /**
+   * Delete a branch ref from `refs/heads/<name>`. Implemented by the production
+   * GitHub client and used for stack cleanup after merged agent PRs.
+   */
+  deleteBranch?(refName: string): Promise<void>;
   listWorkflowRuns(
     workflow: string,
     status?: string,
@@ -237,6 +242,14 @@ class OctokitClient implements GitHubClient {
       issue_number: issueNumber,
       state: "closed",
       state_reason: "completed",
+    });
+  }
+
+  async deleteBranch(refName: string): Promise<void> {
+    await this.octokit.rest.git.deleteRef({
+      owner: this.owner,
+      repo: this.repo,
+      ref: `heads/${refName}`,
     });
   }
 

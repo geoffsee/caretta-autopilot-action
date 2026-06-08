@@ -66,21 +66,27 @@ export async function runAutopilot(
   executeDeps?: ExecuteDeps,
   domain: AutopilotDomainModel = functionalAutopilotDomainModel,
 ): Promise<AutopilotRunResult> {
-  const initialIssues = await gh.listOpenIssues();
+  const [initialIssues, initialPrs] = await Promise.all([
+    gh.listOpenIssues(),
+    gh.listOpenPullRequests(),
+  ]);
   const trackerNumber = domain.findActiveSprint(initialIssues);
   const closeOnMerge = await closeIssuesForMergedPrs(
     gh,
     new Set(initialIssues.map((i) => i.number)),
     trackerNumber,
+    {
+      openPullRequests: initialPrs,
+      dryRun: config.dryRun,
+      agentBranchPattern: config.agentBranchPattern,
+    },
   );
 
   const closedSet = new Set(closeOnMerge.closed);
-  const [issues, initialPrs] = await Promise.all([
+  const issues =
     closedSet.size === 0
-      ? Promise.resolve(initialIssues)
-      : Promise.resolve(initialIssues.filter((i) => !closedSet.has(i.number))),
-    gh.listOpenPullRequests(),
-  ]);
+      ? initialIssues
+      : initialIssues.filter((i) => !closedSet.has(i.number));
 
   // Resolve DIRTY agent PRs before the hold decision. Conflict resolution is
   // non-disruptive (it doesn't dispatch new work or re-run others' CI), so it

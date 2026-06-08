@@ -74,6 +74,7 @@ export interface FakeData {
   closeIssueShouldFail: (issueNumber: number) => boolean;
   updateIssueBodyShouldFail: (issueNumber: number) => boolean;
   getIssueBodyShouldFail?: (issueNumber: number) => boolean;
+  deleteBranchShouldFail?: (refName: string) => boolean;
   /** Pre-seeded commit statuses (e.g. stale pending before reconcile). */
   initialCommitStatuses?: readonly StatusCall[];
   /** Consume N failures on `createCommitStatus` calls, then succeed. */
@@ -98,6 +99,7 @@ export class FakeGitHub implements GitHubClient {
   readonly createdStatuses: StatusCall[] = [];
   readonly enableAutoMergeCalls: number[] = [];
   readonly mergedPrs: { prNumber: number; method: string }[] = [];
+  readonly deletedBranches: string[] = [];
   /**
    * When set, `enableAutoMerge` throws an error containing this message
    * the first time it's called for the matching PR number. Subsequent calls
@@ -158,6 +160,13 @@ export class FakeGitHub implements GitHubClient {
       throw new Error(`closeIssueWithComment failed for #${issueNumber}`);
     }
     this.closedIssues.push({ issueNumber, comment });
+  }
+
+  async deleteBranch(refName: string): Promise<void> {
+    if (this.data.deleteBranchShouldFail?.(refName)) {
+      throw new Error(`deleteBranch failed for ${refName}`);
+    }
+    this.deletedBranches.push(refName);
   }
 
   async listWorkflowRuns(

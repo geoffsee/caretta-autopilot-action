@@ -4,6 +4,7 @@ import type {
   IssueCloseResult,
   IssueCloseSkip,
   MergedPullRequest,
+  PullRequest,
 } from "@caretta/action-common/types";
 
 const CLOSING_KEYWORD_RE =
@@ -151,6 +152,76 @@ export function extractChecklistIssueRefs(body: string): number[] {
 export interface CloseOnMergeDeps {
   readonly logInfo?: (msg: string) => void;
   readonly logWarning?: (msg: string) => void;
+  readonly openPullRequests?: readonly PullRequest[];
+  readonly dryRun?: boolean;
+  readonly agentBranchPattern?: RegExp;
+}
+
+function normalizePattern(pattern?: RegExp): RegExp {
+  if (!pattern) return /^agent\/issue-[0-9]+(?:-.*)?$/;
+  return pattern;
+}
+
+async function cleanupMergedAgentBranches(
+  gh: GitHubClient,
+  mergedPrs: readonly MergedPullRequest[],
+  openPullRequests: readonly PullRequest[],
+  dryRun: boolean,
+  deps: CloseOnMergeDeps,
+  logInfo: (msg: string) => void,
+  logWarning: (msg: string) => void,
+): Promise<void> {
+  if (!gh.deleteBranch) {
+    logWarning(
+      "close-on-merge: GitHub client does not support deleteBranch; skipping merged branch cleanup.",
+    );
+    return;
+  }
+
+  const pattern = normalizePattern(deps.agentBranchPattern);
+  const occupiedRefs = new Set<string>();
+  for (const pr of openPullRequests) {
+    occupiedRefs.add(pr.headRefName);
+    occupiedRefs.add(pr.baseRefName);
+  }
+
+  const heads = new Set<string>();
+  for (const pr of mergedPrs) {
+    if (pattern.test(pr.headRefName)) heads.add(pr.headRefName);
+  }
+  for (const branch of heads) {
+    if (occupiedRefs.has(branch)) {
+      logInfo(
+        `close-on-merge: keeping merged branch '${branch}' because an open PR still uses it.`,
+      );
+      continue;
+    }
+
+    if (dryRun) {
+      logInfo(
+        `close-on-merge: dry-run skip; would delete merged branch '${branch}'.`,
+      );
+      continue;
+    }
+
+    try {
+      await gh.deleteBranch(branch);
+      logInfo(`close-on-merge: deleted merged branch '${branch}'.`);
+    } catch (err) {
+      const status = (err as { status?: number }).status;
+      if (status === 404 || status === 422) {
+        logInfo(
+          `close-on-merge: merged branch '${branch}' already deleted or not found (skipping).`,
+        );
+      } else {
+        logWarning(
+          `close-on-merge: failed to delete merged branch '${branch}': ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+      }
+    }
+  }
 }
 
 /**
@@ -171,6 +242,19 @@ export async function closeIssuesForMergedPrs(
     gh.listRecentlyMergedPullRequests(),
     gh.getDefaultBranch(),
   ]);
+
+  const openPullRequests = deps.openPullRequests?.length
+    ? deps.openPullRequests
+    : await gh.listOpenPullRequests();
+  await cleanupMergedAgentBranches(
+    gh,
+    mergedPrs,
+    openPullRequests,
+    !!deps.dryRun,
+    deps,
+    info,
+    warn,
+  );
 
   const { candidates, skipped } = selectCloseCandidates(
     mergedPrs,

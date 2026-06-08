@@ -45100,6 +45100,13 @@ class OctokitClient {
       state_reason: "completed"
     });
   }
+  async deleteBranch(refName) {
+    await this.octokit.rest.git.deleteRef({
+      owner: this.owner,
+      repo: this.repo,
+      ref: `heads/${refName}`
+    });
+  }
   async listWorkflowRuns(workflow, status, branch) {
     const res = await this.octokit.rest.actions.listWorkflowRuns({
       owner: this.owner,
@@ -45395,4 +45402,4 @@ main().catch((error) => {
   core5.setFailed(message);
 });
 
-//# debugId=3D0474A222950B1464756E2164756E21
+//# debugId=6C39D81DE970CC2464756E2164756E21
