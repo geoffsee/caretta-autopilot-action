@@ -5,6 +5,10 @@ import {
   type GitHubPortDependencies,
   type GithubActionContext,
 } from "@caretta/action-common/action-services";
+import {
+  persistCodexAuthJson,
+  restoreCodexAuthJson,
+} from "@caretta/action-common/caretta-install";
 import { DefaultExecClient as ProductionExecClient } from "@caretta/action-common/exec-client";
 import { createOctokitClient as createProductionGitHubClient } from "@caretta/action-common/github-client";
 import {
@@ -104,12 +108,23 @@ export class AutopilotWorkflow {
       gitUserEmail,
     };
 
+    const env = process.env as Record<string, string>;
+    const codexAuthManaged = agent === "codex" && restoreCodexAuthJson(env);
+
     const { gh, exec } = this.ports.create(token);
     const runAutopilotUseCase: RunAutopilotUseCase =
       this.deps.runAutopilotUseCase ??
       ((gh, exec, config, ref) =>
         this.autopilotUseCase.run(gh, exec, config, ref));
-    const result = await runAutopilotUseCase(gh, exec, config, ref);
+
+    let result: Awaited<ReturnType<RunAutopilotUseCase>>;
+    try {
+      result = await runAutopilotUseCase(gh, exec, config, ref);
+    } finally {
+      if (codexAuthManaged) {
+        await persistCodexAuthJson(env);
+      }
+    }
 
     this.runtime.setOutput("route", result.evaluation.route);
     this.runtime.setOutput("tracker", result.evaluation.tracker);

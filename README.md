@@ -83,6 +83,21 @@ A complete example consumer repo lives at [`examples/autopilot-example-project/`
 | `git-user-name`   | `caretta-autopilot[bot]`                             | Git author/committer name used when caretta creates commits.                                                         |
 | `git-user-email`  | `caretta-autopilot[bot]@users.noreply.github.com`    | Git author/committer email used when caretta creates commits.                                                        |
 
+### Codex agent (`agent: codex`)
+
+For ChatGPT-managed Codex auth on ephemeral runners, seed `CODEX_AUTH_JSON` once from a trusted machine (`codex login` with `cli_auth_credentials_store = "file"`), then pass it to the action. The action restores `~/.codex/auth.json` before caretta runs and persists any refreshed tokens back to the secret after the job. See [OpenAI's CI/CD auth guide](https://developers.openai.com/codex/auth/ci-cd-auth).
+
+```yaml
+permissions:
+  secrets: write   # required for auth.json round-trip
+
+- uses: geoffsee/caretta-autopilot-action@main
+  with:
+    agent: codex
+  env:
+    CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}
+```
+
 ## Outputs
 
 | Output              | Description                                                                              |
@@ -112,6 +127,7 @@ permissions:
   contents: write        # caretta commits during execution
   issues: write          # caretta opens/edits issues
   pull-requests: write
+  secrets: write         # persist refreshed Codex auth.json when agent: codex
 ```
 
 ## Development

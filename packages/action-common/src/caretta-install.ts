@@ -242,3 +242,71 @@ export function materializeBotPrivateKey(env: Record<string, string>): void {
   env.DEV_BOT_PRIVATE_KEY = pemPath;
   core.info(`Decoded DEV_BOT_PRIVATE_KEY_B64 to ${pemPath}`);
 }
+
+/** Marker env var set when the action seeds ~/.codex/auth.json for CI. */
+export const CODEX_AUTH_MANAGED_ENV = "CARETTA_CODEX_AUTH_MANAGED";
+
+function codexHomeDir(env: Record<string, string>): string {
+  const configured = env.CODEX_HOME?.trim();
+  return configured && configured.length > 0
+    ? configured
+    : path.join(os.homedir(), ".codex");
+}
+
+function codexAuthJsonPath(env: Record<string, string>): string {
+  return path.join(codexHomeDir(env), "auth.json");
+}
+
+/**
+ * Restore ChatGPT-managed Codex auth for ephemeral CI runners.
+ * See https://developers.openai.com/codex/auth/ci-cd-auth
+ */
+export function restoreCodexAuthJson(env: Record<string, string>): boolean {
+  const raw = env.CODEX_AUTH_JSON?.trim();
+  if (!raw) return false;
+
+  core.setSecret(raw);
+  const codexHome = codexHomeDir(env);
+  fs.mkdirSync(codexHome, { recursive: true, mode: 0o700 });
+  const authPath = codexAuthJsonPath(env);
+  fs.writeFileSync(authPath, raw, { mode: 0o600 });
+  env.CODEX_HOME = codexHome;
+  env[CODEX_AUTH_MANAGED_ENV] = "1";
+  core.info(`Restored Codex auth.json for CI (${authPath})`);
+  return true;
+}
+
+/** Write refreshed auth.json back to the CODEX_AUTH_JSON repository secret. */
+export async function persistCodexAuthJson(
+  env: Record<string, string>,
+): Promise<void> {
+  if (env[CODEX_AUTH_MANAGED_ENV] !== "1") return;
+
+  const authPath = codexAuthJsonPath(env);
+  if (!fs.existsSync(authPath)) {
+    core.warning("Codex auth.json missing after run; skipping secret persist");
+    return;
+  }
+
+  const ghToken = env.GH_TOKEN?.trim() || env.GITHUB_TOKEN?.trim();
+  if (!ghToken) {
+    core.warning("No GH_TOKEN available; skipping Codex auth.json persist");
+    return;
+  }
+
+  core.info("Persisting refreshed Codex auth.json to CODEX_AUTH_JSON secret");
+  const exitCode = await exec.exec(
+    "gh",
+    ["secret", "set", "CODEX_AUTH_JSON", "--body-file", authPath],
+    {
+      env: { ...process.env, GH_TOKEN: ghToken },
+      ignoreReturnCode: true,
+      silent: true,
+    },
+  );
+  if (exitCode !== 0) {
+    core.warning(
+      `gh secret set CODEX_AUTH_JSON failed (exit ${exitCode}); ensure the workflow grants secrets: write`,
+    );
+  }
+}

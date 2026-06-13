@@ -46,8 +46,21 @@ Add the following under **Settings → Secrets and variables → Actions** in th
 | `DEV_BOT_APP_ID`            | Numeric App ID from §1.                                                                       |
 | `DEV_BOT_INSTALLATION_ID`   | Installation ID from §1. **Required** — without it, caretta falls back to `GITHUB_TOKEN` and `code-review` will 403. |
 | `DEV_BOT_PRIVATE_KEY_B64`   | Base64-encoded `.pem` from §1. Decoded into a temp file on the runner and re-exported as `DEV_BOT_PRIVATE_KEY`.       |
+| `CODEX_AUTH_JSON`           | Required when `agent: codex` — contents of `~/.codex/auth.json` from a trusted `codex login`. The action restores and persists this automatically. |
 
 > The action emits a warning when `DEV_BOT_APP_ID` and `DEV_BOT_PRIVATE_KEY` are present but `DEV_BOT_INSTALLATION_ID` is missing — watch for it in the job log on first run.
+
+### Codex (`agent: codex`)
+
+ChatGPT-managed Codex auth on ephemeral GitHub-hosted runners needs an `auth.json` round-trip. The action handles restore/persist when you pass `CODEX_AUTH_JSON`; you only seed the secret once:
+
+```bash
+# On a trusted machine with browser login:
+codex login
+gh secret set CODEX_AUTH_JSON < "${CODEX_HOME:-$HOME/.codex}/auth.json" --repo your-org/your-repo
+```
+
+Add `secrets: write` to the workflow `permissions:` block so the action can write refreshed tokens back after each run. See [OpenAI's CI/CD auth guide](https://developers.openai.com/codex/auth/ci-cd-auth).
 
 ## 3. Add the workflow
 
@@ -72,6 +85,7 @@ permissions:
   contents: write
   issues: write
   pull-requests: write
+  secrets: write
 
 jobs:
   autopilot:

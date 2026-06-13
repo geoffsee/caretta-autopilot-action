@@ -9,16 +9,20 @@ import * as core from "@actions/core";
 import * as exec from "@actions/exec";
 import * as tc from "@actions/tool-cache";
 import {
+  CODEX_AUTH_MANAGED_ENV,
   configureGitIdentity,
   installCaretta,
   installLinuxRuntimeDeps,
   materializeBotPrivateKey,
+  persistCodexAuthJson,
+  restoreCodexAuthJson,
 } from "@caretta/action-common/caretta-install";
 
 mock.module("node:fs", () => ({
   existsSync: mock(),
   readFileSync: mock(),
   writeFileSync: mock(),
+  mkdirSync: mock(),
 }));
 
 mock.module("@actions/core", () => ({
@@ -321,6 +325,64 @@ describe("install.ts", () => {
         expect.anything(),
       );
       expect(env.DEV_BOT_PRIVATE_KEY).toContain("dev-bot.pem");
+    });
+  });
+
+  describe("restoreCodexAuthJson", () => {
+    it("does nothing when CODEX_AUTH_JSON is missing", () => {
+      const env: Record<string, string> = {};
+      expect(restoreCodexAuthJson(env)).toBe(false);
+      expect(fs.writeFileSync).not.toHaveBeenCalled();
+    });
+
+    it("writes auth.json and marks the session managed", () => {
+      const env: Record<string, string> = {
+        CODEX_AUTH_JSON: '{"auth_mode":"chatgpt"}',
+        HOME: "/home/runner",
+      };
+
+      expect(restoreCodexAuthJson(env)).toBe(true);
+      expect(fs.mkdirSync).toHaveBeenCalled();
+      expect(fs.writeFileSync).toHaveBeenCalledWith(
+        expect.stringContaining("auth.json"),
+        '{"auth_mode":"chatgpt"}',
+        expect.objectContaining({ mode: 0o600 }),
+      );
+      expect(env[CODEX_AUTH_MANAGED_ENV]).toBe("1");
+      expect(env.CODEX_HOME).toContain(".codex");
+    });
+  });
+
+  describe("persistCodexAuthJson", () => {
+    it("does nothing unless the action restored auth.json", async () => {
+      await persistCodexAuthJson({});
+      expect(exec.exec).not.toHaveBeenCalled();
+    });
+
+    it("updates CODEX_AUTH_JSON when auth.json exists", async () => {
+      (fs.existsSync as AnyMock).mockReturnValue(true);
+      const env: Record<string, string> = {
+        [CODEX_AUTH_MANAGED_ENV]: "1",
+        GH_TOKEN: "ghs_test",
+        HOME: "/home/runner",
+      };
+      (exec.exec as AnyMock).mockResolvedValue(0);
+
+      await persistCodexAuthJson(env);
+
+      expect(exec.exec).toHaveBeenCalledWith(
+        "gh",
+        [
+          "secret",
+          "set",
+          "CODEX_AUTH_JSON",
+          "--body-file",
+          expect.stringContaining("auth.json"),
+        ],
+        expect.objectContaining({
+          env: expect.objectContaining({ GH_TOKEN: "ghs_test" }),
+        }),
+      );
     });
   });
 });
