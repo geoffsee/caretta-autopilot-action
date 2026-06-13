@@ -305,8 +305,6 @@ export async function persistCodexAuthJson(
     },
   );
   if (exitCode !== 0) {
-    core.warning(
-      `gh secret set CODEX_AUTH_JSON failed (exit ${exitCode}); ensure the workflow grants secrets: write`,
-    );
+    core.warning(`gh secret set CODEX_AUTH_JSON failed (exit ${exitCode})`);
   }
 }

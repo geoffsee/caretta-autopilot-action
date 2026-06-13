@@ -40425,7 +40425,7 @@ async function persistCodexAuthJson(env) {
     silent: true
   });
   if (exitCode !== 0) {
-    core2.warning(`gh secret set CODEX_AUTH_JSON failed (exit ${exitCode}); ensure the workflow grants secrets: write`);
+    core2.warning(`gh secret set CODEX_AUTH_JSON failed (exit ${exitCode})`);
   }
 }
 var core2, REPO = "geoffsee/caretta", BINARY = "caretta", LINUX_RUNTIME_DEPS, CODEX_AUTH_MANAGED_ENV = "CARETTA_CODEX_AUTH_MANAGED";
@@ -46707,4 +46707,4 @@ main().catch((error) => {
   core9.setFailed(message);
 });
 
-//# debugId=AFA9ADFCAA64C0D064756E2164756E21
+//# debugId=A74831F7C984EC6864756E2164756E21

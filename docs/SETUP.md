@@ -60,8 +60,6 @@ codex login
 gh secret set CODEX_AUTH_JSON < "${CODEX_HOME:-$HOME/.codex}/auth.json" --repo your-org/your-repo
 ```
 
-Add `secrets: write` to the workflow `permissions:` block so the action can write refreshed tokens back after each run. See [OpenAI's CI/CD auth guide](https://developers.openai.com/codex/auth/ci-cd-auth).
-
 ## 3. Add the workflow
 
 Create `.github/workflows/autopilot.yml` in your repository:
@@ -85,7 +83,6 @@ permissions:
   contents: write
   issues: write
   pull-requests: write
-  secrets: write
 
 jobs:
   autopilot:
