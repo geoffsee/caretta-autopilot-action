@@ -45108,20 +45108,28 @@ class OctokitClient {
     });
   }
   async listWorkflowRuns(workflow, status, branch) {
-    const res = await this.octokit.rest.actions.listWorkflowRuns({
-      owner: this.owner,
-      repo: this.repo,
-      workflow_id: workflow,
-      status,
-      branch,
-      per_page: 50
-    });
-    return res.data.workflow_runs.map((r) => ({
-      id: r.id,
-      headSha: r.head_sha,
-      status: r.status ?? "",
-      conclusion: r.conclusion ?? null
-    }));
+    try {
+      const res = await this.octokit.rest.actions.listWorkflowRuns({
+        owner: this.owner,
+        repo: this.repo,
+        workflow_id: workflow,
+        status,
+        branch,
+        per_page: 50
+      });
+      return res.data.workflow_runs.map((r) => ({
+        id: r.id,
+        headSha: r.head_sha,
+        status: r.status ?? "",
+        conclusion: r.conclusion ?? null
+      }));
+    } catch (err) {
+      if (err.status === 404) {
+        core3.info(`listWorkflowRuns: workflow "${workflow}" not found in ${this.owner}/${this.repo}; treating as no runs.`);
+        return [];
+      }
+      throw err;
+    }
   }
   async listCheckRuns(sha) {
     core3.info(`listCheckRuns: fetching checks for ref ${sha}`);
@@ -45402,4 +45410,4 @@ main().catch((error) => {
   core5.setFailed(message);
 });
 
-//# debugId=C88A64E5011603DB64756E2164756E21
+//# debugId=3D7A2E8B3323636964756E2164756E21

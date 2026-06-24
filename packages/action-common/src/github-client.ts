@@ -258,20 +258,30 @@ class OctokitClient implements GitHubClient {
     status?: string,
     branch?: string,
   ): Promise<WorkflowRun[]> {
-    const res = await this.octokit.rest.actions.listWorkflowRuns({
-      owner: this.owner,
-      repo: this.repo,
-      workflow_id: workflow,
-      status: status as "queued" | "in_progress" | "completed",
-      branch,
-      per_page: 50,
-    });
-    return res.data.workflow_runs.map((r) => ({
-      id: r.id,
-      headSha: r.head_sha,
-      status: r.status ?? "",
-      conclusion: r.conclusion ?? null,
-    }));
+    try {
+      const res = await this.octokit.rest.actions.listWorkflowRuns({
+        owner: this.owner,
+        repo: this.repo,
+        workflow_id: workflow,
+        status: status as "queued" | "in_progress" | "completed",
+        branch,
+        per_page: 50,
+      });
+      return res.data.workflow_runs.map((r) => ({
+        id: r.id,
+        headSha: r.head_sha,
+        status: r.status ?? "",
+        conclusion: r.conclusion ?? null,
+      }));
+    } catch (err) {
+      if ((err as { status?: number }).status === 404) {
+        core.info(
+          `listWorkflowRuns: workflow "${workflow}" not found in ${this.owner}/${this.repo}; treating as no runs.`,
+        );
+        return [];
+      }
+      throw err;
+    }
   }
 
   async listCheckRuns(sha: string): Promise<CheckRun[]> {

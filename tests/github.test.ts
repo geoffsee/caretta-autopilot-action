@@ -129,6 +129,40 @@ describe("OctokitClient", () => {
     });
   });
 
+  it("listWorkflowRuns returns [] when workflow file is missing (404)", async () => {
+    const notFound = Object.assign(new Error("Not Found"), { status: 404 });
+    const mockOctokit = {
+      rest: {
+        actions: {
+          listWorkflowRuns: mock().mockRejectedValue(notFound),
+        },
+      },
+    };
+    (github.getOctokit as AnyMock).mockReturnValue(mockOctokit);
+
+    const client = createOctokitClient(token, owner, repo);
+    const runs = await client.listWorkflowRuns("missing.yml");
+
+    expect(runs).toEqual([]);
+  });
+
+  it("listWorkflowRuns rethrows non-404 errors", async () => {
+    const serverErr = Object.assign(new Error("Server error"), { status: 500 });
+    const mockOctokit = {
+      rest: {
+        actions: {
+          listWorkflowRuns: mock().mockRejectedValue(serverErr),
+        },
+      },
+    };
+    (github.getOctokit as AnyMock).mockReturnValue(mockOctokit);
+
+    const client = createOctokitClient(token, owner, repo);
+    await expect(client.listWorkflowRuns("workflow.yml")).rejects.toThrow(
+      "Server error",
+    );
+  });
+
   it("listCheckRuns returns checks", async () => {
     const mockOctokit = {
       rest: {
