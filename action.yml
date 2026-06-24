@@ -18,6 +18,10 @@ inputs:
     description: "Natural-language steering context."
     required: false
     default: "Autopilot scheduled evaluation of open issues and pull requests."
+  geodynamo-url:
+    description: "Optional geodynamo GitHub Pages project URL. Overrides caretta.toml geodynamo_url; otherwise falls back to https://geoffsee.github.io/geodynamo/. Factory cycles read contexts/<repo-name>/context.json only."
+    required: false
+    default: ""
   dry-run:
     description: "Evaluate and report without executing caretta or dispatching CI."
     required: false

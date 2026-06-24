@@ -1,3 +1,5 @@
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { ACTION_COMPONENTS } from "@caretta/action-common/action-composition";
 import type { ActionRuntime } from "@caretta/action-common/action-runtime";
 import {
@@ -14,6 +16,7 @@ import { createOctokitClient as createProductionGitHubClient } from "@caretta/ac
 import {
   type AutopilotConfig,
   DEFAULT_AGENT_BRANCH,
+  DEFAULT_GEODYNAMO_URL,
 } from "@caretta/action-common/types";
 import {
   Component as Inject,
@@ -40,6 +43,182 @@ export interface AutopilotGithubActionContext extends GithubActionContext {
   readonly payload?: Record<string, unknown>;
 }
 
+export async function resolveGeodynamoUrl(
+  runtime: ActionRuntime,
+  workspace = process.env.GITHUB_WORKSPACE || "",
+): Promise<string> {
+  const explicitInput = runtime.getInput("geodynamo-url").trim();
+  if (explicitInput) return explicitInput;
+
+  const configUrl = workspace
+    ? await readCarettaTomlGeodynamoUrl(runtime, workspace)
+    : null;
+  return configUrl ?? DEFAULT_GEODYNAMO_URL;
+}
+
+async function readCarettaTomlGeodynamoUrl(
+  runtime: ActionRuntime,
+  workspace: string,
+): Promise<string | null> {
+  const configPath = join(workspace, "caretta.toml");
+
+  let contents: string;
+  try {
+    contents = await readFile(configPath, "utf8");
+  } catch (error) {
+    if (isNotFoundError(error)) return null;
+    runtime.warning(`Ignoring unreadable caretta.toml: ${errorMessage(error)}`);
+    return null;
+  }
+
+  let parsed: string | null;
+  try {
+    parsed = readTopLevelTomlString(contents, "geodynamo_url");
+  } catch (error) {
+    runtime.warning(
+      `Ignoring invalid caretta.toml geodynamo_url: ${errorMessage(error)}`,
+    );
+    return null;
+  }
+
+  if (!parsed) return null;
+  try {
+    return normalizeHttpUrl(parsed);
+  } catch (error) {
+    runtime.warning(
+      `Ignoring invalid caretta.toml geodynamo_url: ${errorMessage(error)}`,
+    );
+    return null;
+  }
+}
+
+function readTopLevelTomlString(contents: string, key: string): string | null {
+  for (const rawLine of contents.split(/\r?\n/)) {
+    const line = stripTomlComment(rawLine).trim();
+    if (!line) continue;
+    if (/^\[/.test(line)) return null;
+
+    const match = line.match(/^([A-Za-z0-9_-]+)\s*=\s*(.+)$/);
+    if (!match || match[1] !== key) continue;
+    return parseTomlStringValue(match[2].trim(), key);
+  }
+  return null;
+}
+
+function stripTomlComment(line: string): string {
+  let quote: "'" | '"' | null = null;
+  let escaped = false;
+  for (let i = 0; i < line.length; i += 1) {
+    const ch = line[i];
+    if (quote === '"') {
+      if (escaped) {
+        escaped = false;
+      } else if (ch === "\\") {
+        escaped = true;
+      } else if (ch === '"') {
+        quote = null;
+      }
+      continue;
+    }
+    if (quote === "'") {
+      if (ch === "'") quote = null;
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      quote = ch;
+      continue;
+    }
+    if (ch === "#") return line.slice(0, i);
+  }
+  return line;
+}
+
+function parseTomlStringValue(value: string, key: string): string {
+  if (value.startsWith('"')) {
+    return parseBasicTomlString(value, key);
+  }
+  if (value.startsWith("'")) {
+    return parseLiteralTomlString(value, key);
+  }
+  throw new Error(`${key} must be a string`);
+}
+
+function parseBasicTomlString(value: string, key: string): string {
+  let result = "";
+  let escaped = false;
+  for (let i = 1; i < value.length; i += 1) {
+    const ch = value[i];
+    if (escaped) {
+      result += decodeTomlEscape(ch, key);
+      escaped = false;
+      continue;
+    }
+    if (ch === "\\") {
+      escaped = true;
+      continue;
+    }
+    if (ch === '"') {
+      if (value.slice(i + 1).trim()) {
+        throw new Error(`${key} has trailing characters`);
+      }
+      return result;
+    }
+    result += ch;
+  }
+  throw new Error(`${key} has an unterminated string`);
+}
+
+function parseLiteralTomlString(value: string, key: string): string {
+  const close = value.indexOf("'", 1);
+  if (close < 0) throw new Error(`${key} has an unterminated string`);
+  if (value.slice(close + 1).trim()) {
+    throw new Error(`${key} has trailing characters`);
+  }
+  return value.slice(1, close);
+}
+
+function decodeTomlEscape(ch: string, key: string): string {
+  switch (ch) {
+    case "b":
+      return "\b";
+    case "t":
+      return "\t";
+    case "n":
+      return "\n";
+    case "f":
+      return "\f";
+    case "r":
+      return "\r";
+    case '"':
+      return '"';
+    case "\\":
+      return "\\";
+    default:
+      throw new Error(`${key} contains an unsupported escape`);
+  }
+}
+
+function normalizeHttpUrl(raw: string): string {
+  const url = new URL(raw.trim());
+  if (!["http:", "https:"].includes(url.protocol) || !url.hostname) {
+    throw new Error("must be an absolute http(s) URL");
+  }
+  return url.toString();
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function isNotFoundError(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    (error as { code?: unknown }).code === "ENOENT"
+  );
+}
+
 @InjectableWorkflow({ singleton: false })
 export class AutopilotWorkflow {
   constructor(
@@ -64,6 +243,7 @@ export class AutopilotWorkflow {
     const context =
       this.runtime.getInput("context") ||
       "Autopilot scheduled evaluation of open issues and pull requests.";
+    const geodynamoUrl = await resolveGeodynamoUrl(this.runtime);
     const dryRun = this.runtime.getBooleanInput("dry-run");
     const enableDispatch =
       this.runtime.getInput("enable-dispatch") === ""
@@ -98,6 +278,8 @@ export class AutopilotWorkflow {
       carettaVersion,
       agent,
       context,
+      repository: `${this.githubContext.repo.owner}/${this.githubContext.repo.repo}`,
+      geodynamoUrl,
       dryRun,
       enableDispatch,
       ciWorkflow,

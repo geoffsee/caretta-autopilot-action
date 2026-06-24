@@ -70,18 +70,24 @@ A complete example consumer repo lives at [`examples/autopilot-example-project/`
 
 ## Inputs
 
-| Input             | Default                                              | Description                                                                                                          |
-| ----------------- | ---------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| `context`         | `Autopilot scheduled evaluation of open issues...`   | Natural-language steering context for the run.                                                                       |
-| `dry-run`         | `false`                                              | Evaluate and report without executing caretta or dispatching CI.                                                     |
-| `enable-dispatch` | `true`                                               | When `false`, evaluate and classify only; execute nothing.                                                           |
-| `github-token`    | `${{ github.token }}`                                | Token for the GitHub API.                                                                                            |
-| `caretta-version` | `latest`                                             | Caretta version to install.                                                                                          |
-| `agent`           | `claude`                                             | Agent backend used by caretta.                                                                                       |
-| `ci-workflow`     | `ci.yml`                                             | Workflow file dispatched per agent PR for the Test check.                                                            |
-| `test-check-name` | `Test`                                               | Gate check name. Matches exactly, or GitHub Actions' `Workflow / job` form (e.g. `CI / Test` when the job id is `Test`). |
-| `git-user-name`   | `caretta-autopilot[bot]`                             | Git author/committer name used when caretta creates commits.                                                         |
-| `git-user-email`  | `caretta-autopilot[bot]@users.noreply.github.com`    | Git author/committer email used when caretta creates commits.                                                        |
+| Input             | Default                                           | Description                                                                                                             |
+| ----------------- | ------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `context`         | `Autopilot scheduled evaluation of open issues...` | Natural-language steering context for the run.                                                                          |
+| `geodynamo-url`   | `caretta.toml` / `https://geoffsee.github.io/geodynamo/` | Optional geodynamo GitHub Pages project URL. Reads `contexts/<repo-name>/context.json` during factory cycles only. |
+| `dry-run`         | `false`                                           | Evaluate and report without executing caretta or dispatching CI.                                                        |
+| `enable-dispatch` | `true`                                            | When `false`, evaluate and classify only; execute nothing.                                                              |
+| `github-token`    | `${{ github.token }}`                             | Token for the GitHub API.                                                                                               |
+| `caretta-version` | `latest`                                          | Caretta version to install.                                                                                             |
+| `agent`           | `claude`                                          | Agent backend used by caretta.                                                                                          |
+| `ci-workflow`     | `ci.yml`                                          | Workflow file dispatched per agent PR for the Test check.                                                               |
+| `test-check-name` | `Test`                                            | Gate check name. Matches exactly, or GitHub Actions' `Workflow / job` form (e.g. `CI / Test` when the job id is `Test`). |
+| `git-user-name`   | `caretta-autopilot[bot]`                          | Git author/committer name used when caretta creates commits.                                                            |
+| `git-user-email`  | `caretta-autopilot[bot]@users.noreply.github.com` | Git author/committer email used when caretta creates commits.                                                           |
+
+`geodynamo-url` takes precedence over `caretta.toml`. When the input is absent,
+the action reads top-level `geodynamo_url` from the checked-out repository's
+`caretta.toml`; when both are absent it uses
+`https://geoffsee.github.io/geodynamo/`.
 
 ### Codex agent (`agent: codex`)
 

@@ -92,6 +92,7 @@ jobs:
       - uses: geoffsee/caretta-autopilot-action@main
         with:
           context: "Autopilot scheduled evaluation"
+          geodynamo-url: ${{ vars.GEODYNAMO_URL }}
           dry-run: "false"
           github-token: ${{ github.token }}
         env:
@@ -102,6 +103,21 @@ jobs:
 ```
 
 The action self-gates on the triggering event, so subscribing broadly is safe — irrelevant events exit cleanly.
+
+`geodynamo-url` is optional and overrides project configuration. For the usual
+project-level setup, declare the managing geodynamo Pages root once in
+`caretta.toml`:
+
+```toml
+geodynamo_url = "https://geoffsee.github.io/geodynamo/"
+```
+
+When the action input is absent, autopilot reads top-level `geodynamo_url` from
+the checked-out repository's `caretta.toml`; when both are absent it uses
+`https://geoffsee.github.io/geodynamo/`. Factory cycles derive
+`contexts/<current-repo-name>/context.json` from the resolved root and apply the
+context only on the `factory` route. Work-dispatch cycles keep using only the
+normal `context` input.
 
 Also enable **Settings → Actions → General → Read and write permissions** and **Allow GitHub Actions to create and approve pull requests** so the `github.token` used for gating CI dispatches and check updates has the rights it needs.
 
@@ -132,6 +148,7 @@ If your check name differs, set `test-check-name` on the action. Both `Test` and
 | Input             | When to change                                                  |
 | ----------------- | --------------------------------------------------------------- |
 | `context`         | Tailor the natural-language steering for your project.          |
+| `geodynamo-url`   | Temporarily override `caretta.toml`'s `geodynamo_url`.          |
 | `dry-run`         | Set `true` during initial rollout to observe without executing. |
 | `enable-dispatch` | Set `false` to classify only — useful for diagnostics.          |
 | `ci-workflow`     | Point at your CI workflow file if it is not `ci.yml`.           |

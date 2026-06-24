@@ -45328,7 +45328,7 @@ var init_github_client = __esm(() => {
 });
 
 // packages/action-common/src/types.ts
-var DEFAULT_AGENT_BRANCH;
+var DEFAULT_AGENT_BRANCH, DEFAULT_GEODYNAMO_URL = "https://geoffsee.github.io/geodynamo/";
 var init_types = __esm(() => {
   DEFAULT_AGENT_BRANCH = /^agent\/issue-[0-9]+(?:-.*)?$/;
 });
@@ -46025,6 +46025,77 @@ var init_conflict_resolver = __esm(() => {
 });
 
 // src/application/execute-autopilot.ts
+async function loadGeodynamoFactoryContext(config) {
+  const rawUrl = config.geodynamoUrl?.trim();
+  if (!rawUrl)
+    return null;
+  const repository = (config.repository || process.env.GITHUB_REPOSITORY || "").trim();
+  if (!repository) {
+    core8.warning("geodynamo-url was provided, but no repository slug was available for context matching.");
+    return null;
+  }
+  let url;
+  try {
+    url = resolveGeodynamoProjectContextUrl(rawUrl, repository);
+  } catch (error) {
+    core8.warning(`Ignoring invalid geodynamo-url: ${errorMessage(error)}`);
+    return null;
+  }
+  try {
+    const response = await fetch(url, {
+      headers: {
+        Accept: "application/json",
+        "User-Agent": "caretta-autopilot-action"
+      }
+    });
+    if (!response.ok) {
+      core8.warning(`Geodynamo factory context fetch failed with HTTP ${response.status} from ${url}.`);
+      return null;
+    }
+    const payload = await response.json();
+    const context3 = extractGeodynamoProjectContext(payload, repository);
+    if (!context3) {
+      core8.warning(`Geodynamo project context did not contain usable context for ${repository}.`);
+      return null;
+    }
+    return context3;
+  } catch (error) {
+    core8.warning(`Geodynamo factory context fetch failed: ${errorMessage(error)}`);
+    return null;
+  }
+}
+function resolveGeodynamoProjectContextUrl(rawUrl, repository) {
+  const url = new URL(rawUrl);
+  const basePath = url.pathname.replace(/\/+$/, "");
+  const projectName = projectNameFromRepository(repository);
+  url.pathname = `${basePath}/contexts/${encodeURIComponent(projectName)}/context.json`;
+  return url.toString();
+}
+function extractGeodynamoProjectContext(payload, repository) {
+  if (!isRecord(payload))
+    return null;
+  const repo = typeof payload.repo === "string" ? payload.repo : "";
+  if (repo && repo.toLowerCase() !== repository.toLowerCase()) {
+    return null;
+  }
+  return readProjectContext(payload);
+}
+function projectNameFromRepository(repository) {
+  const name = repository.split("/")[1] ?? repository;
+  return name.trim() || "project";
+}
+function readProjectContext(project) {
+  if (!isRecord(project))
+    return null;
+  const context3 = project.context ?? project.factoryContext;
+  return typeof context3 === "string" && context3.trim().length > 0 ? context3.trim() : null;
+}
+function isRecord(value) {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+function errorMessage(error) {
+  return error instanceof Error ? error.message : String(error);
+}
 async function setupCarettaRuntime(config, deps = defaultExecuteDeps) {
   const installToken = config.githubToken?.trim() || process.env.GITHUB_TOKEN || "";
   const { binaryPath } = await deps.installCaretta(config.carettaVersion, installToken);
@@ -46287,6 +46358,7 @@ class CarettaRunner {
   }
   async runFactoryCycle() {
     core8.info("Starting factory cycle");
+    await this.applyGeodynamoFactoryContext();
     await this.runCaretta("housekeeping");
     const openIssues = await this.gh.listOpenIssues();
     const hasOpenSprint = openIssues.some((i) => i.labels.some((l) => l.name === "sprint"));
@@ -46298,6 +46370,16 @@ class CarettaRunner {
     await this.runCaretta("run", ["report-research"]);
     await this.runCaretta("run", ["strategic-review"]);
     await this.runCaretta("run", ["sprint-planning"]);
+  }
+  async applyGeodynamoFactoryContext() {
+    const geodynamoContext = await loadGeodynamoFactoryContext(this.config);
+    if (!geodynamoContext)
+      return;
+    const baseContext = this.env.CARETTA_CONTEXT?.trim() || this.config.context.trim();
+    this.env.CARETTA_CONTEXT = baseContext ? `${baseContext}
+
+${geodynamoContext}` : geodynamoContext;
+    core8.info("Applied geodynamo factory context.");
   }
   async tryRebaseStackedPrToDefault(pr, defaultBranch, mergedCandidates) {
     if (this.config.dryRun)
@@ -46594,6 +46676,161 @@ var init_root = __esm(() => {
 });
 
 // src/presentation/github-action/controller.ts
+import { readFile } from "node:fs/promises";
+import { join as join5 } from "node:path";
+async function resolveGeodynamoUrl(runtime, workspace = process.env.GITHUB_WORKSPACE || "") {
+  const explicitInput = runtime.getInput("geodynamo-url").trim();
+  if (explicitInput)
+    return explicitInput;
+  const configUrl = workspace ? await readCarettaTomlGeodynamoUrl(runtime, workspace) : null;
+  return configUrl ?? DEFAULT_GEODYNAMO_URL;
+}
+async function readCarettaTomlGeodynamoUrl(runtime, workspace) {
+  const configPath = join5(workspace, "caretta.toml");
+  let contents;
+  try {
+    contents = await readFile(configPath, "utf8");
+  } catch (error) {
+    if (isNotFoundError(error))
+      return null;
+    runtime.warning(`Ignoring unreadable caretta.toml: ${errorMessage2(error)}`);
+    return null;
+  }
+  let parsed;
+  try {
+    parsed = readTopLevelTomlString(contents, "geodynamo_url");
+  } catch (error) {
+    runtime.warning(`Ignoring invalid caretta.toml geodynamo_url: ${errorMessage2(error)}`);
+    return null;
+  }
+  if (!parsed)
+    return null;
+  try {
+    return normalizeHttpUrl(parsed);
+  } catch (error) {
+    runtime.warning(`Ignoring invalid caretta.toml geodynamo_url: ${errorMessage2(error)}`);
+    return null;
+  }
+}
+function readTopLevelTomlString(contents, key) {
+  for (const rawLine of contents.split(/\r?\n/)) {
+    const line = stripTomlComment(rawLine).trim();
+    if (!line)
+      continue;
+    if (/^\[/.test(line))
+      return null;
+    const match = line.match(/^([A-Za-z0-9_-]+)\s*=\s*(.+)$/);
+    if (!match || match[1] !== key)
+      continue;
+    return parseTomlStringValue(match[2].trim(), key);
+  }
+  return null;
+}
+function stripTomlComment(line) {
+  let quote = null;
+  let escaped = false;
+  for (let i = 0;i < line.length; i += 1) {
+    const ch = line[i];
+    if (quote === '"') {
+      if (escaped) {
+        escaped = false;
+      } else if (ch === "\\") {
+        escaped = true;
+      } else if (ch === '"') {
+        quote = null;
+      }
+      continue;
+    }
+    if (quote === "'") {
+      if (ch === "'")
+        quote = null;
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      quote = ch;
+      continue;
+    }
+    if (ch === "#")
+      return line.slice(0, i);
+  }
+  return line;
+}
+function parseTomlStringValue(value, key) {
+  if (value.startsWith('"')) {
+    return parseBasicTomlString(value, key);
+  }
+  if (value.startsWith("'")) {
+    return parseLiteralTomlString(value, key);
+  }
+  throw new Error(`${key} must be a string`);
+}
+function parseBasicTomlString(value, key) {
+  let result = "";
+  let escaped = false;
+  for (let i = 1;i < value.length; i += 1) {
+    const ch = value[i];
+    if (escaped) {
+      result += decodeTomlEscape(ch, key);
+      escaped = false;
+      continue;
+    }
+    if (ch === "\\") {
+      escaped = true;
+      continue;
+    }
+    if (ch === '"') {
+      if (value.slice(i + 1).trim()) {
+        throw new Error(`${key} has trailing characters`);
+      }
+      return result;
+    }
+    result += ch;
+  }
+  throw new Error(`${key} has an unterminated string`);
+}
+function parseLiteralTomlString(value, key) {
+  const close = value.indexOf("'", 1);
+  if (close < 0)
+    throw new Error(`${key} has an unterminated string`);
+  if (value.slice(close + 1).trim()) {
+    throw new Error(`${key} has trailing characters`);
+  }
+  return value.slice(1, close);
+}
+function decodeTomlEscape(ch, key) {
+  switch (ch) {
+    case "b":
+      return "\b";
+    case "t":
+      return "\t";
+    case "n":
+      return `
+`;
+    case "f":
+      return "\f";
+    case "r":
+      return "\r";
+    case '"':
+      return '"';
+    case "\\":
+      return "\\";
+    default:
+      throw new Error(`${key} contains an unsupported escape`);
+  }
+}
+function normalizeHttpUrl(raw) {
+  const url = new URL(raw.trim());
+  if (!["http:", "https:"].includes(url.protocol) || !url.hostname) {
+    throw new Error("must be an absolute http(s) URL");
+  }
+  return url.toString();
+}
+function errorMessage2(error) {
+  return error instanceof Error ? error.message : String(error);
+}
+function isNotFoundError(error) {
+  return typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT";
+}
 async function main(deps = defaultAutopilotDependencies) {
   const { runAutopilotAction: runAutopilotAction2 } = await Promise.resolve().then(() => (init_root(), exports_root));
   await runAutopilotAction2({ dependencies: deps });
@@ -46633,6 +46870,7 @@ var init_controller = __esm(() => {
       const carettaVersion = this.runtime.getInput("caretta-version") || "latest";
       const agent = this.runtime.getInput("agent") || "claude";
       const context3 = this.runtime.getInput("context") || "Autopilot scheduled evaluation of open issues and pull requests.";
+      const geodynamoUrl = await resolveGeodynamoUrl(this.runtime);
       const dryRun = this.runtime.getBooleanInput("dry-run");
       const enableDispatch = this.runtime.getInput("enable-dispatch") === "" ? true : this.runtime.getBooleanInput("enable-dispatch");
       const ciWorkflow = this.runtime.getInput("ci-workflow") || "ci.yml";
@@ -46658,6 +46896,8 @@ _${trigger.reason}_
         carettaVersion,
         agent,
         context: context3,
+        repository: `${this.githubContext.repo.owner}/${this.githubContext.repo.repo}`,
+        geodynamoUrl,
         dryRun,
         enableDispatch,
         ciWorkflow,
@@ -46715,4 +46955,4 @@ main().catch((error) => {
   core9.setFailed(message);
 });
 
-//# debugId=8A2F22E440E5825064756E2164756E21
+//# debugId=4BECF331E3113E8B64756E2164756E21

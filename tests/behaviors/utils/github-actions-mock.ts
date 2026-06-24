@@ -86,6 +86,7 @@ export function baseInputs(): Record<string, string> {
     "caretta-version": "",
     agent: "",
     context: "",
+    "geodynamo-url": "",
     "dry-run": "false",
     "enable-dispatch": "",
     "ci-workflow": "",

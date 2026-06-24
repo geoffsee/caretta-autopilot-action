@@ -113,6 +113,10 @@ export interface AutopilotConfig {
   carettaVersion: string;
   agent: string;
   context: string;
+  /** Optional owner/repo slug for matching external context payloads. */
+  repository?: string;
+  /** Optional geodynamo Pages project URL. Factory cycles only. */
+  geodynamoUrl?: string;
   dryRun: boolean;
   enableDispatch: boolean;
   ciWorkflow: string;
@@ -128,3 +132,4 @@ export interface AutopilotConfig {
 
 export const DEFAULT_AGENT_BRANCH = /^agent\/issue-[0-9]+(?:-.*)?$/;
 export const DEFAULT_TEST_CHECK_NAME = "Test";
+export const DEFAULT_GEODYNAMO_URL = "https://geoffsee.github.io/geodynamo/";

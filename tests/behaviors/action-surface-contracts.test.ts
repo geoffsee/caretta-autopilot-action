@@ -2,6 +2,7 @@
  * Behavior contract suite: GitHub Action entrypoint (`main`) — inputs/outputs.
  */
 import { beforeEach, describe, expect, test } from "bun:test";
+import { DEFAULT_GEODYNAMO_URL } from "@caretta/action-common/types";
 import {
   coreCapture,
   installGithubActionsMocks,
@@ -91,6 +92,7 @@ describe("action I/O behavior contracts", () => {
     expect(cfg.context).toBe(
       "Autopilot scheduled evaluation of open issues and pull requests.",
     );
+    expect(cfg.geodynamoUrl).toBe(DEFAULT_GEODYNAMO_URL);
     expect(cfg.ciWorkflow).toBe("ci.yml");
     expect(cfg.gitUserName).toBe("caretta-autopilot[bot]");
     expect(cfg.gitUserEmail).toBe(

@@ -38,6 +38,107 @@ export const defaultExecuteDeps: ExecuteDeps = {
   configureGitIdentity,
 };
 
+async function loadGeodynamoFactoryContext(
+  config: AutopilotConfig,
+): Promise<string | null> {
+  const rawUrl = config.geodynamoUrl?.trim();
+  if (!rawUrl) return null;
+
+  const repository = (
+    config.repository ||
+    process.env.GITHUB_REPOSITORY ||
+    ""
+  ).trim();
+  if (!repository) {
+    core.warning(
+      "geodynamo-url was provided, but no repository slug was available for context matching.",
+    );
+    return null;
+  }
+
+  let url: string;
+  try {
+    url = resolveGeodynamoProjectContextUrl(rawUrl, repository);
+  } catch (error) {
+    core.warning(`Ignoring invalid geodynamo-url: ${errorMessage(error)}`);
+    return null;
+  }
+
+  try {
+    const response = await fetch(url, {
+      headers: {
+        Accept: "application/json",
+        "User-Agent": "caretta-autopilot-action",
+      },
+    });
+    if (!response.ok) {
+      core.warning(
+        `Geodynamo factory context fetch failed with HTTP ${response.status} from ${url}.`,
+      );
+      return null;
+    }
+
+    const payload = (await response.json()) as unknown;
+    const context = extractGeodynamoProjectContext(payload, repository);
+    if (!context) {
+      core.warning(
+        `Geodynamo project context did not contain usable context for ${repository}.`,
+      );
+      return null;
+    }
+    return context;
+  } catch (error) {
+    core.warning(
+      `Geodynamo factory context fetch failed: ${errorMessage(error)}`,
+    );
+    return null;
+  }
+}
+
+function resolveGeodynamoProjectContextUrl(
+  rawUrl: string,
+  repository: string,
+): string {
+  const url = new URL(rawUrl);
+  const basePath = url.pathname.replace(/\/+$/, "");
+  const projectName = projectNameFromRepository(repository);
+  url.pathname = `${basePath}/contexts/${encodeURIComponent(projectName)}/context.json`;
+  return url.toString();
+}
+
+function extractGeodynamoProjectContext(
+  payload: unknown,
+  repository: string,
+): string | null {
+  if (!isRecord(payload)) return null;
+  const repo = typeof payload.repo === "string" ? payload.repo : "";
+  if (repo && repo.toLowerCase() !== repository.toLowerCase()) {
+    return null;
+  }
+  return readProjectContext(payload);
+}
+
+function projectNameFromRepository(repository: string): string {
+  const name = repository.split("/")[1] ?? repository;
+  return name.trim() || "project";
+}
+
+function readProjectContext(project: unknown): string | null {
+  if (!isRecord(project)) return null;
+  const context = project.context ?? project.factoryContext;
+  return typeof context === "string" && context.trim().length > 0
+    ? context.trim()
+    : null;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 export async function setupCarettaRuntime(
   config: AutopilotConfig,
   deps: ExecuteDeps = defaultExecuteDeps,
@@ -551,6 +652,7 @@ class CarettaRunner {
 
   async runFactoryCycle(): Promise<void> {
     core.info("Starting factory cycle");
+    await this.applyGeodynamoFactoryContext();
 
     // 1. housekeeping
     await this.runCaretta("housekeeping");
@@ -576,6 +678,18 @@ class CarettaRunner {
 
     // 6. sprint-planning
     await this.runCaretta("run", ["sprint-planning"]);
+  }
+
+  private async applyGeodynamoFactoryContext(): Promise<void> {
+    const geodynamoContext = await loadGeodynamoFactoryContext(this.config);
+    if (!geodynamoContext) return;
+
+    const baseContext =
+      this.env.CARETTA_CONTEXT?.trim() || this.config.context.trim();
+    this.env.CARETTA_CONTEXT = baseContext
+      ? `${baseContext}\n\n${geodynamoContext}`
+      : geodynamoContext;
+    core.info("Applied geodynamo factory context.");
   }
 
   /**

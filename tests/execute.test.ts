@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import type {
   EvaluationResult,
   PullRequestReview,
@@ -58,9 +58,14 @@ const unknownEval = {
 
 describe("executeAutopilot", () => {
   let exec: FakeExec;
+  const originalFetch = globalThis.fetch;
 
   beforeEach(() => {
     exec = new FakeExec();
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
   });
 
   test("no-op when route matches neither work nor factory", async () => {
@@ -158,6 +163,67 @@ describe("executeAutopilot", () => {
     expect(exec.calls.some((c) => c.args.includes("sprint-planning"))).toBe(
       false,
     );
+  });
+
+  test("factory route fetches context from resolved geodynamo URL", async () => {
+    const fetchCalls: string[] = [];
+    globalThis.fetch = mock(async (input: string | URL | Request) => {
+      fetchCalls.push(input.toString());
+      return new Response(
+        JSON.stringify({
+          repo: "acme/widgets",
+          context: "factory context from geodynamo",
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }) as unknown as typeof fetch;
+
+    const gh = new FakeGitHub({
+      issues: [makeIssue({ number: 9, labels: [{ name: "sprint" }] })],
+    });
+    await executeAutopilot(
+      gh,
+      exec,
+      makeConfig({
+        repository: "acme/widgets",
+        geodynamoUrl: "https://example.test/geodynamo/",
+      }),
+      factoryEval,
+      fakeInstallDeps,
+    );
+
+    expect(fetchCalls).toEqual([
+      "https://example.test/geodynamo/contexts/widgets/context.json",
+    ]);
+    const housekeeping = exec.calls.find((c) =>
+      c.args.includes("housekeeping"),
+    );
+    expect(housekeeping?.options?.env?.CARETTA_CONTEXT).toBe(
+      "test context\n\nfactory context from geodynamo",
+    );
+  });
+
+  test("work route does not fetch geodynamo context", async () => {
+    const fetchMock = mock(async () => {
+      throw new Error("work route must not fetch geodynamo context");
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const gh = new FakeGitHub();
+    exec.stdout = "[]";
+
+    await executeAutopilot(
+      gh,
+      exec,
+      makeConfig({
+        repository: "acme/widgets",
+        geodynamoUrl: "https://example.test/geodynamo/",
+      }),
+      workEval,
+      fakeInstallDeps,
+    );
+
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   test("work dispatch runs fix-conflicts on DIRTY agent-branch PRs", async () => {

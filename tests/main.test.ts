@@ -1,4 +1,8 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import type { ActionRuntime } from "@caretta/action-common/action-runtime";
 import {
   DefaultExecClient,
   type ExecClient,
@@ -13,6 +17,7 @@ import type {
   EvaluationResult,
   PrCiResult,
 } from "@caretta/action-common/types";
+import { DEFAULT_GEODYNAMO_URL } from "@caretta/action-common/types";
 import type { AutopilotRunResult } from "../src/application/run-autopilot.js";
 
 interface CoreState {
@@ -86,9 +91,8 @@ mock.module("@actions/github", () => ({
   context: mockContext,
 }));
 
-const { main, defaultAutopilotDependencies } = await import(
-  "../src/presentation/github-action/controller.js"
-);
+const { main, defaultAutopilotDependencies, resolveGeodynamoUrl } =
+  await import("../src/presentation/github-action/controller.js");
 
 function makeEvaluation(
   overrides: Partial<EvaluationResult> = {},
@@ -236,6 +240,7 @@ function baseInputs(): Record<string, string> {
     "caretta-version": "",
     agent: "",
     context: "",
+    "geodynamo-url": "",
     "dry-run": "false",
     "enable-dispatch": "",
     "ci-workflow": "",
@@ -250,6 +255,7 @@ function resetState(): void {
   coreState.failed = undefined;
   coreState.summaryRaw = [];
   coreState.summaryWritten = false;
+  delete process.env.GITHUB_WORKSPACE;
   mockContext.repo = { owner: "o", repo: "r" };
   mockContext.ref = "refs/heads/main";
   mockContext.eventName = "workflow_dispatch";
@@ -387,6 +393,70 @@ describe("main: input parsing", () => {
     const h = makeHarness();
     await main(h.deps);
     expect(h.runCalls[0].config[field]).toBe(expected as never);
+  });
+
+  function geodynamoResolverRuntime(input: string): ActionRuntime {
+    const summary: ActionRuntime["summary"] = {
+      addRaw: () => summary,
+      write: async () => {},
+    };
+    return {
+      getInput: (name: string) => (name === "geodynamo-url" ? input : ""),
+      getBooleanInput: () => false,
+      setOutput: () => {},
+      setFailed: () => {},
+      info: () => {},
+      warning: () => {},
+      setSecret: () => {},
+      addPath: () => {},
+      summary,
+    };
+  }
+
+  test("explicit geodynamo-url input wins over caretta.toml", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "caretta-autopilot-"));
+    await writeFile(
+      join(workspace, "caretta.toml"),
+      'geodynamo_url = "https://config.example/geodynamo/"\n',
+    );
+
+    try {
+      expect(
+        await resolveGeodynamoUrl(
+          geodynamoResolverRuntime("https://input.example/geodynamo/"),
+          workspace,
+        ),
+      ).toBe("https://input.example/geodynamo/");
+    } finally {
+      await rm(workspace, { force: true, recursive: true });
+    }
+  });
+
+  test("geodynamo-url falls back to caretta.toml", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "caretta-autopilot-"));
+    await writeFile(
+      join(workspace, "caretta.toml"),
+      'geodynamo_url = "https://config.example/geodynamo/"\n',
+    );
+
+    try {
+      expect(
+        await resolveGeodynamoUrl(geodynamoResolverRuntime(""), workspace),
+      ).toBe("https://config.example/geodynamo/");
+    } finally {
+      await rm(workspace, { force: true, recursive: true });
+    }
+  });
+
+  test("geodynamo-url falls back to default when input and config are absent", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "caretta-autopilot-"));
+    try {
+      expect(
+        await resolveGeodynamoUrl(geodynamoResolverRuntime(""), workspace),
+      ).toBe(DEFAULT_GEODYNAMO_URL);
+    } finally {
+      await rm(workspace, { force: true, recursive: true });
+    }
   });
 
   test.each([
