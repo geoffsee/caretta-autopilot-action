@@ -46654,6 +46654,98 @@ var init_run_autopilot = __esm(() => {
   ], AutopilotUseCase);
 });
 
+// src/application/telemetry.ts
+function isTelemetryDisabled() {
+  if (process.env.DO_NOT_TRACK === "1") {
+    return true;
+  }
+  if (process.env.CARETTA_NO_TELEMETRY === "1") {
+    return true;
+  }
+  if (process.env.CARETTA_AUTILOOT_NO_TELEMETRY === "1") {
+    return true;
+  }
+  return false;
+}
+function initializeTelemetry() {
+  if (telemetryClient) {
+    return telemetryClient;
+  }
+  if (isTelemetryDisabled()) {
+    return null;
+  }
+  try {
+    const module = (()=>{throw new Error("Cannot require module "+"@anon-telemetry/client");})();
+    const TelemetryClient = module.TelemetryClient;
+    telemetryClient = new TelemetryClient({
+      appId: TELEMETRY_APP_ID,
+      endpoint: TELEMETRY_SINK_URL,
+      appVersion: process.env.CARETTA_VERSION || "0.0.0",
+      platform: process.platform,
+      telemetryEnabled: true
+    });
+    return telemetryClient;
+  } catch {
+    return null;
+  }
+}
+function getTelemetryClient() {
+  return telemetryClient;
+}
+function trackEvent(eventName, properties = {}) {
+  const client = getTelemetryClient();
+  if (client) {
+    client.track(eventName, properties);
+  }
+}
+function recordAutopilotStart(repository) {
+  trackEvent(EventNames.AUTILOOT_START, { repository });
+}
+function recordAutopilotComplete(repository, durationMs, issuesEvaluated, prsEvaluated, dispatchesSent) {
+  trackEvent(EventNames.AUTILOOT_COMPLETE, {
+    repository,
+    duration_ms: durationMs,
+    issues_evaluated: issuesEvaluated,
+    prs_evaluated: prsEvaluated,
+    dispatches_sent: dispatchesSent
+  });
+}
+function recordAutopilotSkipped(repository, reason) {
+  trackEvent(EventNames.AUTILOOT_SKIPPED, {
+    repository,
+    reason
+  });
+}
+function recordEvaluationComplete(repository, openIssueCount, openPrCount, stalePrCount) {
+  trackEvent(EventNames.EVALUATION_COMPLETE, {
+    repository,
+    open_issue_count: openIssueCount,
+    open_pr_count: openPrCount,
+    stale_pr_count: stalePrCount
+  });
+}
+var TELEMETRY_SINK_URL = "https://anon-telemetry-sink.seemueller.workers.dev/v1/events", TELEMETRY_APP_ID = "caretta-autopilot", telemetryClient = null, EventNames;
+var init_telemetry = __esm(() => {
+  //! Anonymous telemetry collection for usage analytics and IP protection.
+  //!
+  //! This module integrates with g-telemetry (https://github.com/geoffsee/g-telemetry)
+  //! to collect anonymous usage data that helps understand how the autopilot action is used
+  //! while protecting user privacy and intellectual property.
+  //!
+  //! The telemetry system is designed to be:
+  //! - **Anonymous by Design**: No PII, no IP logging, random instance IDs
+  //! - **Privacy First**: Respects `DO_NOT_TRACK=1` and `CARETTA_NO_TELEMETRY=1`
+  //! - **Minimal Impact**: Events are buffered and sent in the background
+  EventNames = {
+    AUTILOOT_START: "autopilot_start",
+    AUTILOOT_COMPLETE: "autopilot_complete",
+    AUTILOOT_SKIPPED: "autopilot_skipped",
+    DISPATCH_SENT: "dispatch_sent",
+    EVALUATION_COMPLETE: "evaluation_complete",
+    ERROR: "autopilot_error"
+  };
+});
+
 // src/composition/root.ts
 var exports_root = {};
 __export(exports_root, {
@@ -46832,6 +46924,7 @@ function isNotFoundError(error) {
   return typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT";
 }
 async function main(deps = defaultAutopilotDependencies) {
+  initializeTelemetry();
   const { runAutopilotAction: runAutopilotAction2 } = await Promise.resolve().then(() => (init_root(), exports_root));
   await runAutopilotAction2({ dependencies: deps });
 }
@@ -46845,6 +46938,7 @@ var init_controller = __esm(() => {
   init_types();
   init_decorators();
   init_run_autopilot();
+  init_telemetry();
   init_autopilot_domain();
   defaultAutopilotDependencies = {
     createGitHubClient: createOctokitClient,
@@ -46866,6 +46960,7 @@ var init_controller = __esm(() => {
       this.autopilotUseCase = autopilotUseCase;
     }
     async run() {
+      const startTime = Date.now();
       const token = this.runtime.getInput("github-token", { required: true });
       const carettaVersion = this.runtime.getInput("caretta-version") || "latest";
       const agent = this.runtime.getInput("agent") || "claude";
@@ -46877,6 +46972,7 @@ var init_controller = __esm(() => {
       const testCheckName = this.runtime.getInput("test-check-name") || "Test";
       const gitUserName = this.runtime.getInput("git-user-name") || "caretta-autopilot[bot]";
       const gitUserEmail = this.runtime.getInput("git-user-email") || "caretta-autopilot[bot]@users.noreply.github.com";
+      const repository = `${this.githubContext.repo.owner}/${this.githubContext.repo.repo}`;
       const ref = this.githubContext.ref?.replace(/^refs\/heads\//, "") || "master";
       const trigger = this.domain.decideTrigger({
         eventName: this.githubContext.eventName ?? "",
@@ -46889,9 +46985,11 @@ var init_controller = __esm(() => {
 
 _${trigger.reason}_
 `).write();
+        recordAutopilotSkipped(repository, trigger.reason);
         return;
       }
       this.runtime.info(`autopilot: running (${trigger.reason})`);
+      recordAutopilotStart(repository);
       const config = {
         carettaVersion,
         agent,
@@ -46919,6 +47017,7 @@ _${trigger.reason}_
           await persistCodexAuthJson(env);
         }
       }
+      recordEvaluationComplete(repository, result.evaluation.openIssueCount, result.evaluation.openPrCount, result.evaluation.stalePrCount);
       this.runtime.setOutput("route", result.evaluation.route);
       this.runtime.setOutput("tracker", result.evaluation.tracker);
       this.runtime.setOutput("sprint", result.evaluation.sprint?.toString() ?? "");
@@ -46933,6 +47032,8 @@ _${trigger.reason}_
       this.runtime.setOutput("failed_count", String(result.prCi.failed.length));
       this.runtime.setOutput("hold_target", String(result.decision.holdTarget));
       this.runtime.setOutput("target_dispatched", result.decision.targetDispatched);
+      const durationMs = Date.now() - startTime;
+      recordAutopilotComplete(repository, durationMs, result.evaluation.openIssueCount, result.evaluation.openPrCount, result.prCi.dispatched.length);
       await this.runtime.summary.addRaw(result.summary).write();
     }
   };
@@ -46955,4 +47056,4 @@ main().catch((error) => {
   core9.setFailed(message);
 });
 
-//# debugId=4BECF331E3113E8B64756E2164756E21
+//# debugId=6BDB59A4EFFC353164756E2164756E21

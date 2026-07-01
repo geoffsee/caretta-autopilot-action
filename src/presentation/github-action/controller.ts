@@ -26,6 +26,14 @@ import {
   AutopilotUseCase,
   type RunAutopilotUseCase,
 } from "../../application/run-autopilot.js";
+import {
+  initializeTelemetry,
+  recordAutopilotComplete,
+  recordAutopilotSkipped,
+  recordAutopilotStart,
+  recordError,
+  recordEvaluationComplete,
+} from "../../application/telemetry.js";
 import { AutopilotDomainLogic } from "../../domain/autopilot-domain.js";
 
 export interface AutopilotDependencies extends GitHubPortDependencies {
@@ -237,6 +245,7 @@ export class AutopilotWorkflow {
   ) {}
 
   async run(): Promise<void> {
+    const startTime = Date.now();
     const token = this.runtime.getInput("github-token", { required: true });
     const carettaVersion = this.runtime.getInput("caretta-version") || "latest";
     const agent = this.runtime.getInput("agent") || "claude";
@@ -257,6 +266,7 @@ export class AutopilotWorkflow {
       this.runtime.getInput("git-user-email") ||
       "caretta-autopilot[bot]@users.noreply.github.com";
 
+    const repository = `${this.githubContext.repo.owner}/${this.githubContext.repo.repo}`;
     const ref =
       this.githubContext.ref?.replace(/^refs\/heads\//, "") || "master";
     const trigger = this.domain.decideTrigger({
@@ -270,9 +280,11 @@ export class AutopilotWorkflow {
       await this.runtime.summary
         .addRaw(`### Autopilot skipped\n\n_${trigger.reason}_\n`)
         .write();
+      recordAutopilotSkipped(repository, trigger.reason);
       return;
     }
     this.runtime.info(`autopilot: running (${trigger.reason})`);
+    recordAutopilotStart(repository);
 
     const config: AutopilotConfig = {
       carettaVersion,
@@ -308,6 +320,14 @@ export class AutopilotWorkflow {
       }
     }
 
+    // Record evaluation telemetry
+    recordEvaluationComplete(
+      repository,
+      result.evaluation.openIssueCount,
+      result.evaluation.openPrCount,
+      result.evaluation.stalePrCount,
+    );
+
     this.runtime.setOutput("route", result.evaluation.route);
     this.runtime.setOutput("tracker", result.evaluation.tracker);
     this.runtime.setOutput(
@@ -341,6 +361,16 @@ export class AutopilotWorkflow {
       result.decision.targetDispatched,
     );
 
+    // Record completion telemetry
+    const durationMs = Date.now() - startTime;
+    recordAutopilotComplete(
+      repository,
+      durationMs,
+      result.evaluation.openIssueCount,
+      result.evaluation.openPrCount,
+      result.prCi.dispatched.length,
+    );
+
     await this.runtime.summary.addRaw(result.summary).write();
   }
 }
@@ -348,6 +378,10 @@ export class AutopilotWorkflow {
 export async function main(
   deps: AutopilotDependencies = defaultAutopilotDependencies,
 ): Promise<void> {
+  // Initialize telemetry for anonymous usage data collection
+  // URL and app ID are hardcoded for IP protection
+  initializeTelemetry();
+
   const { runAutopilotAction } = await import("../../composition/root.js");
   await runAutopilotAction({ dependencies: deps });
 }
